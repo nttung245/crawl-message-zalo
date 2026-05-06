@@ -1,0 +1,45 @@
+# =========================
+# Monorepo ignore (FE + BE)
+# =========================
+
+# ---- OS/IDE ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# ---- Front-end (linkedin-crawler-ui) ----
+linkedin-crawler-ui/node_modules/
+linkedin-crawler-ui/.next/
+linkedin-crawler-ui/out/
+linkedin-crawler-ui/build/
+linkedin-crawler-ui/coverage/
+linkedin-crawler-ui/.vercel/
+linkedin-crawler-ui/*.tsbuildinfo
+linkedin-crawler-ui/next-env.d.ts
+linkedin-crawler-ui/npm-debug.log*
+linkedin-crawler-ui/yarn-debug.log*
+linkedin-crawler-ui/yarn-error.log*
+linkedin-crawler-ui/.pnpm-debug.log*
+
+# FE env/local secrets
+linkedin-crawler-ui/.env*
+
+# ---- Back-end (linkedin_group_crawler) ----
+linkedin_group_crawler/__pycache__/
+linkedin_group_crawler/.venv/
+linkedin_group_crawler/.pytest_cache/
+linkedin_group_crawler/.env
+
+# BE runtime/session/state
+linkedin_group_crawler/storage/session/**
+linkedin_group_crawler/storage/linkedin_state.json
+linkedin_group_crawler/storage/runtime/*.log
+linkedin_group_crawler/storage/runtime/*.json
+linkedin_group_crawler/storage/runtime/*.txt
+linkedin_group_crawler/*.session
+linkedin_group_crawler/*.session-journal
+
+# BE raw debug artifacts
+linkedin_group_crawler/data/raw/*.png
+linkedin_group_crawler/data/raw/*.html
