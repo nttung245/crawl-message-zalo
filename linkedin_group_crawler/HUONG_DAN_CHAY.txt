@@ -1,0 +1,133 @@
+🚀 HƯỚNG DẪN CHẠY CRAWLER LINKEDIN - DỄ DÀNG CHO TEAM MARKETING
+════════════════════════════════════════════════════════════════
+
+📋 BƯỚC 1: MỞ FILE
+
+1. Vào thư mục: d:\CrawlDataGroupLinkedin\linkedin_group_crawler\
+2. Tìm file: CrawlPostLikedin.bat
+3. Chuột phải → Chọn "Run as administrator" (QUAN TRỌNG!)
+
+─────────────────────────────────────────────────────────────────
+
+✅ FLOW TỰ ĐỘNG (Không cần làm gì cả!)
+
+Khi chạy file, hệ thống sẽ TỰ ĐỘNG:
+
+1️⃣  KIỂM TRA & CÀI ĐẶT DOCKER
+   ✓ Kiểm tra Docker đã cài chưa
+   ✓ Nếu chưa → TỰ ĐỘNG TẢI + CÀI Docker Desktop
+   ✓ Khởi động Docker NGẦM (không hiển thị giao diện)
+   ✓ Đợi Docker sẵn sàng (tối đa 120 giây)
+
+2️⃣  KIỂM TRA & CÀI ĐẶT CLOUDFLARE TUNNEL (Cloudflared)
+   ✓ Kiểm tra Cloudflared đã cài chưa
+   ✓ Nếu chưa → TỰ ĐỘNG TẢI từ GitHub
+   ✓ Xác nhận hoạt động tốt
+
+3️⃣  CHUẨN BỊ HỆ THỐNG
+   ✓ Tạo các thư mục cần thiết
+   ✓ Tải Docker image Crawler
+   ✓ Kiểm tra kết nối
+
+4️⃣  NHẬP THÔNG TIN LINKEDIN
+   Email: [nhập email LinkedIn]
+   Password: [nhập password]
+   Max posts: [nhập số bài (mặc định 50)]
+
+5️⃣  CHẠY CRAWLER
+   ✓ Khởi động container Docker
+   ✓ Tạo Cloudflare Tunnel (public URL)
+   ✓ Gửi thông tin lên N8N
+   ✓ BẮT ĐẦU CAO DỮ LIỆU
+
+6️⃣  CHỜ KẾT QUẢ
+   ✓ Thời gian ước tính: 2-10 phút (tùy số bài)
+   ✓ Xem kết quả trong Telegram
+
+─────────────────────────────────────────────────────────────────
+
+⚠️ LƯU Ý QUAN TRỌNG
+
+❌ TUYỆT ĐỐI không làm:
+   - Không dừng Docker thủ công (hệ thống tự quản lý)
+   - Không xóa file trong thư mục tools/
+   - Không chạy script mà không có quyền Administrator
+
+✅ HÀNH ĐỘNG ĐÚNG:
+   - Chuột phải vào file → "Run as administrator"
+   - Nhập email + password LinkedIn chính xác
+   - Đợi quá trình hoàn tất (không tắt cửa sổ)
+
+─────────────────────────────────────────────────────────────────
+
+🆘 GIẢI QUYẾT SỰ CỐ
+
+❓ Khi chạy lần đầu rất lâu?
+→ BÌNH THƯỜNG! Lần đầu cài Docker & Cloudflared: 5-15 phút
+→ Lần sau sẽ nhanh hơn: 2-3 phút
+
+❓ Docker chạy ở nền, không nhìn thấy?
+→ BÌNH THƯỜNG! Docker chạy NGẦM là tốt rồi
+→ Không cần mở Docker Desktop
+
+❓ Gặp lỗi "Cannot find Docker"?
+→ Kiểm tra Internet connection
+→ Đảm bảo chạy với quyền Administrator
+→ Nếu vẫn lỗi, xóa file: tools/cloudflared.exe và chạy lại
+
+❓ Gặp lỗi "Docker daemon not responding"?
+→ Khởi động lại máy tính
+→ Chạy lại script
+
+─────────────────────────────────────────────────────────────────
+
+📁 CẤU TRÚC THƯỚC MỤC (Để tham khảo)
+
+linkedin_group_crawler/
+├── CrawlPostLikedin.bat      ← CHẠY FILE NÀY
+├── .env                      ← Cấu hình (Email, Password, API keys)
+├── Dockerfile
+│
+├── storage/
+│   ├── runtime/              ← Log file
+│   │   └── launcher.log      ← Xem lỗi ở đây nếu có vấn đề
+│   └── session/
+│
+├── data/
+│   ├── raw/                  ← Dữ liệu thô
+│   └── output/               ← Kết quả crawl
+│
+└── tools/
+    └── cloudflared.exe       ← Tự động tải khi cần
+
+─────────────────────────────────────────────────────────────────
+
+✏️ ĐIỀU CHỈNH CẤU HÌNH (Nếu cần)
+
+File: .env
+Thiết lập:
+  HEADLESS=false             ← false = chạy nền (khuyến nghị)
+  DEFAULT_SCROLL_TIMES=8     ← Số lần scroll (tăng = chậm hơn)
+  DEFAULT_MAX_ITEMS=50       ← Max items mặc định
+  DEFAULT_SCROLL_DELAY_MS=2000 ← Delay giữa các scroll (ms)
+
+─────────────────────────────────────────────────────────────────
+
+🎯 QUY TRÌNH NHANH GỌNLỆ
+
+1. Chuột phải CrawlPostLikedin.bat → "Run as administrator"
+2. Chờ hoàn tất (15 phút lần đầu, 2-3 phút lần sau)
+3. Xem kết quả trong Telegram
+
+XONG! 🎉
+
+─────────────────────────────────────────────────────────────────
+
+💬 CẦN HỖ TRỢ?
+
+Nếu gặp lỗi, check file log:
+storage/runtime/launcher.log
+
+Liên hệ dev team với nội dung trong file log.
+
+════════════════════════════════════════════════════════════════

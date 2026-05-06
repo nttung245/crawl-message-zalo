@@ -1,0 +1,5 @@
+/** Số dòng mỗi trang bảng kết quả crawl */
+export const DASHBOARD_PAGE_SIZE = 4;
+
+export const PROFILE_IMAGE_URL =
+  "https://lh3.googleusercontent.com/aida-public/AB6AXuBu2PsugwZMCW9-0ARQAB2xo-fN2SekhJ0RRdWTT0xS6w6OEBbizxpxpfGiEjhhPRbCC2QbS0oi0NN1VTXqpbDiAaLEq0kIzCsAAA2u3ryfcPmWNN9pSESQnzll5UHGEH6DRn9QQ3HZ6tod5j4V93jH9ix829T_2alPglhR8NwNEL7z5F_xGRikGVWErWc5Ov5YLhUk7X9l5leY8aGvCv3UyvroEHZXPP3U74buh3v2zVV8C7MwXnuKi8wU8r4aBtz4h11UNqZghSUm";

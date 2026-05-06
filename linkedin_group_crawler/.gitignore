@@ -1,0 +1,16 @@
+__pycache__/
+.venv/
+storage/linkedin_state.json
+storage/session/*.json
+storage/session/**
+storage/sessions/**
+storage/runtime/*.log
+storage/runtime/*.json
+storage/runtime/*.txt
+storage/permission/*.json
+.env
+data/raw/*.png
+data/raw/*.html
+.pytest_cache/
+*.session
+*.session-journal

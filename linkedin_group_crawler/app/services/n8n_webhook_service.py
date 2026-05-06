@@ -1,0 +1,234 @@
+"""Forward crawl credentials to n8n webhook (e.g. to trigger Email node)."""
+
+from __future__ import annotations
+
+import json
+import re
+import time
+from typing import Any
+
+import httpx
+
+from app.config import settings
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
+
+def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int) -> tuple[int, str]:
+    """POST JSON payload to configured n8n webhook URL.
+
+    Returns HTTP status code and response text snippet (truncated). Does not log credentials.
+    """
+
+    url = (settings.n8n_webhook_url or "").strip()
+    if not url:
+        raise RuntimeError(
+            "N8N_WEBHOOK_URL chưa được cấu hình trong biến môi trường (.env).",
+        )
+
+    payload: dict[str, Any] = {
+        "email": email,
+        # Tài khoản LinkedIn thường là email — để workflow n8n dễ map
+        "tai_khoan": email,
+        "password": password,
+        "mat_khau": password,
+        "max_post": max_post,
+    }
+
+    timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
+
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload)
+
+    text = (response.text or "").strip()
+    if len(text) > 512:
+        text = f"{text[:512]}…"
+
+    logger.info(
+        "n8n webhook responded status=%s (body length=%s)",
+        response.status_code,
+        len(response.text or ""),
+    )
+
+    response.raise_for_status()
+
+    return response.status_code, text
+
+
+def push_start_to_n8n_webhook(
+    *,
+    email: str,
+    password: str,
+    force_relogin: bool,
+    id_session_crawl: str,
+    max_posts: int | None = None,
+    target_date: str | None = None,
+    mode: str | None = None,
+    delay_sec: int | None = None,
+    group_urls: list[str] | None = None,
+) -> tuple[int, str]:
+    """POST ``email``, ``password``, ``force_relogin``, ``id_session_crawl`` tới webhook (``N8N_WEBHOOK_START``).
+
+    Không log mật khẩu. Trả về HTTP status và đoạn body rút gọn.
+    """
+
+    url = (settings.n8n_webhook_start_url or "").strip()
+    if not url:
+        raise RuntimeError(
+            "N8N_WEBHOOK_START chưa được cấu hình trong biến môi trường (.env).",
+        )
+
+    payload: dict[str, Any] = {
+        "email": email,
+        "password": password,
+        "force_relogin": force_relogin,
+        "id_session_crawl": id_session_crawl,
+    }
+    if max_posts is not None:
+        payload["max_posts"] = int(max_posts)
+    if target_date:
+        payload["target_date"] = target_date
+    if mode:
+        payload["mode"] = mode
+    if delay_sec is not None:
+        payload["delay_sec"] = int(delay_sec)
+    if group_urls is not None:
+        payload["group_urls"] = list(group_urls)
+
+    timeout_seconds = max(1.0, float(settings.n8n_webhook_start_timeout_sec))
+    timeout = httpx.Timeout(timeout=timeout_seconds, connect=min(30.0, timeout_seconds))
+    started_at = time.monotonic()
+    logger.info(
+        "Calling n8n start webhook with timeout_sec=%s",
+        timeout_seconds,
+    )
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload)
+
+    text = (response.text or "").strip()
+    if len(text) > 512:
+        text = f"{text[:512]}…"
+
+    logger.info(
+        "n8n start webhook responded status=%s (body length=%s, elapsed_sec=%.2f)",
+        response.status_code,
+        len(response.text or ""),
+        time.monotonic() - started_at,
+    )
+
+    response.raise_for_status()
+
+    return response.status_code, text
+
+
+_SHEET_LINK_JSON_KEYS = (
+    "sheet_link",
+    "sheetLink",
+    "sheet_url",
+    "sheetUrl",
+    "spreadsheet_url",
+    "spreadsheetUrl",
+    "url",
+    "link",
+    "webViewLink",
+    "alternateLink",
+)
+
+
+def extract_sheet_link_from_n8n_response_body(raw: str) -> str | None:
+    """Cố gắng lấy URL trang tính / Google Sheet từ body JSON hoặc chuỗi thuần."""
+
+    text = (raw or "").strip()
+    if not text:
+        return None
+
+    try:
+        parsed: Any = json.loads(text)
+    except json.JSONDecodeError:
+        parsed = None
+
+    if isinstance(parsed, dict):
+        for key in _SHEET_LINK_JSON_KEYS:
+            value = parsed.get(key)
+            if isinstance(value, str):
+                candidate = value.strip()
+                if candidate.startswith(("http://", "https://")):
+                    return candidate
+        # Một số workflow trả về { "data": { "url": "..." } }
+        nested = parsed.get("data")
+        if isinstance(nested, dict):
+            for key in _SHEET_LINK_JSON_KEYS:
+                value = nested.get(key)
+                if isinstance(value, str):
+                    candidate = value.strip()
+                    if candidate.startswith(("http://", "https://")):
+                        return candidate
+    elif isinstance(parsed, str) and parsed.startswith(("http://", "https://")):
+        return parsed.strip()
+
+    # Plain text: dòng đầu hoặc URL đầu tiên trong body
+    for line in text.splitlines():
+        line = line.strip().strip('"')
+        if line.startswith(("http://", "https://")):
+            return line.split()[0] if line.split() else line
+
+    match = re.search(r"https?://[^\s\"'<>]+", text)
+    if match:
+        return match.group(0).rstrip(").,;")
+
+    return None
+
+
+def fetch_sheet_link_via_n8n_webhook(*, body: dict[str, Any] | None = None) -> tuple[int, str]:
+    """POST JSON tới webhook lấy link sheet (URL trong N8n_WEBHOOK_GET_LINK / N8N_WEBHOOK_GET_LINK).
+
+    Trả về (http_status, response_text_đầy_đủ) — không raise; caller xử lý lỗi HTTP.
+    """
+
+    url = (settings.n8n_webhook_get_link_url or "").strip()
+    if not url:
+        raise RuntimeError(
+            "N8n_WEBHOOK_GET_LINK (hoặc N8N_WEBHOOK_GET_LINK) chưa được cấu hình trong .env.",
+        )
+
+    payload = dict(body) if body else {}
+    timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
+
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload)
+
+    full_text = response.text or ""
+
+    logger.info(
+        "n8n get-sheet-link webhook status=%s (body length=%s)",
+        response.status_code,
+        len(full_text),
+    )
+
+    return response.status_code, full_text
+
+
+def post_json_to_n8n_webhook(*, url: str, json_body: Any) -> tuple[int, str]:
+    """POST JSON tới một URL webhook n8n bất kỳ; trả về (status, body_text) — không raise HTTP."""
+
+    target = (url or "").strip()
+    if not target:
+        raise RuntimeError("Webhook URL rỗng.")
+
+    timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
+    payload: Any = json_body if json_body is not None else {}
+
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(target, json=payload)
+
+    full_text = response.text or ""
+
+    logger.info(
+        "n8n passthrough webhook status=%s (body length=%s)",
+        response.status_code,
+        len(full_text),
+    )
+
+    return response.status_code, full_text

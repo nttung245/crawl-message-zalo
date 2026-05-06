@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+playwright
+python-dotenv
+pydantic
+httpx
+pytest
+google-api-python-client
+google-auth
