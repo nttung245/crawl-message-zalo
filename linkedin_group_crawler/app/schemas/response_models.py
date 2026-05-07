@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -21,6 +21,13 @@ class LoginResponse(BaseResponse):
     session_id: Optional[str] = None
     state_path: Optional[str] = None
     email: Optional[str] = None
+    login_step: Literal["success", "need_otp", "error"] = "error"
+    need_otp: bool = False
+    checkpoint_url: Optional[str] = None
+
+
+class VerifyLoginResponse(LoginResponse):
+    """Verify OTP response payload (same envelope as login)."""
 
 
 class StatusDataResponse(BaseModel):

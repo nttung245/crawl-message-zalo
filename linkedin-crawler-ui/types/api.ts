@@ -15,7 +15,18 @@ export interface LoginResponse extends ApiResponse<null> {
   session_id: string | null;
   state_path: string | null;
   email?: string | null;
+  login_step?: "success" | "need_otp" | "error";
+  need_otp?: boolean;
+  checkpoint_url?: string | null;
 }
+
+export interface VerifyLoginRequest {
+  sessionId: string;
+  otp: string;
+  checkpointUrl?: string;
+}
+
+export type VerifyLoginResponse = LoginResponse;
 
 export interface StartWorkflowRequest {
   email: string;

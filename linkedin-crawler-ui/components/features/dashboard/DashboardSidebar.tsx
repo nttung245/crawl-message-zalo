@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 
 import { MaterialIcon } from "@/components/ui";
 import { cn } from "@/lib/utils";
+import { loginLinkedIn, verifyLinkedInOtp } from "@/services/linkedinCrawlerService";
 
 import { useDashboard } from "./dashboard-context";
 
@@ -25,12 +26,22 @@ export function DashboardSidebar() {
   const [showPassword, setShowPassword] = useState(false);
   const [accountBusy, setAccountBusy] = useState(false);
   const [accountError, setAccountError] = useState<string | null>(null);
+  const [otpCode, setOtpCode] = useState("");
+  const [pendingOtpSessionId, setPendingOtpSessionId] = useState<string | null>(
+    null,
+  );
+  const [pendingCheckpointUrl, setPendingCheckpointUrl] = useState<string | null>(
+    null,
+  );
 
   const openAccountModal = () => {
     setDraftEmail(d.email);
     setDraftPassword(d.password);
     setShowPassword(false);
     setAccountError(null);
+    setOtpCode("");
+    setPendingOtpSessionId(null);
+    setPendingCheckpointUrl(null);
     setAccountOpen(true);
   };
 
@@ -44,11 +55,63 @@ export function DashboardSidebar() {
     setAccountBusy(true);
     setAccountError(null);
     try {
+      const loginResponse = await loginLinkedIn({
+        email,
+        password,
+        forceRelogin: true,
+      });
+      if (!loginResponse.success) {
+        throw new Error(loginResponse.message || "Đăng nhập LinkedIn thất bại.");
+      }
+      if (
+        loginResponse.need_otp &&
+        loginResponse.login_step === "need_otp" &&
+        loginResponse.session_id
+      ) {
+        setPendingOtpSessionId(loginResponse.session_id);
+        setPendingCheckpointUrl(loginResponse.checkpoint_url ?? null);
+        setAccountError("LinkedIn yêu cầu mã xác minh. Nhập mã OTP rồi bấm Xác minh OTP.");
+        return;
+      }
       await d.applyAccountCredentials(email, password);
       setAccountOpen(false);
     } catch (error) {
       setAccountError(
         error instanceof Error ? error.message : "Cập nhật tài khoản thất bại.",
+      );
+    } finally {
+      setAccountBusy(false);
+    }
+  };
+
+  const submitOtpVerification = async () => {
+    if (!pendingOtpSessionId) {
+      setAccountError("Không tìm thấy phiên OTP. Vui lòng thử đăng nhập lại.");
+      return;
+    }
+    if (!otpCode.trim()) {
+      setAccountError("Vui lòng nhập mã OTP.");
+      return;
+    }
+    setAccountBusy(true);
+    setAccountError(null);
+    try {
+      const response = await verifyLinkedInOtp({
+        sessionId: pendingOtpSessionId,
+        otp: otpCode.trim(),
+        checkpointUrl: pendingCheckpointUrl ?? undefined,
+      });
+      if (!response.success) {
+        throw new Error(response.message || "Xác minh OTP thất bại.");
+      }
+      await d.applyAccountCredentials(draftEmail.trim(), draftPassword);
+      setPendingOtpSessionId(null);
+      setPendingCheckpointUrl(null);
+      setOtpCode("");
+      setAccountOpen(false);
+    } catch (error) {
+      setAccountError(
+        error instanceof Error ? error.message : "Xác minh OTP thất bại.",
       );
     } finally {
       setAccountBusy(false);
@@ -158,6 +221,22 @@ export function DashboardSidebar() {
                   </button>
                 </div>
               </div>
+              {pendingOtpSessionId ? (
+                <div className="flex flex-col gap-base">
+                  <label className="text-label-md text-on-surface-variant font-semibold tracking-wide uppercase">
+                    Mã OTP xác minh
+                  </label>
+                  <input
+                    className="border-outline-variant bg-surface focus:border-primary focus:ring-primary rounded-lg border px-md py-sm transition-all outline-none focus:ring-1"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Nhập mã từ email LinkedIn"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value)}
+                    disabled={accountBusy}
+                  />
+                </div>
+              ) : null}
             </div>
 
             {accountError ? (
@@ -179,10 +258,20 @@ export function DashboardSidebar() {
                 type="button"
                 className="bg-primary text-on-primary hover:bg-primary-container rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
                 onClick={() => void submitAccount()}
-                disabled={accountBusy}
+                disabled={accountBusy || !!pendingOtpSessionId}
               >
                 {accountBusy ? "Đang xác nhận..." : "Xác nhận"}
               </button>
+              {pendingOtpSessionId ? (
+                <button
+                  type="button"
+                  className="bg-secondary text-on-secondary hover:bg-secondary-container rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+                  onClick={() => void submitOtpVerification()}
+                  disabled={accountBusy}
+                >
+                  {accountBusy ? "Đang xác minh..." : "Xác minh OTP"}
+                </button>
+              ) : null}
             </div>
           </div>
         </div>

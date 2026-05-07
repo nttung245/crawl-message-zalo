@@ -674,6 +674,11 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
           password,
           forceRelogin: false,
         });
+        if (loginResponse.need_otp || loginResponse.login_step === "need_otp") {
+          throw new Error(
+            "Tài khoản đang yêu cầu OTP. Vui lòng xác minh tại popup Tài khoản trước rồi thử lại.",
+          );
+        }
         if (!loginResponse.success || !loginResponse.session_id) {
           throw new Error(
             loginResponse.message || "Không thể lấy lại phiên LinkedIn.",

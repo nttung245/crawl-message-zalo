@@ -5,9 +5,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import threading
 import time
 import unicodedata
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -42,6 +45,45 @@ SUBMIT_SELECTORS = [
     'button:has-text("Sign in")',
     'button:has-text("Log in")',
 ]
+
+OTP_INPUT_SELECTOR = "#input__email_verification_pin"
+OTP_SUBMIT_SELECTOR = "#email-pin-submit-button"
+PENDING_LOGIN_TTL_SEC = 900
+
+
+class PendingLoginSessionNotFoundError(RuntimeError):
+    """Raised when pending OTP session is missing/expired."""
+
+
+@dataclass
+class PendingLoginSession:
+    """In-memory session used between /login and /verify."""
+
+    pending_session_id: str
+    normalized_session_id: str
+    email: str
+    state_path: Path
+    checkpoint_url: str
+    playwright: Any
+    browser: Any
+    context: BrowserContext
+    page: Page
+    created_at: float
+
+
+@dataclass
+class LoginFlowResult:
+    """Structured result for 2-step login flow."""
+
+    status: Literal["success", "need_otp"]
+    session_id: str
+    state_path: Path | None
+    email: str
+    checkpoint_url: str | None = None
+
+
+_pending_login_sessions: dict[str, PendingLoginSession] = {}
+_pending_login_lock = threading.Lock()
 
 
 def normalize_session_id(session_id: str | None) -> str:
@@ -407,15 +449,14 @@ def _is_feed_or_group_url(current_url: str) -> bool:
 
 def _wait_for_manual_verification_until_ready(
     page: Page,
-    context: BrowserContext,
     timeout_ms: int = 300000,
 ) -> None:
-    """Wait for user to complete manual verification until landing on feed/group."""
+    """Wait for user to complete manual verification until leaving authwall pages."""
 
     logger.info("Vui lòng nhập mã/xác nhận trên trình duyệt")
     end_time = time.time() + (timeout_ms / 1000)
     while time.time() < end_time:
-        if _context_has_li_at_cookie(context) and _is_feed_or_group_url(page.url):
+        if not _is_authwall_url(page.url):
             return
         try:
             page.wait_for_timeout(1000)
@@ -424,7 +465,7 @@ def _wait_for_manual_verification_until_ready(
 
     _capture_login_artifacts(page, "login_verification_timeout")
     raise RuntimeError(
-        "Đã chờ xác minh thủ công nhưng URL chưa quay về LinkedIn feed/group. "
+        "Đã chờ xác minh thủ công nhưng URL vẫn ở login/checkpoint/authwall. "
         "Check data/raw/login_verification_timeout.html and .png."
     )
 
@@ -445,12 +486,102 @@ def _existing_state_is_reusable(state_path: Path) -> bool:
     return True
 
 
+def _is_checkpoint_challenge_url(current_url: str) -> bool:
+    parsed = urlparse((current_url or "").strip())
+    path = (parsed.path or "").lower()
+    return path.startswith("/checkpoint/challenge")
+
+
+def _close_pending_browser_objects(pending: PendingLoginSession) -> None:
+    try:
+        pending.context.close()
+    except Exception:
+        logger.debug("Failed to close pending context", exc_info=True)
+    try:
+        pending.browser.close()
+    except Exception:
+        logger.debug("Failed to close pending browser", exc_info=True)
+    try:
+        pending.playwright.stop()
+    except Exception:
+        logger.debug("Failed to stop pending playwright", exc_info=True)
+
+
+def _cleanup_expired_pending_sessions() -> None:
+    now = time.time()
+    expired_ids: list[str] = []
+    with _pending_login_lock:
+        for sid, pending in _pending_login_sessions.items():
+            if now - pending.created_at > PENDING_LOGIN_TTL_SEC:
+                expired_ids.append(sid)
+        for sid in expired_ids:
+            pending = _pending_login_sessions.pop(sid, None)
+            if pending is not None:
+                _close_pending_browser_objects(pending)
+    if expired_ids:
+        logger.info("Cleaned up %s expired pending login session(s)", len(expired_ids))
+
+
+def _register_pending_session(
+    *,
+    normalized_session_id: str,
+    email: str,
+    state_path: Path,
+    checkpoint_url: str,
+    playwright: Any,
+    browser: Any,
+    context: BrowserContext,
+    page: Page,
+) -> str:
+    _cleanup_expired_pending_sessions()
+    pending_session_id = uuid4().hex
+    pending = PendingLoginSession(
+        pending_session_id=pending_session_id,
+        normalized_session_id=normalized_session_id,
+        email=email,
+        state_path=state_path,
+        checkpoint_url=checkpoint_url,
+        playwright=playwright,
+        browser=browser,
+        context=context,
+        page=page,
+        created_at=time.time(),
+    )
+    with _pending_login_lock:
+        _pending_login_sessions[pending_session_id] = pending
+    return pending_session_id
+
+
+def _get_pending_session_or_raise(session_id: str) -> PendingLoginSession:
+    _cleanup_expired_pending_sessions()
+    with _pending_login_lock:
+        pending = _pending_login_sessions.get((session_id or "").strip())
+    if pending is None:
+        raise PendingLoginSessionNotFoundError(
+            "Session xác minh OTP không tồn tại hoặc đã hết hạn. Vui lòng login lại."
+        )
+    return pending
+
+
+def _remove_pending_session(session_id: str) -> PendingLoginSession | None:
+    with _pending_login_lock:
+        return _pending_login_sessions.pop((session_id or "").strip(), None)
+
+
+def _save_session_state(context: BrowserContext, state_path: Path) -> None:
+    if state_path.exists():
+        logger.info("Ghi đè session tại %s (file đã tồn tại)", state_path)
+    save_json_file_overwrite(state_path, context.storage_state())
+    _verify_state_file_contains_auth_cookie(state_path)
+    logger.info("Saved LinkedIn storage state to %s", state_path)
+
+
 def login_and_save_session(
     email: str,
     password: str,
     session_id: str | None = None,
     force_relogin: bool = True,
-) -> tuple[str, Path]:
+) -> LoginFlowResult:
     """Login to LinkedIn và lưu storage state vào đúng một file session (theo email / session_id).
 
     Sau khi đăng nhập trình duyệt thành công, luôn **ghi đè** file tại ``state_path`` — không tạo thêm
@@ -467,11 +598,16 @@ def login_and_save_session(
     if state_path.exists() and not force_relogin:
         if _existing_state_is_reusable(state_path):
             logger.info("Reusing existing LinkedIn state file at %s", state_path)
-            return normalized_session_id, state_path
+            return LoginFlowResult(
+                status="success",
+                session_id=normalized_session_id,
+                state_path=state_path,
+                email=email.strip().lower(),
+            )
         logger.info("Existing LinkedIn state file is invalid; continuing with fresh login")
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
+    playwright = sync_playwright().start()
+    browser = playwright.chromium.launch(
             headless=settings.headless,
             args=[
                 "--disable-gpu",
@@ -483,47 +619,119 @@ def login_and_save_session(
                 "--disable-web-resources",
             ],
         )
-        context = browser.new_context()
-        page = context.new_page()
+    context = browser.new_context()
+    page = context.new_page()
+    keep_open_for_verify = False
+
+    try:
+        logger.info("Opening LinkedIn login page")
+        page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=120000)
+        page.wait_for_timeout(3000)
+        _fill_login_form(page, email=email, password=password)
 
         try:
-            logger.info("Opening LinkedIn login page")
-            page.goto("https://www.linkedin.com/login", wait_until="domcontentloaded", timeout=120000)
-            page.wait_for_timeout(3000)
-            _fill_login_form(page, email=email, password=password)
+            page.wait_for_load_state("domcontentloaded", timeout=15000)
+        except TimeoutError:
+            logger.warning("Initial page transition after login click timed out; continuing to wait for session")
 
-            try:
-                page.wait_for_load_state("domcontentloaded", timeout=15000)
-            except TimeoutError:
-                logger.warning("Initial page transition after login click timed out; continuing to wait for session")
-
-            try:
-                _wait_for_login_session(page, context, timeout_ms=45000)
-            except RuntimeError:
-                _wait_for_manual_verification_until_ready(page, context, timeout_ms=300000)
-
-            if not _is_feed_or_group_url(page.url):
-                _wait_for_manual_verification_until_ready(page, context, timeout_ms=300000)
-
-            if _is_authwall_url(page.url):
-                _capture_login_artifacts(page, "login_blocked")
-                raise RuntimeError(
-                    "LinkedIn login is still on login/checkpoint/authwall. This can happen during 2-step verification "
-                    "or account security checks. Complete verification manually and retry."
+        try:
+            _wait_for_login_session(page, context, timeout_ms=45000)
+        except RuntimeError:
+            if _is_checkpoint_challenge_url(page.url):
+                pending_session_id = _register_pending_session(
+                    normalized_session_id=normalized_session_id,
+                    email=email.strip().lower(),
+                    state_path=state_path,
+                    checkpoint_url=page.url,
+                    playwright=playwright,
+                    browser=browser,
+                    context=context,
+                    page=page,
                 )
+                keep_open_for_verify = True
+                logger.info("LinkedIn login requires OTP verification for session %s", pending_session_id)
+                return LoginFlowResult(
+                    status="need_otp",
+                    session_id=pending_session_id,
+                    state_path=None,
+                    email=email.strip().lower(),
+                    checkpoint_url=page.url,
+                )
+            _wait_for_manual_verification_until_ready(page, timeout_ms=300000)
 
-            if state_path.exists():
-                logger.info("Ghi đè session tại %s (file đã tồn tại)", state_path)
-            save_json_file_overwrite(state_path, context.storage_state())
-            _verify_state_file_contains_auth_cookie(state_path)
-            logger.info("Saved LinkedIn storage state to %s", state_path)
-            return normalized_session_id, state_path
-        except Error as exc:
-            logger.exception("LinkedIn login failed")
-            raise RuntimeError(f"LinkedIn login failed: {exc}") from exc
-        except Exception:
-            logger.exception("LinkedIn login failed")
-            raise
-        finally:
+        if not _is_feed_or_group_url(page.url):
+            _wait_for_manual_verification_until_ready(page, timeout_ms=300000)
+
+        if _is_authwall_url(page.url):
+            _capture_login_artifacts(page, "login_blocked")
+            raise RuntimeError(
+                "LinkedIn login is still on login/checkpoint/authwall. This can happen during 2-step verification "
+                "or account security checks. Complete verification manually and retry."
+            )
+
+        _save_session_state(context, state_path)
+        return LoginFlowResult(
+            status="success",
+            session_id=normalized_session_id,
+            state_path=state_path,
+            email=email.strip().lower(),
+        )
+    except Error as exc:
+        logger.exception("LinkedIn login failed")
+        raise RuntimeError(f"LinkedIn login failed: {exc}") from exc
+    except Exception:
+        logger.exception("LinkedIn login failed")
+        raise
+    finally:
+        if not keep_open_for_verify:
             context.close()
             browser.close()
+            playwright.stop()
+
+
+def verify_pending_login_otp(
+    pending_session_id: str,
+    otp_code: str,
+    checkpoint_url: str | None = None,
+) -> tuple[str, Path, str]:
+    """Submit OTP for a pending login session and persist the final state."""
+
+    pending = _get_pending_session_or_raise(pending_session_id)
+    otp_value = (otp_code or "").strip()
+    if not otp_value:
+        raise ValueError("otp is required")
+
+    page = pending.page
+    if page.is_closed():
+        _remove_pending_session(pending.pending_session_id)
+        _close_pending_browser_objects(pending)
+        raise PendingLoginSessionNotFoundError(
+            "Session xác minh OTP đã bị đóng. Vui lòng login lại."
+        )
+
+    try:
+        target_url = (checkpoint_url or pending.checkpoint_url or "").strip()
+        if target_url and page.url != target_url:
+            page.goto(target_url, wait_until="domcontentloaded", timeout=120000)
+
+        page.wait_for_selector(OTP_INPUT_SELECTOR, timeout=30000)
+        page.fill(OTP_INPUT_SELECTOR, otp_value)
+        page.click(OTP_SUBMIT_SELECTOR)
+
+        end_time = time.time() + 120
+        while time.time() < end_time:
+            if _context_has_li_at_cookie(pending.context) and not _is_authwall_url(page.url):
+                _save_session_state(pending.context, pending.state_path)
+                _remove_pending_session(pending.pending_session_id)
+                _close_pending_browser_objects(pending)
+                return pending.normalized_session_id, pending.state_path, pending.email
+            try:
+                page.wait_for_timeout(1000)
+            except Error:
+                logger.debug("Waiting OTP verification encountered a transient error", exc_info=True)
+
+        raise RuntimeError(
+            "Xác minh OTP chưa hoàn tất. Vui lòng kiểm tra mã và thử lại."
+        )
+    except Error as exc:
+        raise RuntimeError(f"LinkedIn OTP verification failed: {exc}") from exc

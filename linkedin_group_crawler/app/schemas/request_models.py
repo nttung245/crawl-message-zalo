@@ -50,6 +50,46 @@ class LoginRequest(BaseModel):
         return normalized or None
 
 
+class VerifyLoginRequest(BaseModel):
+    """Request body for OTP verification after POST /login returns need_otp."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    session_id: str = Field(
+        ...,
+        min_length=8,
+        description="Pending session identifier returned by POST /login when status=need_otp.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    otp: str = Field(
+        ...,
+        min_length=1,
+        description="OTP/verification code from LinkedIn email challenge.",
+        validation_alias=AliasChoices("otp", "code", "verificationCode"),
+    )
+    checkpoint_url: Optional[str] = Field(
+        default=None,
+        description="Optional checkpoint URL returned by POST /login.",
+        validation_alias=AliasChoices("checkpoint_url", "checkpointUrl"),
+    )
+
+    @field_validator("session_id", "otp")
+    @classmethod
+    def validate_required_trimmed(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("field is required")
+        return trimmed
+
+    @field_validator("checkpoint_url")
+    @classmethod
+    def validate_checkpoint_url(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = value.strip()
+        return normalized or None
+
+
 class CrawlGroupRequest(BaseModel):
     """Request payload for crawling a LinkedIn group."""
 

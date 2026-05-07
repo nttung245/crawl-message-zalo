@@ -29,6 +29,7 @@ from app.schemas.request_models import (
     N8nUpdateGroupRequest,
     N8nWebhookPassthroughRequest,
     StartWorkflowRequest,
+    VerifyLoginRequest,
 )
 from app.schemas.response_models import (
     BaseResponse,
@@ -52,8 +53,13 @@ from app.schemas.response_models import (
     StatusDataResponse,
     StatusResponse,
     TopPostResponse,
+    VerifyLoginResponse,
 )
-from app.services.auth_service import login_and_save_session
+from app.services.auth_service import (
+    PendingLoginSessionNotFoundError,
+    login_and_save_session,
+    verify_pending_login_otp,
+)
 from app.services.crawler_service import open_group_and_collect_posts
 from app.services.n8n_webhook_service import (
     extract_sheet_link_from_n8n_response_body,
@@ -228,25 +234,92 @@ def system_status() -> StatusResponse:
 
 @router.post("/login", response_model=LoginResponse, dependencies=[Depends(verify_api_key)])
 def login(payload: LoginRequest) -> LoginResponse:
-    """Login to LinkedIn and store browser session state."""
+    """Login to LinkedIn. Returns need_otp when email challenge is required."""
 
     try:
-        session_id, state_path = login_and_save_session(
+        result = login_and_save_session(
             email=payload.email,
             password=payload.password,
             session_id=payload.session_id,
             force_relogin=payload.force_relogin,
         )
+        if result.status == "need_otp":
+            return LoginResponse(
+                success=True,
+                message="LinkedIn yêu cầu mã xác minh. Gọi POST /verify với mã OTP.",
+                session_id=result.session_id,
+                state_path=None,
+                email=result.email,
+                login_step="need_otp",
+                need_otp=True,
+                checkpoint_url=result.checkpoint_url,
+            )
         return LoginResponse(
             success=True,
             message="LinkedIn session saved successfully",
-            session_id=session_id,
-            state_path=_state_path_for_response(state_path),
-            email=payload.email.lower().strip(),
+            session_id=result.session_id,
+            state_path=_state_path_for_response(result.state_path) if result.state_path else None,
+            email=result.email,
+            login_step="success",
+            need_otp=False,
+            checkpoint_url=None,
         )
     except Exception as exc:
         logger.exception("Login endpoint failed")
-        return LoginResponse(success=False, message=str(exc), session_id=None, state_path=None)
+        return LoginResponse(
+            success=False,
+            message=str(exc),
+            session_id=None,
+            state_path=None,
+            login_step="error",
+            need_otp=False,
+            checkpoint_url=None,
+        )
+
+
+@router.post("/verify", response_model=VerifyLoginResponse, dependencies=[Depends(verify_api_key)])
+def verify_login(payload: VerifyLoginRequest) -> VerifyLoginResponse:
+    """Complete LinkedIn OTP verification using pending session from POST /login."""
+
+    try:
+        session_id, state_path, email = verify_pending_login_otp(
+            pending_session_id=payload.session_id,
+            otp_code=payload.otp,
+            checkpoint_url=payload.checkpoint_url,
+        )
+        return VerifyLoginResponse(
+            success=True,
+            message="Xác minh OTP thành công. Session LinkedIn đã được lưu.",
+            session_id=session_id,
+            state_path=_state_path_for_response(state_path),
+            email=email,
+            login_step="success",
+            need_otp=False,
+            checkpoint_url=None,
+        )
+    except PendingLoginSessionNotFoundError as exc:
+        return VerifyLoginResponse(
+            success=False,
+            message=str(exc),
+            session_id=None,
+            state_path=None,
+            email=None,
+            login_step="error",
+            need_otp=False,
+            checkpoint_url=None,
+        )
+    except Exception as exc:
+        logger.exception("Verify endpoint failed")
+        return VerifyLoginResponse(
+            success=False,
+            message=str(exc),
+            session_id=None,
+            state_path=None,
+            email=None,
+            login_step="error",
+            need_otp=False,
+            checkpoint_url=None,
+        )
 
 
 @router.post("/crawl-linkedin-group", response_model=CrawlResponse, dependencies=[Depends(verify_api_key)])

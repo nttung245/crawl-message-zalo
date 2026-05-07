@@ -16,6 +16,8 @@ import type {
   StartWorkflowResponse,
   StatusResponse,
   UpdateN8nGroupRequest,
+  VerifyLoginRequest,
+  VerifyLoginResponse,
 } from "@/types/api";
 
 const JSON_HEADERS = {
@@ -69,6 +71,19 @@ export function loginLinkedIn(payload: LoginRequest): Promise<LoginResponse> {
   return requestJson<LoginResponse>("/login", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+export function verifyLinkedInOtp(
+  payload: VerifyLoginRequest,
+): Promise<VerifyLoginResponse> {
+  return requestJson<VerifyLoginResponse>("/verify", {
+    method: "POST",
+    body: JSON.stringify({
+      session_id: payload.sessionId,
+      otp: payload.otp,
+      checkpoint_url: payload.checkpointUrl,
+    }),
   });
 }
 
