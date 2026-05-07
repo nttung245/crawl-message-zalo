@@ -472,7 +472,7 @@ def login_and_save_session(
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            headless=False,
+            headless=settings.headless,
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",

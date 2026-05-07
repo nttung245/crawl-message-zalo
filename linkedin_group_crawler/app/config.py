@@ -118,7 +118,7 @@ def _google_sheet_group_urls_tab_from_env() -> str:
 class Settings:
     """Typed settings loaded from environment variables."""
 
-    headless: bool = _parse_bool(os.getenv("HEADLESS"), default=False)
+    headless: bool = _parse_bool(os.getenv("HEADLESS"), default=True)
     state_path: Path = BASE_DIR / os.getenv("STATE_PATH", "storage/linkedin_state.json")
     session_storage_dir: Path = BASE_DIR / "storage" / "session"
     default_scroll_times: int = int(os.getenv("DEFAULT_SCROLL_TIMES", "8"))
