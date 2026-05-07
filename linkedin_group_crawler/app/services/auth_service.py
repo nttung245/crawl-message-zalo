@@ -394,6 +394,41 @@ def _wait_for_login_session(page: Page, context: BrowserContext, timeout_ms: int
     )
 
 
+def _is_feed_or_group_url(current_url: str) -> bool:
+    """Return True when URL is feed or a LinkedIn group page."""
+
+    parsed = urlparse((current_url or "").strip())
+    host = (parsed.netloc or "").lower()
+    path = (parsed.path or "").lower()
+    if "linkedin.com" not in host:
+        return False
+    return path.startswith("/feed") or path.startswith("/groups")
+
+
+def _wait_for_manual_verification_until_ready(
+    page: Page,
+    context: BrowserContext,
+    timeout_ms: int = 300000,
+) -> None:
+    """Wait for user to complete manual verification until landing on feed/group."""
+
+    logger.info("Vui lòng nhập mã/xác nhận trên trình duyệt")
+    end_time = time.time() + (timeout_ms / 1000)
+    while time.time() < end_time:
+        if _context_has_li_at_cookie(context) and _is_feed_or_group_url(page.url):
+            return
+        try:
+            page.wait_for_timeout(1000)
+        except Error:
+            logger.debug("Waiting for manual verification encountered a transient error", exc_info=True)
+
+    _capture_login_artifacts(page, "login_verification_timeout")
+    raise RuntimeError(
+        "Đã chờ xác minh thủ công nhưng URL chưa quay về LinkedIn feed/group. "
+        "Check data/raw/login_verification_timeout.html and .png."
+    )
+
+
 def _existing_state_is_reusable(state_path: Path) -> bool:
     """Return True when existing state file contains a reusable auth cookie."""
 
@@ -437,7 +472,7 @@ def login_and_save_session(
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(
-            headless=settings.headless,
+            headless=False,
             args=[
                 "--disable-gpu",
                 "--disable-dev-shm-usage",
@@ -465,15 +500,10 @@ def login_and_save_session(
             try:
                 _wait_for_login_session(page, context, timeout_ms=45000)
             except RuntimeError:
-                if settings.headless:
-                    raise RuntimeError(
-                        "LinkedIn requires extra verification before session is ready, possibly app approval / 2-step verification. "
-                        "Set HEADLESS=false and call POST /login again."
-                    )
+                _wait_for_manual_verification_until_ready(page, context, timeout_ms=300000)
 
-                logger.info("Opening Playwright inspector for manual checkpoint/captcha/2FA handling")
-                page.pause()
-                _wait_for_login_session(page, context, timeout_ms=120000)
+            if not _is_feed_or_group_url(page.url):
+                _wait_for_manual_verification_until_ready(page, context, timeout_ms=300000)
 
             if _is_authwall_url(page.url):
                 _capture_login_artifacts(page, "login_blocked")
