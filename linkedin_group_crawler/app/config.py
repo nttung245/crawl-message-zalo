@@ -90,6 +90,30 @@ def _n8n_webhook_update_group_from_env() -> str:
     return (os.getenv("N8N_WEBHOOK_UPDATE_GROUP") or "").strip()
 
 
+def _n8n_webhook_add_list_group_from_env() -> str:
+    """Ưu tiên key mới; fallback key cũ để tương thích."""
+
+    return (
+        os.getenv("N8N_WEBHOOK_ADD_LIST_GROUP")
+        or os.getenv("N8N_WEBHOOK_BULK_IMPORT_GROUPS")
+        or ""
+    ).strip()
+
+
+def _n8n_webhook_add_list_group_timeout_sec_from_env() -> float:
+    """Ưu tiên timeout key mới; fallback key cũ; mặc định 300s."""
+
+    raw = (
+        os.getenv("N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC")
+        or os.getenv("N8N_WEBHOOK_BULK_IMPORT_GROUPS_TIMEOUT_SEC")
+        or "300"
+    )
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 300.0
+
+
 def _google_service_account_json_from_env() -> Path:
     """Đường dẫn file JSON service account (tương đối BASE_DIR hoặc absolute)."""
 
@@ -162,6 +186,10 @@ class Settings:
     n8n_webhook_add_group_url: str = field(default_factory=_n8n_webhook_add_group_from_env)
     n8n_webhook_remove_group_url: str = field(default_factory=_n8n_webhook_remove_group_from_env)
     n8n_webhook_update_group_url: str = field(default_factory=_n8n_webhook_update_group_from_env)
+    n8n_webhook_add_list_group_url: str = field(default_factory=_n8n_webhook_add_list_group_from_env)
+    n8n_webhook_add_list_group_timeout_sec: float = field(
+        default_factory=_n8n_webhook_add_list_group_timeout_sec_from_env,
+    )
     google_service_account_json_path: Path = field(
         default_factory=_google_service_account_json_from_env,
     )

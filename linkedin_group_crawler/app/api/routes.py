@@ -15,6 +15,7 @@ from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, st
 
 from app.config import BASE_DIR, settings
 from app.schemas.request_models import (
+    AddListGroupRequest,
     CrawlGroupRequest,
     FilterDataRequest,
     GetAllPostsRequest,
@@ -34,6 +35,9 @@ from app.schemas.request_models import (
 )
 from app.schemas.response_models import (
     BaseResponse,
+    BulkGroupImportData,
+    BulkGroupImportResponse,
+    BulkGroupImportScrapedItem,
     CrawlDataResponse,
     CrawlResponse,
     FilterDataResponse,
@@ -62,6 +66,7 @@ from app.services.auth_service import (
     verify_pending_login_otp,
 )
 from app.services.crawler_service import open_group_and_collect_posts
+from app.services.group_bulk_import_service import bulk_scrape_groups
 from app.services.n8n_webhook_service import (
     extract_sheet_link_from_n8n_response_body,
     fetch_sheet_link_via_n8n_webhook,
@@ -430,6 +435,17 @@ def _pick_n8n_message(parsed: Any) -> str | None:
             if isinstance(value, str) and value.strip():
                 return value.strip()
     return None
+
+
+def _resolve_bulk_add_group_email(
+    *,
+    body_email: str | None,
+    email_crawl: str | None = None,
+) -> str | None:
+    """Ưu tiên cookie ``email_crawl``; fallback ``body.email``; thiếu cả hai vẫn cho phép."""
+
+    merged = ((email_crawl or "").strip() or (body_email or "").strip())
+    return merged or None
 
 
 def _n8n_get_all_groups_webhook_body(email: str) -> dict[str, Any]:
@@ -940,6 +956,125 @@ def n8n_groups_update(
         env_hint="N8N_WEBHOOK_UPDATE_GROUP",
         json_body=payload.to_webhook_payload(email),
     )
+
+
+@router.post(
+    "/groups/add-list-group",
+    response_model=BulkGroupImportResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def add_list_group(
+    payload: AddListGroupRequest,
+    email_crawl: Annotated[str | None, Cookie()] = None,
+) -> BulkGroupImportResponse:
+    """Cào hàng loạt URL nhóm, sau đó (tuỳ chọn) POST batch sang ``N8N_WEBHOOK_ADD_LIST_GROUP``."""
+
+    owner_email = _resolve_bulk_add_group_email(
+        body_email=payload.email,
+        email_crawl=email_crawl,
+    )
+
+    try:
+        scraped_items = bulk_scrape_groups(
+            group_urls=payload.group_urls,
+            session_id=payload.session_id,
+            email=owner_email,
+            delay_min_sec=payload.delay_min_sec,
+            delay_max_sec=payload.delay_max_sec,
+        )
+    except Exception as exc:
+        logger.exception("add-list-group scrape failed")
+        return BulkGroupImportResponse(
+            success=False,
+            message=f"Cào nhóm thất bại: {exc}",
+            data=None,
+        )
+
+    response_items = [BulkGroupImportScrapedItem(**item) for item in scraped_items]
+
+    if not payload.post_to_webhook:
+        return BulkGroupImportResponse(
+            success=True,
+            message="Đã cào danh sách nhóm (bỏ qua gửi webhook theo post_to_webhook=false).",
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_skipped=True,
+                webhook_http_status=None,
+                webhook_response_preview=None,
+                webhook_response=None,
+            ),
+        )
+
+    webhook_url = (settings.n8n_webhook_add_list_group_url or "").strip()
+    if not webhook_url:
+        return BulkGroupImportResponse(
+            success=False,
+            message=(
+                "N8N_WEBHOOK_ADD_LIST_GROUP chưa được cấu hình trong .env "
+                "(hoặc fallback N8N_WEBHOOK_BULK_IMPORT_GROUPS)."
+            ),
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_skipped=True,
+            ),
+        )
+
+    webhook_timeout = payload.webhook_timeout_sec or float(
+        settings.n8n_webhook_add_list_group_timeout_sec,
+    )
+    webhook_payload: dict[str, Any] = {
+        "email": owner_email,
+        "items": scraped_items,
+        "total": len(scraped_items),
+    }
+
+    try:
+        with httpx.Client(timeout=max(1.0, float(webhook_timeout))) as client:
+            webhook_resp = client.post(webhook_url, json=webhook_payload)
+        text = (webhook_resp.text or "").strip()
+        preview = _truncate_webhook_preview(text)
+        parsed: Any = None
+        try:
+            parsed = webhook_resp.json()
+        except Exception:
+            parsed = preview
+
+        ok = webhook_resp.status_code < 400
+        return BulkGroupImportResponse(
+            success=ok,
+            message=(
+                "Đã cào nhóm và gửi webhook add-list-group thành công."
+                if ok
+                else f"Webhook add-list-group trả về HTTP {webhook_resp.status_code}"
+            ),
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_http_status=webhook_resp.status_code,
+                webhook_response_preview=preview,
+                webhook_response=parsed,
+                webhook_skipped=False,
+            ),
+        )
+    except httpx.RequestError as exc:
+        logger.warning("add-list-group webhook request failed: %s", type(exc).__name__)
+        return BulkGroupImportResponse(
+            success=False,
+            message="Không kết nối được tới webhook add-list-group.",
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_skipped=False,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("add-list-group webhook failed")
+        return BulkGroupImportResponse(
+            success=False,
+            message=f"Gửi webhook add-list-group thất bại: {exc}",
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_skipped=False,
+            ),
+        )
 
 
 @router.post("/filter-data", response_model=FilterDataResponse, dependencies=[Depends(verify_api_key)])
