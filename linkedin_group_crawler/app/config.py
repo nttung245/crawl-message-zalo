@@ -90,31 +90,6 @@ def _n8n_webhook_update_group_from_env() -> str:
     return (os.getenv("N8N_WEBHOOK_UPDATE_GROUP") or "").strip()
 
 
-def _n8n_webhook_add_list_group_url_from_env() -> str:
-    """Webhook POST ``/groups/add-list-group`` (ưu tiên ``N8N_WEBHOOK_ADD_LIST_GROUP``)."""
-
-    return (
-        os.getenv("N8N_WEBHOOK_ADD_LIST_GROUP")
-        or os.getenv("N8N_WEBHOOK_BULK_IMPORT_GROUPS")
-        or ""
-    ).strip()
-
-
-def _n8n_webhook_add_list_group_timeout_sec_from_env() -> float:
-    raw = (
-        os.getenv("N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC")
-        or os.getenv("N8N_WEBHOOK_BULK_IMPORT_GROUPS_TIMEOUT_SEC")
-        or "300"
-    )
-    t = (raw or "").strip()
-    if not t:
-        return 300.0
-    try:
-        return max(1.0, float(t))
-    except ValueError:
-        return 300.0
-
-
 def _google_service_account_json_from_env() -> Path:
     """Đường dẫn file JSON service account (tương đối BASE_DIR hoặc absolute)."""
 
@@ -139,12 +114,11 @@ def _google_sheet_group_urls_tab_from_env() -> str:
     return (os.getenv("GOOGLE_SHEET_GROUP_URLS_TAB") or "").strip()
 
 
-@dataclass(slots=True)
+@dataclass
 class Settings:
     """Typed settings loaded from environment variables."""
 
-    # Mặc định false để Playwright hiển thị UI (dễ xác minh / cào); set HEADLESS=true trên server không màn hình.
-    headless: bool = _parse_bool(os.getenv("HEADLESS"), default=False)
+    headless: bool = _parse_bool(os.getenv("HEADLESS"), default=True)
     state_path: Path = BASE_DIR / os.getenv("STATE_PATH", "storage/linkedin_state.json")
     session_storage_dir: Path = BASE_DIR / "storage" / "session"
     default_scroll_times: int = int(os.getenv("DEFAULT_SCROLL_TIMES", "8"))
@@ -163,10 +137,6 @@ class Settings:
     n8n_webhook_url: str = os.getenv("N8N_WEBHOOK_URL", "")
     n8n_webhook_timeout_sec: float = float(
         os.getenv("N8N_WEBHOOK_TIMEOUT_SEC", str(DEFAULT_WEBHOOK_TIMEOUT_SEC)),
-    )
-    # Timeout chờ response webhook add-list-group (có thể override bằng N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC).
-    n8n_webhook_add_list_group_timeout_sec: float = field(
-        default_factory=_n8n_webhook_add_list_group_timeout_sec_from_env,
     )
     n8n_webhook_start_timeout_sec: float = float(
         os.getenv("N8N_WEBHOOK_START_TIMEOUT_SEC", str(DEFAULT_START_WEBHOOK_TIMEOUT_SEC)),
@@ -192,7 +162,6 @@ class Settings:
     n8n_webhook_add_group_url: str = field(default_factory=_n8n_webhook_add_group_from_env)
     n8n_webhook_remove_group_url: str = field(default_factory=_n8n_webhook_remove_group_from_env)
     n8n_webhook_update_group_url: str = field(default_factory=_n8n_webhook_update_group_from_env)
-    n8n_webhook_add_list_group_url: str = field(default_factory=_n8n_webhook_add_list_group_url_from_env)
     google_service_account_json_path: Path = field(
         default_factory=_google_service_account_json_from_env,
     )
