@@ -25,7 +25,7 @@ import { useDashboard } from "./dashboard-context";
 const GROUPS_PAGE_SIZE = 8;
 /** Chờ backend + n8n (giây) — khớp .env / timeout server (~5–6 phút). */
 const ADD_LIST_GROUP_WEBHOOK_TIMEOUT_SEC = 360;
-/** Modal thành công sau thêm nhóm — tự đóng để không chặn thao tác. */
+/** Banner info ngắn sau refresh. */
 const ADD_SUCCESS_DISMISS_MS = 2000;
 
 export function N8nManagedGroupsSection() {
@@ -47,7 +47,7 @@ export function N8nManagedGroupsSection() {
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
 
-  /** Thông báo sau add thành công — tự đóng sau vài giây và gọi get-all (hoặc bấm OK sớm). */
+  /** Thông báo sau add thành công — chỉ đóng khi người dùng bấm OK. */
   const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(null);
 
   const [editRow, setEditRow] = useState<ManagedGroupRow | null>(null);
@@ -147,14 +147,6 @@ export function N8nManagedGroupsSection() {
     setAddSuccessMessage(null);
     void loadGroups();
   }, [loadGroups]);
-
-  useEffect(() => {
-    if (!addSuccessMessage) return;
-    const id = window.setTimeout(() => {
-      dismissAddSuccessAndRefresh();
-    }, ADD_SUCCESS_DISMISS_MS);
-    return () => window.clearTimeout(id);
-  }, [addSuccessMessage, dismissAddSuccessAndRefresh]);
 
   /** Banner «Đã tải … nhóm cho …» sau refresh — tự ẩn để không chiếm chỗ lâu. */
   useEffect(() => {
@@ -766,7 +758,7 @@ export function N8nManagedGroupsSection() {
                   id="add-success-desc"
                   className="text-body-md text-on-surface mt-sm whitespace-pre-line break-words"
                 >
-                  {addSuccessMessage.trim() || "Các group đã được thêm thành công."}
+                  Các group đã được thêm thành công.
                 </p>
               </div>
             </div>
