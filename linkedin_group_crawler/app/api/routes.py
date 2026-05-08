@@ -448,6 +448,17 @@ def _resolve_bulk_add_group_email(
     return merged or None
 
 
+def _bulk_add_group_webhook_email_payload(email: str) -> dict[str, str]:
+    """Giữ alias email nhất quán với các route n8n nhóm khác."""
+
+    e = email.strip()
+    return {
+        "email": e,
+        "Email_crawl": e,
+        "userEmail": e,
+    }
+
+
 def _n8n_get_all_groups_webhook_body(email: str) -> dict[str, Any]:
     """Payload gửi n8n: một email thống nhất (alias) để workflow lọc **tất cả nhóm** theo owner."""
 
@@ -1005,6 +1016,16 @@ def add_list_group(
             ),
         )
 
+    if not owner_email:
+        return BulkGroupImportResponse(
+            success=False,
+            message="Thiếu email để gửi webhook add-list-group.",
+            data=BulkGroupImportData(
+                items=response_items,
+                webhook_skipped=True,
+            ),
+        )
+
     webhook_url = (settings.n8n_webhook_add_list_group_url or "").strip()
     if not webhook_url:
         return BulkGroupImportResponse(
@@ -1022,10 +1043,19 @@ def add_list_group(
     webhook_timeout = payload.webhook_timeout_sec or float(
         settings.n8n_webhook_add_list_group_timeout_sec,
     )
+    items_for_webhook = [
+        {
+            **item,
+            "email": owner_email,
+            "Email_crawl": owner_email,
+            "userEmail": owner_email,
+        }
+        for item in scraped_items
+    ]
     webhook_payload: dict[str, Any] = {
-        "email": owner_email,
-        "items": scraped_items,
-        "total": len(scraped_items),
+        **_bulk_add_group_webhook_email_payload(owner_email),
+        "items": items_for_webhook,
+        "total": len(items_for_webhook),
     }
 
     try:
