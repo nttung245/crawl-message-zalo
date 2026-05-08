@@ -11,9 +11,11 @@ from typing import Annotated, Any
 
 import httpx
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
+from fastapi.responses import JSONResponse
 
 from app.config import BASE_DIR, settings
 from app.schemas.request_models import (
+    AddListGroupRequest,
     CrawlGroupRequest,
     FilterDataRequest,
     GetAllPostsRequest,
@@ -21,6 +23,7 @@ from app.schemas.request_models import (
     LinkedinAppFilterPostsSheetRequest,
     LinkedinAppGetAllPostsSheetRequest,
     LoginRequest,
+    ProfileCommentsRequest,
     N8nAddGroupRequest,
     N8nCredentialWebhookRequest,
     N8nGetAllGroupsRequest,
@@ -33,6 +36,9 @@ from app.schemas.request_models import (
 )
 from app.schemas.response_models import (
     BaseResponse,
+    BulkGroupImportData,
+    BulkGroupImportResponse,
+    BulkGroupImportScrapedItem,
     CrawlDataResponse,
     CrawlResponse,
     FilterDataResponse,
@@ -61,6 +67,8 @@ from app.services.auth_service import (
     verify_pending_login_otp,
 )
 from app.services.crawler_service import open_group_and_collect_posts
+from app.services.group_bulk_import_service import bulk_scrape_groups, normalize_group_url
+from app.services.profile_comments_service import LinkedinLoginRequiredError, crawl_profile_comments
 from app.services.n8n_webhook_service import (
     extract_sheet_link_from_n8n_response_body,
     fetch_sheet_link_via_n8n_webhook,
@@ -227,6 +235,12 @@ def system_status() -> StatusResponse:
             n8n_webhook_update_group_configured=bool(
                 (settings.n8n_webhook_update_group_url or "").strip(),
             ),
+            n8n_webhook_add_list_group_configured=bool(
+                (settings.n8n_webhook_add_list_group_url or "").strip(),
+            ),
+            n8n_webhook_bulk_import_groups_configured=bool(
+                (settings.n8n_webhook_add_list_group_url or "").strip(),
+            ),
             google_sheet_configured=gsheet.spreadsheet_configured(),
         ),
     )
@@ -384,6 +398,43 @@ def crawl_linkedin_group(payload: CrawlGroupRequest) -> CrawlResponse:
         return CrawlResponse(success=False, message=str(exc), data=None)
 
 
+def _webhook_response_for_api(full_text: str, *, max_raw_chars: int = 100_000) -> Any:
+    """Parse body webhook thành JSON nếu được; không thì trả chuỗi (cắt nếu quá dài)."""
+
+    text = (full_text or "").strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        if len(text) > max_raw_chars:
+            return f"{text[:max_raw_chars]}…"
+        return text
+
+
+def _add_list_group_envelope_from_webhook(*, http_status: int, response_body: Any) -> tuple[bool, str]:
+    """HTTP < 400; nếu body JSON có ``success`` / ``message`` (hoặc ``error``) thì đồng bộ envelope API với n8n."""
+
+    http_ok = 100 <= http_status < 400
+    api_ok = http_ok
+    api_message = (
+        "Đã cào xong; n8n đã trả HTTP response (chi tiết trong data.webhook_response)."
+        if http_ok
+        else f"Webhook trả HTTP {http_status}"
+    )
+    if isinstance(response_body, dict):
+        w_msg = response_body.get("message")
+        if isinstance(w_msg, str) and w_msg.strip():
+            api_message = w_msg.strip()
+        else:
+            err_msg = response_body.get("error") or response_body.get("detail")
+            if isinstance(err_msg, str) and err_msg.strip():
+                api_message = err_msg.strip()
+        if "success" in response_body and isinstance(response_body["success"], bool):
+            api_ok = bool(response_body["success"]) and api_ok
+    return api_ok, api_message
+
+
 def _truncate_webhook_preview(raw: str, limit: int = 512) -> str:
     text = (raw or "").strip()
     if len(text) > limit:
@@ -501,6 +552,57 @@ def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
             },
         )
     return out
+
+
+def _group_url_match_key(url: str) -> str:
+    """Chuẩn hóa URL nhóm để so trùng (khớp normalize_group_url + không phân biệt hoa thường)."""
+
+    return normalize_group_url(url).lower().rstrip("/")
+
+
+def _list_managed_groups_for_duplicate_check(email: str) -> tuple[list[dict[str, Any]], str | None]:
+    """Gọi ``N8N_WEBHOOK_GET_GROUP`` giống n8n-get-all; trả (danh_sách, lỗi). ``lỗi`` != None → không kiểm tra được."""
+
+    target = (settings.n8n_webhook_get_group_url or "").strip()
+    if not target:
+        return [], "N8N_WEBHOOK_GET_GROUP chưa được cấu hình — không kiểm tra trùng URL nhóm."
+    res = _forward_n8n_group_webhook(
+        url=target,
+        env_hint="N8N_WEBHOOK_GET_GROUP",
+        json_body=_n8n_get_all_groups_webhook_body(email),
+    )
+    if not res.success:
+        return [], res.message or "Không lấy được danh sách nhóm để kiểm tra trùng."
+    data = res.data if isinstance(res.data, dict) else {}
+    parsed = data.get("parsed")
+    return _normalize_n8n_groups(parsed), None
+
+
+def _find_managed_group_duplicate(
+    managed: list[dict[str, Any]],
+    url_candidate: str,
+    owner_email: str,
+) -> dict[str, Any] | None:
+    """Trùng chỉ khi URL nhóm và email owner (crawl) đều khớp với một dòng đã quản lý."""
+
+    owner = (owner_email or "").strip().lower()
+    if not owner:
+        return None
+    key = _group_url_match_key(url_candidate)
+    for row in managed:
+        u = _group_url_match_key(str(row.get("url_group", "")))
+        if not u or u != key:
+            continue
+        row_email = str(row.get("email") or "").strip().lower()
+        if row_email == owner:
+            return row
+    return None
+
+
+def _duplicate_group_message(row: dict[str, Any]) -> str:
+    name = str(row.get("name_group") or "").strip() or "—"
+    url = str(row.get("url_group") or "").strip() or "—"
+    return f"Nhóm: {name} url:{url} đã có trong danh sách!"
 
 
 def _forward_n8n_group_webhook(*, url: str, env_hint: str, json_body: dict[str, Any]) -> BaseResponse:
@@ -890,10 +992,171 @@ def n8n_groups_add(
         body_email=payload.email,
         email_crawl=email_crawl,
     )
+    managed, err = _list_managed_groups_for_duplicate_check(email)
+    if err:
+        return BaseResponse(success=False, message=err, data=None)
+    dup = _find_managed_group_duplicate(managed, payload.url_group, email)
+    if dup is not None:
+        return BaseResponse(success=False, message=_duplicate_group_message(dup), data=None)
     return _forward_n8n_group_webhook(
         url=settings.n8n_webhook_add_group_url,
         env_hint="N8N_WEBHOOK_ADD_GROUP",
         json_body=payload.to_webhook_payload(email),
+    )
+
+
+@router.post(
+    "/groups/add-list-group",
+    response_model=BulkGroupImportResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def groups_add_list_group(
+    payload: AddListGroupRequest,
+    email_crawl: Annotated[str | None, Cookie()] = None,
+) -> BulkGroupImportResponse:
+    """Cào danh sách nhóm, POST batch lên ``N8N_WEBHOOK_ADD_LIST_GROUP`` và **chờ** HTTP response của n8n (đồng bộ).
+
+    API chỉ trả về sau khi webhook đã trả body (workflow cần node *Respond to Webhook* / tương đương). Mặc định chờ tối đa ~5 phút
+    (``N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC`` hoặc ``webhook_timeout_sec`` trong body).
+
+    Nếu body JSON từ n8n có ``success`` / ``message`` (hoặc ``error``), envelope ``success`` / ``message`` của API được đồng bộ;
+    kết quả cào vẫn nằm trong ``data.items``; body đầy đủ trong ``data.webhook_response``.
+    """
+
+    owner_email = _resolve_crawler_email_for_n8n_groups(
+        body_email=payload.email,
+        email_crawl=email_crawl,
+    )
+    managed, list_err = _list_managed_groups_for_duplicate_check(owner_email)
+    if list_err:
+        return BulkGroupImportResponse(
+            success=False,
+            message=list_err,
+            data=BulkGroupImportData(items=[], webhook_skipped=True),
+        )
+    dup_messages: list[str] = []
+    seen_dup_msg: set[str] = set()
+    for raw_u in payload.group_urls:
+        dup = _find_managed_group_duplicate(managed, raw_u, owner_email)
+        if dup is not None:
+            msg = _duplicate_group_message(dup)
+            if msg not in seen_dup_msg:
+                seen_dup_msg.add(msg)
+                dup_messages.append(msg)
+    if dup_messages:
+        combined = (
+            dup_messages[0]
+            if len(dup_messages) == 1
+            else "Các nhóm sau đã có trong danh sách: " + " ".join(dup_messages)
+        )
+        return BulkGroupImportResponse(
+            success=False,
+            message=combined,
+            data=BulkGroupImportData(items=[], webhook_skipped=True),
+        )
+
+    raw_rows = bulk_scrape_groups(
+        group_urls=payload.group_urls,
+        session_id=payload.session_id,
+        email=owner_email,
+        delay_min_sec=payload.delay_min_sec,
+        delay_max_sec=payload.delay_max_sec,
+    )
+    items = [BulkGroupImportScrapedItem(**row) for row in raw_rows]
+
+    if not payload.post_to_webhook:
+        return BulkGroupImportResponse(
+            success=True,
+            message="Đã cào xong (không gửi webhook vì post_to_webhook=false). Để gửi: true hoặc bỏ hẳn trường này.",
+            data=BulkGroupImportData(items=items, webhook_skipped=True),
+        )
+
+    webhook_url = (settings.n8n_webhook_add_list_group_url or "").strip()
+    if not webhook_url:
+        return BulkGroupImportResponse(
+            success=False,
+            message="N8N_WEBHOOK_ADD_LIST_GROUP chưa được cấu hình trong .env (có thể dùng tạm N8N_WEBHOOK_BULK_IMPORT_GROUPS).",
+            data=BulkGroupImportData(items=items, webhook_skipped=True),
+        )
+
+    groups_payload = [
+        {
+            "url_group": row["url_group"],
+            "name_group": row["name_group"],
+            "member": int(row["member"]),
+            "memberCount": row["memberCount"],
+        }
+        for row in raw_rows
+        if row.get("success")
+    ]
+    failed_payload = [
+        {"url_group": row["url_group"], "error": row.get("error") or "unknown"}
+        for row in raw_rows
+        if not row.get("success")
+    ]
+    json_body: dict[str, Any] = {
+        "email": owner_email,
+        "Email_crawl": owner_email,
+        "userEmail": owner_email,
+        "groups": groups_payload,
+        "failed": failed_payload,
+    }
+
+    webhook_timeout = float(
+        payload.webhook_timeout_sec
+        if payload.webhook_timeout_sec is not None
+        else settings.n8n_webhook_add_list_group_timeout_sec
+    )
+
+    try:
+        http_status, full_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body=json_body,
+            timeout_sec=webhook_timeout,
+        )
+    except RuntimeError as exc:
+        return BulkGroupImportResponse(
+            success=False,
+            message=str(exc),
+            data=BulkGroupImportData(items=items, webhook_skipped=True),
+        )
+    except httpx.TimeoutException:
+        logger.warning("Add-list-group webhook timeout sau %ss", int(webhook_timeout))
+        return BulkGroupImportResponse(
+            success=False,
+            message=(
+                f"Hết thời gian chờ webhook ({int(webhook_timeout)}s) — n8n chưa trả HTTP response. "
+                "Tăng N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC hoặc webhook_timeout_sec; kiểm tra workflow có trả response đúng lúc."
+            ),
+            data=BulkGroupImportData(items=items, webhook_skipped=True),
+        )
+    except httpx.RequestError as exc:
+        logger.warning("Add-list-group webhook không kết nối được: %s", type(exc).__name__)
+        return BulkGroupImportResponse(
+            success=False,
+            message="Không kết nối được tới webhook add-list-group.",
+            data=BulkGroupImportData(items=items, webhook_skipped=True),
+        )
+    except Exception as exc:
+        logger.exception("Gọi webhook add-list-group thất bại")
+        return BulkGroupImportResponse(success=False, message=str(exc), data=BulkGroupImportData(items=items, webhook_skipped=True))
+
+    preview = _truncate_webhook_preview(full_text)
+    response_body = _webhook_response_for_api(full_text)
+    api_ok, api_message = _add_list_group_envelope_from_webhook(
+        http_status=http_status,
+        response_body=response_body,
+    )
+    return BulkGroupImportResponse(
+        success=api_ok,
+        message=api_message,
+        data=BulkGroupImportData(
+            items=items,
+            webhook_http_status=http_status,
+            webhook_response_preview=preview,
+            webhook_response=response_body,
+            webhook_skipped=False,
+        ),
     )
 
 
@@ -1080,6 +1343,39 @@ def get_all_posts(payload: GetAllPostsRequest) -> GetAllPostsResponse:
     except Exception as exc:
         logger.exception("Get all posts endpoint failed")
         return GetAllPostsResponse(success=False, message=str(exc), data=None)
+
+
+@router.post(
+    "/linkedin/profile-comments",
+    dependencies=[Depends(verify_api_key)],
+    summary="Cào comment activity của profile theo public_id",
+)
+def linkedin_profile_comments(payload: ProfileCommentsRequest):
+    """Mở ``/in/{public_id}/recent-activity/comments/``, scroll, parse ``a[href*='dashCommentUrn']``.
+
+    Cần session đã login (``email`` hoặc ``session_id`` giống các endpoint crawl khác).
+    """
+
+    try:
+        result = crawl_profile_comments(
+            public_id=payload.public_id,
+            max_items=payload.max_items,
+            target_post_id=payload.target_post_id,
+            session_id=payload.session_id,
+            email=payload.email,
+        )
+        return result
+    except LinkedinLoginRequiredError:
+        return JSONResponse(
+            status_code=200,
+            content={"success": False, "code": "LINKEDIN_LOGIN_REQUIRED"},
+        )
+    except Exception as exc:
+        logger.exception("linkedin/profile-comments failed")
+        return JSONResponse(
+            status_code=500,
+            content={"success": False, "message": str(exc)},
+        )
 
 
 linkedin_app_router = APIRouter(

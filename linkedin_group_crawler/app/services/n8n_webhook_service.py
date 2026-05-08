@@ -210,14 +210,23 @@ def fetch_sheet_link_via_n8n_webhook(*, body: dict[str, Any] | None = None) -> t
     return response.status_code, full_text
 
 
-def post_json_to_n8n_webhook(*, url: str, json_body: Any) -> tuple[int, str]:
-    """POST JSON tới một URL webhook n8n bất kỳ; trả về (status, body_text) — không raise HTTP."""
+def post_json_to_n8n_webhook(
+    *,
+    url: str,
+    json_body: Any,
+    timeout_sec: float | None = None,
+) -> tuple[int, str]:
+    """POST JSON tới một URL webhook n8n bất kỳ; trả về (status, body_text) — không raise HTTP.
+
+    Chờ đến khi n8n/workflow trả HTTP response (timeout có thể tăng qua ``timeout_sec``).
+    """
 
     target = (url or "").strip()
     if not target:
         raise RuntimeError("Webhook URL rỗng.")
 
-    timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
+    timeout_seconds = max(1.0, float(timeout_sec if timeout_sec is not None else settings.n8n_webhook_timeout_sec))
+    timeout = httpx.Timeout(timeout=timeout_seconds, connect=min(30.0, timeout_seconds))
     payload: Any = json_body if json_body is not None else {}
 
     with httpx.Client(timeout=timeout) as client:

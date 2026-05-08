@@ -50,6 +50,8 @@ class StatusDataResponse(BaseModel):
     n8n_webhook_add_group_configured: bool = False
     n8n_webhook_remove_group_configured: bool = False
     n8n_webhook_update_group_configured: bool = False
+    n8n_webhook_add_list_group_configured: bool = False
+    n8n_webhook_bulk_import_groups_configured: bool = False
     google_sheet_configured: bool = False
 
 
@@ -150,6 +152,35 @@ class N8nWebhookNotifyResponse(BaseResponse):
     """Envelope cho POST forward tới webhook n8n."""
 
     data: Optional[N8nWebhookNotifyData] = None
+
+
+class BulkGroupImportScrapedItem(BaseModel):
+    """Một dòng kết quả sau khi cào trang nhóm."""
+
+    url_group: str
+    name_group: str = ""
+    member: int = 0
+    memberCount: Optional[int] = None
+    success: bool = False
+    error: Optional[str] = None
+
+
+class BulkGroupImportData(BaseModel):
+    items: list[BulkGroupImportScrapedItem]
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = Field(
+        default=None,
+        description="Đoạn đầu body webhook (rút gọn) — giữ cho UI/log nhanh.",
+    )
+    webhook_response: Optional[Any] = Field(
+        default=None,
+        description="Body webhook sau khi chờ response: parse JSON thì trả dict/list; không parse được thì chuỗi (giới hạn độ dài).",
+    )
+    webhook_skipped: bool = False
+
+
+class BulkGroupImportResponse(BaseResponse):
+    data: Optional[BulkGroupImportData] = None
 
 
 class SheetLinkFromN8nData(BaseModel):

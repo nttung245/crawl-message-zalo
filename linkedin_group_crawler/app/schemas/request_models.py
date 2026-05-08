@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import re
 from typing import Any, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -88,6 +89,73 @@ class VerifyLoginRequest(BaseModel):
             return None
         normalized = value.strip()
         return normalized or None
+
+
+class ProfileCommentsRequest(BaseModel):
+    """POST ``/linkedin/profile-comments`` — cào tab recent activity / comments của profile."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    public_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+        description="Slug profile LinkedIn (phần sau /in/).",
+        validation_alias=AliasChoices("public_id", "publicId"),
+    )
+    max_items: int = Field(
+        default=20,
+        ge=1,
+        le=200,
+        validation_alias=AliasChoices("max_items", "maxItems"),
+    )
+    target_post_id: Optional[str] = Field(
+        default=None,
+        description="Nếu có, chỉ trả comment trùng post_id (chuỗi số).",
+        validation_alias=AliasChoices("target_post_id", "targetPostId"),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session storage Playwright (khuyến nghị — cần đã POST /login).",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email đã login — resolve file session nếu không truyền session_id.",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+
+    @field_validator("public_id")
+    @classmethod
+    def validate_public_id_slug(cls, value: str) -> str:
+        v = (value or "").strip().strip("/")
+        if not v or not re.match(r"^[a-zA-Z0-9_-]+$", v):
+            raise ValueError("public_id chỉ chứa chữ, số, _ và - (slug /in/...)")
+        return v
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_pc_session(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_pc_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("target_post_id")
+    @classmethod
+    def strip_target_post(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
 
 
 class CrawlGroupRequest(BaseModel):
@@ -550,6 +618,93 @@ class N8nGetAllGroupsRequest(BaseModel):
             return None
         t = value.strip()
         return t or None
+
+
+class AddListGroupRequest(BaseModel):
+    """Cào hàng loạt URL nhóm LinkedIn (tên + member), POST batch lên ``N8N_WEBHOOK_ADD_LIST_GROUP`` và chờ response."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    group_urls: list[str] = Field(
+        ...,
+        min_length=1,
+        max_length=80,
+        validation_alias=AliasChoices("group_urls", "groupUrls", "urls"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email owner (gửi kèm webhook). Có thể dùng cookie ``email_crawl`` thay cho body.",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session Playwright đã login (file storage) — khuyến nghị để cào được trang nhóm.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    post_to_webhook: bool = Field(
+        default=True,
+        description="false = chỉ cào, không POST lên n8n. null/omitted = true (gửi webhook).",
+        validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
+    )
+    webhook_timeout_sec: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=3600.0,
+        description="Timeout HTTP chờ n8n trả response (giây). None = N8N_WEBHOOK_ADD_LIST_GROUP_TIMEOUT_SEC (mặc định ~5 phút).",
+        validation_alias=AliasChoices("webhook_timeout_sec", "webhookTimeoutSec"),
+    )
+    delay_min_sec: float = Field(default=2.0, ge=0.0, le=120.0)
+    delay_max_sec: float = Field(default=5.0, ge=0.0, le=120.0)
+
+    @field_validator("post_to_webhook", mode="before")
+    @classmethod
+    def post_to_webhook_coerce(cls, value: Any) -> Any:
+        """null / chuỗi rỗng → gửi webhook. Chỉ khi gửi rõ false / 0 / 'false' mới bỏ qua."""
+
+        if value is None or value == "":
+            return True
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_bulk_session(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_bulk_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("group_urls")
+    @classmethod
+    def validate_bulk_group_urls(cls, value: list[str]) -> list[str]:
+        normalized: list[str] = []
+        for url in value:
+            candidate = url.strip()
+            if not candidate:
+                continue
+            if "linkedin.com/groups/" not in candidate:
+                raise ValueError("Mỗi group_urls phải là URL nhóm LinkedIn hợp lệ.")
+            normalized.append(candidate)
+        if not normalized:
+            raise ValueError("Cần ít nhất một URL nhóm hợp lệ.")
+        return normalized
+
+
+# Tên lớp cũ (tương thích import).
+BulkImportGroupsFromUrlsRequest = AddListGroupRequest
 
 
 class N8nAddGroupRequest(BaseModel):

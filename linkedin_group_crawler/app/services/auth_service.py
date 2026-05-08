@@ -634,6 +634,27 @@ def login_and_save_session(
         except TimeoutError:
             logger.warning("Initial page transition after login click timed out; continuing to wait for session")
 
+        if _is_checkpoint_challenge_url(page.url):
+            pending_session_id = _register_pending_session(
+                normalized_session_id=normalized_session_id,
+                email=email.strip().lower(),
+                state_path=state_path,
+                checkpoint_url=page.url,
+                playwright=playwright,
+                browser=browser,
+                context=context,
+                page=page,
+            )
+            keep_open_for_verify = True
+            logger.info("LinkedIn login requires OTP verification for session %s", pending_session_id)
+            return LoginFlowResult(
+                status="need_otp",
+                session_id=pending_session_id,
+                state_path=None,
+                email=email.strip().lower(),
+                checkpoint_url=page.url,
+            )
+
         try:
             _wait_for_login_session(page, context, timeout_ms=45000)
         except RuntimeError:

@@ -8,6 +8,7 @@ export type MaterialSymbolName =
   | "download"
   | "group"
   | "list_alt"
+  | "playlist_add"
   | "api"
   | "add"
   | "help"

@@ -1,6 +1,8 @@
 import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
+  AddListGroupRequest,
   AddN8nGroupRequest,
+  BulkGroupImportResponse,
   CrawlGroupRequest,
   CrawlResponse,
   FilterDataRequest,
@@ -129,6 +131,24 @@ export function getAllN8nGroups(
   return requestJson<N8nGroupOperationResponse>("/groups/n8n-get-all", {
     method: "POST",
     body: JSON.stringify({ email: payload.email.trim() }),
+  });
+}
+
+export function addListGroupBulk(
+  payload: AddListGroupRequest,
+): Promise<BulkGroupImportResponse> {
+  const body: Record<string, unknown> = {
+    group_urls: payload.group_urls.map((u) => u.trim()).filter(Boolean),
+    post_to_webhook: payload.post_to_webhook ?? true,
+    delay_min_sec: payload.delay_min_sec ?? 2,
+    delay_max_sec: payload.delay_max_sec ?? 5,
+  };
+  if (payload.email?.trim()) body.email = payload.email.trim();
+  if (payload.webhook_timeout_sec != null)
+    body.webhook_timeout_sec = payload.webhook_timeout_sec;
+  return requestJson<BulkGroupImportResponse>("/groups/add-list-group", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

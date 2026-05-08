@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
+  addListGroupBulk,
   addN8nGroup,
   getAllN8nGroups,
   removeN8nGroup,
@@ -12,10 +13,20 @@ import { MaterialIcon } from "@/components/ui";
 
 import type { ManagedGroupRow } from "@/lib/n8n-groups-normalize";
 import { normalizeN8nGroupsList } from "@/lib/n8n-groups-normalize";
+import { findDuplicateManagedGroup, groupUrlMatchKey } from "@/lib/group-duplicate-check";
+import {
+  appendCommaNewlineAfterTrailingGroupUrl,
+  parseGroupUrlsFromBulkInput,
+} from "@/lib/parse-group-urls-bulk";
+import { cn } from "@/lib/utils";
 
 import { useDashboard } from "./dashboard-context";
 
 const GROUPS_PAGE_SIZE = 8;
+/** Chờ backend + n8n (giây) — khớp .env / timeout server (~5–6 phút). */
+const ADD_LIST_GROUP_WEBHOOK_TIMEOUT_SEC = 360;
+/** Modal thành công sau thêm nhóm — tự đóng để không chặn thao tác. */
+const ADD_SUCCESS_DISMISS_MS = 2000;
 
 export function N8nManagedGroupsSection() {
   const d = useDashboard();
@@ -32,6 +43,12 @@ export function N8nManagedGroupsSection() {
   const [addUrl, setAddUrl] = useState("");
   const [addName, setAddName] = useState("");
   const [addMember, setAddMember] = useState("");
+
+  const [bulkOpen, setBulkOpen] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+
+  /** Thông báo sau add thành công — tự đóng sau vài giây và gọi get-all (hoặc bấm OK sớm). */
+  const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(null);
 
   const [editRow, setEditRow] = useState<ManagedGroupRow | null>(null);
   const [editNewUrl, setEditNewUrl] = useState("");
@@ -81,11 +98,115 @@ export function N8nManagedGroupsSection() {
     return rows.slice(start, start + GROUPS_PAGE_SIZE);
   }, [rows, safePage]);
 
+  const bulkParsedUrls = useMemo(
+    () => parseGroupUrlsFromBulkInput(bulkText),
+    [bulkText],
+  );
+
+  const bulkDuplicateKeys = useMemo(() => {
+    if (!rows.length) return new Set<string>();
+    const keys = new Set<string>();
+    for (const u of bulkParsedUrls) {
+      if (findDuplicateManagedGroup(rows, u, email)) keys.add(groupUrlMatchKey(u));
+    }
+    return keys;
+  }, [bulkParsedUrls, rows, email]);
+
+  const bulkHasDuplicateInForm = bulkDuplicateKeys.size > 0;
+  const bulkDuplicateUrls = useMemo(
+    () => bulkParsedUrls.filter((u) => bulkDuplicateKeys.has(groupUrlMatchKey(u))),
+    [bulkParsedUrls, bulkDuplicateKeys],
+  );
+  const bulkSubmitDisabled =
+    busyMutation || bulkParsedUrls.length === 0 || bulkHasDuplicateInForm;
+
+  const addUrlHasDuplicate = useMemo(() => {
+    if (!addOpen || !email || !rows.length || !addUrl.trim()) return false;
+    return Boolean(findDuplicateManagedGroup(rows, addUrl.trim(), email));
+  }, [addOpen, email, rows, addUrl]);
+
   const openAdd = () => {
+    setError(null);
     setAddUrl("");
     setAddName("");
     setAddMember("");
     setAddOpen(true);
+  };
+
+  const openBulkAdd = () => {
+    setBulkText("");
+    setError(null);
+    setBulkOpen(true);
+  };
+
+  const handleBulkUrlsBlur = () => {
+    setBulkText((t) => appendCommaNewlineAfterTrailingGroupUrl(t));
+  };
+
+  const dismissAddSuccessAndRefresh = useCallback(() => {
+    setAddSuccessMessage(null);
+    void loadGroups();
+  }, [loadGroups]);
+
+  useEffect(() => {
+    if (!addSuccessMessage) return;
+    const id = window.setTimeout(() => {
+      dismissAddSuccessAndRefresh();
+    }, ADD_SUCCESS_DISMISS_MS);
+    return () => window.clearTimeout(id);
+  }, [addSuccessMessage, dismissAddSuccessAndRefresh]);
+
+  /** Banner «Đã tải … nhóm cho …» sau refresh — tự ẩn để không chiếm chỗ lâu. */
+  useEffect(() => {
+    if (!info || !info.includes("Đã tải") || !info.includes("nhóm cho")) return;
+    const id = window.setTimeout(() => setInfo(null), ADD_SUCCESS_DISMISS_MS);
+    return () => window.clearTimeout(id);
+  }, [info]);
+
+  const submitBulkAdd = async () => {
+    if (!email) {
+      setError("Cần email crawler.");
+      return;
+    }
+    setError(null);
+    const group_urls = parseGroupUrlsFromBulkInput(bulkText);
+    if (group_urls.length === 0) {
+      setError(
+        "Chưa có URL nhóm hợp lệ. Mỗi dòng một link hoặc nhiều link cách nhau bởi dấu phẩy / xuống dòng (linkedin.com/groups/<id>).",
+      );
+      return;
+    }
+    if (rows.length > 0 && email && group_urls.some((u) => findDuplicateManagedGroup(rows, u, email))) {
+      return;
+    }
+    setBusyMutation(true);
+    setInfo(null);
+    try {
+      const res = await addListGroupBulk({
+        group_urls,
+        email,
+        post_to_webhook: true,
+        delay_min_sec: 2,
+        delay_max_sec: 5,
+        webhook_timeout_sec: ADD_LIST_GROUP_WEBHOOK_TIMEOUT_SEC,
+      });
+      if (!res.success) {
+        throw new Error(res.message || "Thêm hàng loạt thất bại.");
+      }
+      const items = res.data?.items ?? [];
+      const failed = items.filter((r) => !r.success);
+      setBulkOpen(false);
+      setBulkText("");
+      const msg =
+        failed.length > 0
+          ? `${res.message}\n\n${failed.length}/${items.length} URL cào lỗi — kiểm tra session LinkedIn / URL.`
+          : res.message || "Đã thêm nhóm hàng loạt thành công.";
+      setAddSuccessMessage(msg);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Thêm hàng loạt thất bại.");
+    } finally {
+      setBusyMutation(false);
+    }
   };
 
   const submitAdd = async () => {
@@ -96,6 +217,9 @@ export function N8nManagedGroupsSection() {
     const m = Number(addMember.replace(/\s/g, ""));
     if (!addUrl.trim() || !addName.trim() || addMember.trim() === "" || Number.isNaN(m) || m < 0) {
       setError("Điền đủ URL nhóm, tên nhóm và số thành viên (số ≥ 0).");
+      return;
+    }
+    if (rows.length > 0 && findDuplicateManagedGroup(rows, addUrl.trim(), email)) {
       return;
     }
     setBusyMutation(true);
@@ -109,8 +233,7 @@ export function N8nManagedGroupsSection() {
       });
       if (!res.success) throw new Error(res.message || "Thêm nhóm thất bại.");
       setAddOpen(false);
-      setInfo(res.message);
-      await loadGroups();
+      setAddSuccessMessage(res.message || "Đã thêm nhóm thành công.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Thêm nhóm thất bại.");
     } finally {
@@ -148,8 +271,8 @@ export function N8nManagedGroupsSection() {
       const res = await updateN8nGroup(payload);
       if (!res.success) throw new Error(res.message || "Cập nhật thất bại.");
       setEditRow(null);
-      setInfo(res.message);
       await loadGroups();
+      setInfo(res.message || "Đã cập nhật nhóm và làm mới danh sách.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Cập nhật thất bại.");
     } finally {
@@ -169,8 +292,8 @@ export function N8nManagedGroupsSection() {
         email,
       });
       if (!res.success) throw new Error(res.message || "Xóa thất bại.");
-      setInfo(res.message);
       await loadGroups();
+      setInfo(res.message || "Đã xóa nhóm và làm mới danh sách.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Xóa thất bại.");
     } finally {
@@ -196,6 +319,15 @@ export function N8nManagedGroupsSection() {
           >
             <MaterialIcon name="refresh" className="shrink-0 text-[18px]" />
             {loading ? "Đang tải…" : "Tải lại danh sách"}
+          </button>
+          <button
+            type="button"
+            className="border-outline-variant bg-secondary-container/30 text-on-secondary-container flex items-center gap-2 rounded-lg border px-md py-sm text-xs font-bold uppercase tracking-wide disabled:opacity-50"
+            onClick={openBulkAdd}
+            disabled={!email || busyMutation}
+          >
+            <MaterialIcon name="playlist_add" className="shrink-0 text-[18px]" />
+            Thêm hàng loạt
           </button>
           <button
             type="button"
@@ -357,6 +489,102 @@ export function N8nManagedGroupsSection() {
         </>
       ) : null}
 
+      {bulkOpen ? (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center p-md sm:items-center"
+          role="presentation"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
+            aria-label="Đóng"
+            onClick={() => !busyMutation && setBulkOpen(false)}
+          />
+          <div
+            className="border-outline-variant bg-surface relative z-10 w-[min(92vw,720px)] rounded-xl border p-lg shadow-xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-add-group-title"
+          >
+            <h3 id="bulk-add-group-title" className="text-h3 text-on-surface font-semibold">
+              Thêm nhóm hàng loạt
+            </h3>
+            <p className="text-body-sm text-on-surface-variant mt-sm">
+              Dán URL nhóm (mỗi dòng một link, hoặc cách nhau bởi dấu phẩy). Khi rời ô nhập, hệ thống có thể tự thêm
+              dấu phẩy và xuống dòng sau link cuối để dán tiếp. Quá trình cào + chờ n8n có thể mất vài phút — không đóng
+              trang.
+            </p>
+            <div className="mt-md">
+              <label
+                htmlFor="bulk-group-urls"
+                className="text-label-md text-on-surface-variant font-semibold uppercase"
+              >
+                Danh sách URL
+              </label>
+              <textarea
+                id="bulk-group-urls"
+                className="border-outline-variant bg-surface focus:border-primary mt-1 min-h-[200px] w-full resize-y rounded-lg border px-md py-sm font-mono text-sm"
+                value={bulkText}
+                onChange={(e) => {
+                  setBulkText(e.target.value);
+                  setError(null);
+                }}
+                onBlur={handleBulkUrlsBlur}
+                placeholder={
+                  "https://www.linkedin.com/groups/52007/\nhttps://www.linkedin.com/groups/6610234/"
+                }
+                spellCheck={false}
+                disabled={busyMutation}
+              />
+              {bulkHasDuplicateInForm ? (
+                <div className="border-outline-variant/80 bg-surface-container-low/60 mt-sm rounded-lg border p-sm">
+                  <p className="text-label-md text-on-surface-variant mb-xs font-semibold uppercase">
+                    URL trùng
+                  </p>
+                  <ul className="max-h-40 space-y-1 overflow-y-auto">
+                    {bulkDuplicateUrls.map((u, idx) => (
+                      <li
+                        key={`dup-${groupUrlMatchKey(u)}-${idx}`}
+                        className="break-all font-mono text-xs font-semibold leading-snug text-error"
+                      >
+                        {u}
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-sm text-xs text-error" role="status">
+                    Nhóm đã có trong danh sách.
+                  </p>
+                </div>
+              ) : null}
+              {bulkParsedUrls.length > 0 ? (
+                <p className="text-body-sm text-on-surface-variant mt-xs">
+                  Đã nhận diện:{" "}
+                  <strong className="text-on-surface">{bulkParsedUrls.length}</strong> URL hợp lệ
+                </p>
+              ) : null}
+            </div>
+            <div className="mt-lg flex justify-end gap-sm">
+              <button
+                type="button"
+                className="rounded-lg px-md py-sm text-sm font-bold uppercase text-on-surface-variant"
+                onClick={() => setBulkOpen(false)}
+                disabled={busyMutation}
+              >
+                Hủy
+              </button>
+              <button
+                type="button"
+                className="bg-primary text-on-primary rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:opacity-50"
+                onClick={() => void submitBulkAdd()}
+                disabled={bulkSubmitDisabled}
+              >
+                {busyMutation ? "Đang lấy thông tin..." : "Thêm hàng loạt"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {addOpen ? (
         <div
           className="fixed inset-0 z-50 flex items-end justify-center p-md sm:items-center"
@@ -381,11 +609,24 @@ export function N8nManagedGroupsSection() {
               <div>
                 <label className="text-label-md text-on-surface-variant font-semibold uppercase">URL nhóm</label>
                 <input
-                  className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
+                  className={cn(
+                    "bg-surface mt-1 w-full rounded-lg border px-md py-sm",
+                    addUrlHasDuplicate
+                      ? "border-error font-semibold text-error focus:border-error"
+                      : "border-outline-variant focus:border-primary",
+                  )}
                   value={addUrl}
-                  onChange={(e) => setAddUrl(e.target.value)}
+                  onChange={(e) => {
+                    setAddUrl(e.target.value);
+                    setError(null);
+                  }}
                   placeholder="https://www.linkedin.com/groups/…"
                 />
+                {addUrlHasDuplicate ? (
+                  <p className="mt-xs text-xs text-error" role="status">
+                    Nhóm đã có trong danh sách.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <label className="text-label-md text-on-surface-variant font-semibold uppercase">Tên nhóm</label>
@@ -419,7 +660,7 @@ export function N8nManagedGroupsSection() {
                 type="button"
                 className="bg-primary text-on-primary rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:opacity-50"
                 onClick={() => void submitAdd()}
-                disabled={busyMutation}
+                disabled={busyMutation || addUrlHasDuplicate}
               >
                 {busyMutation ? "Đang gửi…" : "Thêm"}
               </button>
@@ -500,6 +741,42 @@ export function N8nManagedGroupsSection() {
                 disabled={busyMutation}
               >
                 {busyMutation ? "Đang gửi…" : "Cập nhật"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {addSuccessMessage ? (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-md"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="add-success-title"
+          aria-describedby="add-success-desc"
+        >
+          <div className="border-outline-variant bg-surface w-[min(92vw,440px)] rounded-xl border p-lg shadow-xl">
+            <div className="flex items-start gap-md">
+              <MaterialIcon name="check_circle" className="text-primary shrink-0 text-[40px]" filled />
+              <div className="min-w-0 flex-1">
+                <h3 id="add-success-title" className="text-h3 text-on-surface font-semibold">
+                  Thành công
+                </h3>
+                <p
+                  id="add-success-desc"
+                  className="text-body-md text-on-surface mt-sm whitespace-pre-line break-words"
+                >
+                  {addSuccessMessage.trim() || "Các group đã được thêm thành công."}
+                </p>
+              </div>
+            </div>
+            <div className="mt-lg flex justify-end">
+              <button
+                type="button"
+                className="bg-primary text-on-primary rounded-lg px-lg py-sm text-sm font-bold uppercase"
+                onClick={() => void dismissAddSuccessAndRefresh()}
+              >
+                OK
               </button>
             </div>
           </div>

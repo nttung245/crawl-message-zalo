@@ -63,11 +63,17 @@ export function DashboardSidebar() {
       if (!loginResponse.success) {
         throw new Error(loginResponse.message || "Đăng nhập LinkedIn thất bại.");
       }
-      if (
-        loginResponse.need_otp &&
-        loginResponse.login_step === "need_otp" &&
-        loginResponse.session_id
-      ) {
+      const requiresOtp =
+        loginResponse.need_otp === true ||
+        loginResponse.login_step === "need_otp" ||
+        ((loginResponse.checkpoint_url ?? "").trim().length > 0 &&
+          (loginResponse.session_id ?? "").trim().length > 0);
+      if (requiresOtp) {
+        if (!loginResponse.session_id) {
+          throw new Error(
+            "Backend yêu cầu OTP nhưng chưa trả session_id. Vui lòng thử lại.",
+          );
+        }
         setPendingOtpSessionId(loginResponse.session_id);
         setPendingCheckpointUrl(loginResponse.checkpoint_url ?? null);
         setAccountError("LinkedIn yêu cầu mã xác minh. Nhập mã OTP rồi bấm Xác minh OTP.");

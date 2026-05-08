@@ -145,6 +145,35 @@ export interface AddN8nGroupRequest {
   email?: string;
 }
 
+/** POST /groups/add-list-group */
+export interface AddListGroupRequest {
+  group_urls: string[];
+  email?: string;
+  post_to_webhook?: boolean;
+  delay_min_sec?: number;
+  delay_max_sec?: number;
+  webhook_timeout_sec?: number;
+}
+
+export interface BulkGroupImportScrapedItem {
+  url_group: string;
+  name_group: string;
+  member: number;
+  memberCount: number | null;
+  success: boolean;
+  error: string | null;
+}
+
+export interface BulkGroupImportData {
+  items: BulkGroupImportScrapedItem[];
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+  webhook_response?: unknown;
+  webhook_skipped: boolean;
+}
+
+export type BulkGroupImportResponse = ApiResponse<BulkGroupImportData | null>;
+
 export interface RemoveN8nGroupRequest {
   url_group: string;
   email?: string;
@@ -177,6 +206,9 @@ export interface StatusDataResponse {
   n8n_webhook_add_group_configured?: boolean;
   n8n_webhook_remove_group_configured?: boolean;
   n8n_webhook_update_group_configured?: boolean;
+  n8n_webhook_add_list_group_configured?: boolean;
+  /** @deprecated Cùng giá trị với n8n_webhook_add_list_group_configured */
+  n8n_webhook_bulk_import_groups_configured?: boolean;
 }
 
 export type StatusResponse = ApiResponse<StatusDataResponse>;
