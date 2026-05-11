@@ -4,8 +4,8 @@ import { useEffect, useRef } from "react";
 
 import { MaterialIcon } from "@/components/ui";
 
-import { deriveGroupDisplayName } from "./dashboard-helpers";
-import { useDashboard } from "./dashboard-context";
+import { deriveGroupDisplayName } from "@/components/features/dashboard/dashboard-helpers";
+import { useDashboard } from "@/components/features/dashboard/dashboard-context";
 
 function downloadText(filename: string, content: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -17,7 +17,7 @@ function downloadText(filename: string, content: string, mime: string) {
   URL.revokeObjectURL(url);
 }
 
-export function GroupsToCrawlSection() {
+export function LinkedInGroupsToCrawlSection() {
   const d = useDashboard();
   const headerCheckboxRef = useRef<HTMLInputElement>(null);
 

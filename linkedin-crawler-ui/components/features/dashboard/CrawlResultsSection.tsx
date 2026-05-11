@@ -248,6 +248,9 @@ export function CrawlResultsSection() {
         tableVariant={d.crawlTableViewMode}
         filterAppliedLabel={d.filterAppliedLabel}
         modalTitleSuffix={isFiltered ? "(filter-data)" : "(get-all-posts)"}
+        dashboardEmail={d.email?.trim() || null}
+        refreshSessionsAfterReaction={d.refreshDashboardData}
+        refreshSessionsBusy={d.isGettingAllPosts}
       />
 
       {d.totalResultCount > 0 ? (

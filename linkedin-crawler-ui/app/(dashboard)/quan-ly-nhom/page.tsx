@@ -1,5 +1,5 @@
-import { GroupManagementPageContent } from "@/components/features/dashboard/GroupManagementPageContent";
+import { PlatformGroupManagementContent } from "@/components/features/dashboard/PlatformGroupManagementContent";
 
 export default function QuanLyNhomPage() {
-  return <GroupManagementPageContent />;
+  return <PlatformGroupManagementContent />;
 }

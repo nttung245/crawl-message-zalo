@@ -7,14 +7,14 @@ import { usePathname } from "next/navigation";
 import { MaterialIcon } from "@/components/ui";
 import { cn } from "@/lib/utils";
 
-import { TOP_POST_HEADER_AVATAR } from "./constants";
+import { LINKEDIN_TOP_POST_HEADER_AVATAR } from "./LinkedInTopPostConstants";
 
 const navActive =
   "cursor-pointer border-b-2 border-sky-700 pb-1 font-sans text-sm font-medium text-sky-700 opacity-90 transition-colors hover:opacity-100 dark:border-sky-400 dark:text-sky-400";
 const navIdle =
   "cursor-pointer font-sans text-sm font-medium text-slate-600 opacity-90 transition-colors hover:text-sky-600 hover:opacity-100 dark:text-zinc-400 dark:hover:text-sky-300";
 
-export function TopPostsAppBar() {
+export function LinkedInTopPostsAppBar() {
   const pathname = usePathname();
   const isHome = pathname === "/";
   const isTopPost = pathname.startsWith("/top-post");
@@ -75,7 +75,7 @@ export function TopPostsAppBar() {
         </button>
         <div className="h-8 w-8 overflow-hidden rounded-full border border-slate-200">
           <Image
-            src={TOP_POST_HEADER_AVATAR}
+            src={LINKEDIN_TOP_POST_HEADER_AVATAR}
             alt="Ảnh hồ sơ"
             width={32}
             height={32}

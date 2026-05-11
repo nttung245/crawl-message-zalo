@@ -4,14 +4,17 @@ import Image from "next/image";
 
 import { MaterialIcon } from "@/components/ui";
 
-import { topPostStatusClass, topPostStatusLabel } from "./top-post-helpers";
-import type { TopPost } from "./types";
+import {
+  linkedInTopPostStatusClass,
+  linkedInTopPostStatusLabel,
+} from "./LinkedInTopPostHelpers";
+import type { LinkedInTopPost } from "./LinkedInTopPostTypes";
 
-interface TopPostCardProps {
-  post: TopPost;
+interface LinkedInTopPostCardProps {
+  post: LinkedInTopPost;
 }
 
-export function TopPostCard({ post }: TopPostCardProps) {
+export function LinkedInTopPostCard({ post }: LinkedInTopPostCardProps) {
   return (
     <article className="enterprise-card group flex flex-col overflow-hidden rounded-xl">
       <div className="border-outline-variant flex items-start justify-between gap-3 border-b p-md">
@@ -35,9 +38,9 @@ export function TopPostCard({ post }: TopPostCardProps) {
           </div>
         </div>
         <span
-          className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold tracking-wide uppercase ${topPostStatusClass(post.status)}`}
+          className={`shrink-0 rounded px-2 py-1 text-[10px] font-bold tracking-wide uppercase ${linkedInTopPostStatusClass(post.status)}`}
         >
-          {topPostStatusLabel(post.status)}
+          {linkedInTopPostStatusLabel(post.status)}
         </span>
       </div>
 

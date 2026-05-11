@@ -11,7 +11,7 @@ const sideActive =
 const sideIdle =
   "flex items-center gap-3 px-6 py-3 text-slate-500 transition-all duration-150 hover:bg-slate-50 hover:text-sky-600 active:scale-95 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-sky-300";
 
-export function TopPostsSidebar() {
+export function LinkedInTopPostsSidebar() {
   const pathname = usePathname();
   const isHome = pathname === "/";
   const isTopPost = pathname.startsWith("/top-post");
@@ -25,51 +25,30 @@ export function TopPostsSidebar() {
         </div>
         <div>
           <h2 className="text-lg leading-tight font-black text-slate-900 dark:text-zinc-100">
-          LinkedIn Scraper
+            LinkedIn Scraper
           </h2>
-          
         </div>
       </div>
       <nav className="flex-1 space-y-1">
         <Link href="/" className={cn(isHome ? sideActive : sideIdle)}>
           <MaterialIcon name="radar" className="shrink-0" />
           <span className="font-sans text-xs font-bold tracking-wider uppercase">
-           Dữ liệu cào
+            Post Feed
           </span>
         </Link>
-        <Link href="/top-post" className={cn(isTopPost ? sideActive : sideIdle)}>
-          <MaterialIcon name="trending_up" className="shrink-0" />
-          <span className="font-sans text-xs font-bold tracking-wider uppercase">
-            Top bài
-          </span>
-        </Link>
-        <span className="flex cursor-pointer items-center gap-3 px-6 py-3 text-slate-500 transition-all duration-150 hover:bg-slate-50 hover:text-sky-600 active:scale-95 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-sky-300">
-          <MaterialIcon name="download" className="shrink-0" />
-          <span className="font-sans text-xs font-bold tracking-wider uppercase">
-            Xuất dữ liệu
-          </span>
-        </span>
+       
+        
         <Link
           href="/quan-ly-nhom"
           className={cn(isGroupMgmt ? sideActive : sideIdle)}
         >
           <MaterialIcon name="group" className="shrink-0" />
           <span className="font-sans text-xs font-bold tracking-wider uppercase">
-            Quản lý nhóm
+            GROUP
           </span>
         </Link>
-        <span className="flex cursor-pointer items-center gap-3 px-6 py-3 text-slate-500 transition-all duration-150 hover:bg-slate-50 hover:text-sky-600 active:scale-95 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-sky-300">
-          <MaterialIcon name="list_alt" className="shrink-0" />
-          <span className="font-sans text-xs font-bold tracking-wider uppercase">
-            Nhật ký kiểm toán
-          </span>
-        </span>
-        <span className="flex cursor-pointer items-center gap-3 px-6 py-3 text-slate-500 transition-all duration-150 hover:bg-slate-50 hover:text-sky-600 active:scale-95 dark:text-zinc-400 dark:hover:bg-zinc-800/50 dark:hover:text-sky-300">
-          <MaterialIcon name="api" className="shrink-0" />
-          <span className="font-sans text-xs font-bold tracking-wider uppercase">
-            Truy cập API
-          </span>
-        </span>
+        
+       
       </nav>
       <div className="border-slate-100 p-6 dark:border-zinc-800">
         <button

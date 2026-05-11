@@ -1,3 +1,3 @@
 /** Ảnh đại diện thanh top bar (mockup Top posts) */
-export const TOP_POST_HEADER_AVATAR =
+export const LINKEDIN_TOP_POST_HEADER_AVATAR =
   "https://lh3.googleusercontent.com/aida-public/AB6AXuDr6QbLlDvZaPnpt0QdDL9buJc446uaIlZlWmLTA3hxm13YkvkkDOLMaa4A5WEmJGSSRM49jULY-o2onlFtrlig-d3AKT2_sRQn9IR6edCmuaeVcPtF-7rUUaCyJ4kUjsM9NWyHVAlWAFMst_UpzpaYdg40zgAFzmtIbA54ZTruWTFyZNHabT0i1KMv8LUZhGcKVXRuQkOK98P2o5MgDzNW2EcQfLMgxTQNWEm0eQLxe1olxoR1WF3OTxuscpZdIaq04SrWSfLggqdY";

@@ -5,30 +5,30 @@ import { useMemo, useState } from "react";
 import { MaterialIcon } from "@/components/ui";
 
 import {
-  TOP_POSTS_MOCK,
-  TOP_POSTS_PAGE_SIZE,
-  TOP_POSTS_TOTAL,
-} from "./mockData";
-import { TopPostCard } from "./TopPostCard";
-import { TopPostsAppBar } from "./TopPostsAppBar";
-import { TopPostsPagination } from "./TopPostsPagination";
-import { TopPostsSidebar } from "./TopPostsSidebar";
-import { TopPostsStatsRow } from "./TopPostsStatsRow";
+  LINKEDIN_TOP_POSTS_MOCK,
+  LINKEDIN_TOP_POSTS_PAGE_SIZE,
+  LINKEDIN_TOP_POSTS_TOTAL,
+} from "./LinkedInTopPostMockData";
+import { LinkedInTopPostCard } from "./LinkedInTopPostCard";
+import { LinkedInTopPostsAppBar } from "./LinkedInTopPostsAppBar";
+import { LinkedInTopPostsPagination } from "./LinkedInTopPostsPagination";
+import { LinkedInTopPostsSidebar } from "./LinkedInTopPostsSidebar";
+import { LinkedInTopPostsStatsRow } from "./LinkedInTopPostsStatsRow";
 
 const TOTAL_PAGES = Math.max(
   1,
-  Math.ceil(TOP_POSTS_TOTAL / TOP_POSTS_PAGE_SIZE),
+  Math.ceil(LINKEDIN_TOP_POSTS_TOTAL / LINKEDIN_TOP_POSTS_PAGE_SIZE),
 );
 
-export function TopPostsPage() {
+export function LinkedInTopPostsPage() {
   const [page, setPage] = useState(1);
 
   const { pageStart, pageEnd, slice } = useMemo(() => {
-    const start = (page - 1) * TOP_POSTS_PAGE_SIZE;
-    const end = Math.min(start + TOP_POSTS_PAGE_SIZE, TOP_POSTS_TOTAL);
-    const sliceLocal = TOP_POSTS_MOCK.slice(start, end);
+    const start = (page - 1) * LINKEDIN_TOP_POSTS_PAGE_SIZE;
+    const end = Math.min(start + LINKEDIN_TOP_POSTS_PAGE_SIZE, LINKEDIN_TOP_POSTS_TOTAL);
+    const sliceLocal = LINKEDIN_TOP_POSTS_MOCK.slice(start, end);
     return {
-      pageStart: TOP_POSTS_TOTAL === 0 ? 0 : start + 1,
+      pageStart: LINKEDIN_TOP_POSTS_TOTAL === 0 ? 0 : start + 1,
       pageEnd: end,
       slice: sliceLocal,
     };
@@ -41,8 +41,8 @@ export function TopPostsPage() {
 
   return (
     <div className="page-canvas-brand font-body-md text-on-surface min-h-screen">
-      <TopPostsAppBar />
-      <TopPostsSidebar />
+      <LinkedInTopPostsAppBar />
+      <LinkedInTopPostsSidebar />
 
       <main className="min-h-screen px-lg pt-lg pb-xl lg:ml-64">
         <div className="mx-auto max-w-[1440px]">
@@ -74,20 +74,20 @@ export function TopPostsPage() {
             </div>
           </div>
 
-          <TopPostsStatsRow />
+          <LinkedInTopPostsStatsRow />
 
           <div className="grid grid-cols-1 gap-lg md:grid-cols-2 xl:grid-cols-3">
             {slice.map((post) => (
-              <TopPostCard key={post.id} post={post} />
+              <LinkedInTopPostCard key={post.id} post={post} />
             ))}
           </div>
 
-          <TopPostsPagination
+          <LinkedInTopPostsPagination
             page={page}
             totalPages={TOTAL_PAGES}
             pageStart={pageStart}
             pageEnd={pageEnd}
-            totalItems={TOP_POSTS_TOTAL}
+            totalItems={LINKEDIN_TOP_POSTS_TOTAL}
             onPrev={handlePrev}
             onNext={handleNext}
             onSelectPage={handleSelect}

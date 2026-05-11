@@ -174,6 +174,30 @@ export interface BulkGroupImportData {
 
 export type BulkGroupImportResponse = ApiResponse<BulkGroupImportData | null>;
 
+/** POST /linkedin/me/profile-slug-sheet-check */
+export interface ProfileSlugSheetCheckData {
+  email_found_in_sheet: boolean;
+  webhook_http_status: number;
+  row_count: number;
+  matched_profile_slug?: string | null;
+}
+
+export type ProfileSlugSheetCheckResponse = ApiResponse<ProfileSlugSheetCheckData | null>;
+
+/** POST /linkedin/me/ensure-profile-slug */
+export interface EnsureProfileSlugData {
+  email_found_in_sheet?: boolean;
+  skipped_playwright?: boolean;
+  skipped_register_webhook?: boolean;
+  sheet_check_skipped_no_webhook?: boolean;
+  profile_slug?: string | null;
+  profile_url?: string | null;
+  sheet_webhook_http_status?: number | null;
+  register_webhook_http_status?: number | null;
+}
+
+export type EnsureProfileSlugResponse = ApiResponse<EnsureProfileSlugData | null>;
+
 export interface RemoveN8nGroupRequest {
   url_group: string;
   email?: string;
@@ -209,6 +233,87 @@ export interface StatusDataResponse {
   n8n_webhook_add_list_group_configured?: boolean;
   /** @deprecated Cùng giá trị với n8n_webhook_add_list_group_configured */
   n8n_webhook_bulk_import_groups_configured?: boolean;
+  n8n_webhook_get_profile_slugs_configured?: boolean;
+  n8n_webhook_add_profile_slug_configured?: boolean;
+  n8n_webhook_post_reaction_configured?: boolean;
+  n8n_webhook_post_comment_configured?: boolean;
 }
 
 export type StatusResponse = ApiResponse<StatusDataResponse>;
+
+/** POST /linkedin/post/react — khớp backend ``PostReactionKind``. */
+export type PostLinkedInReactionKind =
+  | "like"
+  | "love"
+  | "celebrate"
+  | "support"
+  | "insightful"
+  | "funny";
+
+export interface PostLinkedInReactionRequest {
+  post_url: string;
+  reaction: PostLinkedInReactionKind;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  /** Toàn bộ trường dòng (sheet/API) — webhook merge rồi ghi đè id + reaction + post_url. */
+  sheet_row?: Record<string, unknown> | null;
+  session_id?: string | null;
+  email?: string | null;
+  post_to_webhook?: boolean;
+}
+
+export interface PostLinkedInReactionData {
+  reaction: string;
+  row_number: number;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  post_url: string;
+  final_url: string;
+  resolved_playwright_session_id: string;
+  webhook_called: boolean;
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+}
+
+export type PostLinkedInReactionResponse =
+  ApiResponse<PostLinkedInReactionData | null>;
+
+/** Một phần tử trong ``existing_app_comments`` — POST /linkedin/post/comment. */
+export interface LinkedInAppCommentEntry {
+  comment: string;
+  day_comment: string;
+}
+
+export interface PostLinkedInCommentRequest {
+  post_url: string;
+  comment_text: string;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  /** Lịch sử đã gửi trước đó (backend append bản ghi mới). */
+  existing_app_comments: LinkedInAppCommentEntry[];
+  sheet_row?: Record<string, unknown> | null;
+  session_id?: string | null;
+  email?: string | null;
+  post_to_webhook?: boolean;
+  typing_delay_ms?: number;
+  timeout_ms?: number;
+}
+
+export interface PostLinkedInCommentData {
+  comment_text: string;
+  app_comments: LinkedInAppCommentEntry[];
+  row_number: number;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  post_url: string;
+  final_url: string;
+  resolved_playwright_session_id: string;
+  webhook_called: boolean;
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+}
+
+export type PostLinkedInCommentResponse =
+  ApiResponse<PostLinkedInCommentData | null>;

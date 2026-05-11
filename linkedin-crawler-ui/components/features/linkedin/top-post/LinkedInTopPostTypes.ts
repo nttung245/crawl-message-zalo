@@ -1,6 +1,6 @@
-export type TopPostStatus = "active" | "completed" | "failed";
+export type LinkedInTopPostStatus = "active" | "completed" | "failed";
 
-export interface TopPost {
+export interface LinkedInTopPost {
   id: string;
   /** Tiêu đề / chủ đề bài viết (hiển thị rõ trên card) */
   title: string;
@@ -8,7 +8,7 @@ export interface TopPost {
   authorName: string;
   authorRole: string;
   avatarUrl: string;
-  status: TopPostStatus;
+  status: LinkedInTopPostStatus;
   /** URL bài viết LinkedIn (UGC / activity) */
   postUrl: string;
   /** Tên nhóm nguồn */

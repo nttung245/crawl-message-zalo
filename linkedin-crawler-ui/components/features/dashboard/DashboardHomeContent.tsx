@@ -1,25 +1,11 @@
-import { CrawlerConfigCard } from "./CrawlerConfigCard";
-import { CrawlResultsSection } from "./CrawlResultsSection";
+"use client";
+
+import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
+import { FacebookDashboardHomeContent } from "@/components/features/facebook/FacebookDashboardHomeContent";
+import { LinkedInDashboardHomeContent } from "@/components/features/linkedin/dashboard";
 
 export function DashboardHomeContent() {
-  return (
-    <>
-      <div className="mb-xl">
-        <h1 className="text-h1 text-on-surface mb-xs font-semibold">
-          LinkedIn Group Crawler
-        </h1>
-        <p className="text-body-lg text-on-surface-variant">
-          Thu thập và phân tích dữ liệu từ nhiều nhóm LinkedIn một cách hiệu quả.
-        </p>
-      </div>
-
-      <div className="mb-xl max-w-2xl">
-        <CrawlerConfigCard />
-      </div>
-
-      <div className="mb-xl">
-        <CrawlResultsSection />
-      </div>
-    </>
-  );
+  const { platform } = useAppPlatform();
+  if (platform === "facebook") return <FacebookDashboardHomeContent />;
+  return <LinkedInDashboardHomeContent />;
 }
