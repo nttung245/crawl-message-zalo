@@ -1,21 +1,34 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
 import type { CrawlSessionGroup } from "@/types/api";
 
 import {
-  formatCellValue,
+  formatSheetCommentAutomationLabelVi,
+  formatSheetInteractionLabelVi,
+} from "./post-sheet-engagement";
+import {
+  enrichPostRowNumberIfMissing,
   pickNum,
   pickStr,
-  sortedRecordEntries,
 } from "./n8n-sheet-helpers";
+import { SessionPostDetailModal } from "./SessionPostDetailModal";
+
+function rowPatchKey(sessionId: string, rowNum: number): string {
+  return `${sessionId}:${rowNum}`;
+}
 
 export interface SessionPostsModalProps {
   session: CrawlSessionGroup | null;
   titleSuffix?: string;
   onClose: () => void;
+  dashboardEmail?: string | null;
+  linkedinPlaywrightSessionId?: string | null;
+  /** Sau reaction + webhook OK — dialog OK gọi (get-all-posts). */
+  onRefreshSessions?: () => Promise<void>;
+  refreshSessionsBusy?: boolean;
 }
 
 function ExternalLink({
@@ -44,23 +57,46 @@ export function SessionPostsModal({
   session,
   titleSuffix = "",
   onClose,
+  dashboardEmail = null,
+  linkedinPlaywrightSessionId = null,
+  onRefreshSessions,
+  refreshSessionsBusy = false,
 }: SessionPostsModalProps) {
   const PAGE_SIZE = 8;
   const [page, setPage] = useState(1);
-  const posts = session?.posts ?? [];
+  const [detailPost, setDetailPost] = useState<{
+    raw: Record<string, unknown>;
+    rowNum: number;
+  } | null>(null);
+  const [postPatches, setPostPatches] = useState<
+    Record<string, Record<string, unknown>>
+  >({});
+  const posts = useMemo(() => session?.posts ?? [], [session]);
+
+  useEffect(() => {
+    setPostPatches({});
+  }, [session?.id_session_crawl]);
+
+  const mergedPost = useCallback(
+    (raw: Record<string, unknown>, rowNum: number): Record<string, unknown> => {
+      const sid = session?.id_session_crawl ?? "";
+      const patch = postPatches[rowPatchKey(sid, rowNum)];
+      const base = patch ? { ...raw, ...patch } : raw;
+      return enrichPostRowNumberIfMissing(base, rowNum);
+    },
+    [postPatches, session?.id_session_crawl],
+  );
 
   useEffect(() => {
     if (!session) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key !== "Escape") return;
+      if (detailPost) setDetailPost(null);
+      else onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [session, onClose]);
-
-  useEffect(() => {
-    setPage(1);
-  }, [session?.id_session_crawl]);
+  }, [session, detailPost, onClose]);
 
   const totalPosts = posts.length;
   const totalPages = Math.max(1, Math.ceil(totalPosts / PAGE_SIZE));
@@ -130,7 +166,7 @@ export function SessionPostsModal({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-lg py-md">
           <div className="overflow-x-auto rounded-lg border border-outline-variant">
-            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+            <table className="w-full min-w-[960px] border-collapse text-left text-sm">
               <thead className="bg-surface-container-low border-outline-variant border-b">
                 <tr>
                   <th className="text-table-header text-on-surface-variant px-md py-sm font-semibold uppercase">
@@ -160,11 +196,18 @@ export function SessionPostsModal({
                   <th className="text-table-header text-on-surface-variant px-md py-sm font-semibold uppercase">
                     Ngày
                   </th>
+                  <th className="text-table-header text-on-surface-variant px-md py-sm text-right font-semibold uppercase">
+                    Chi tiết
+                  </th>
                 </tr>
               </thead>
               <tbody className="divide-outline-variant divide-y">
                 {paginatedPosts.map((raw, idx) => {
-                  const post = raw as Record<string, unknown>;
+                  const rowNum = pageStart + idx + 1;
+                  const post = mergedPost(raw as Record<string, unknown>, rowNum);
+                  const interactLabel = formatSheetInteractionLabelVi(post);
+                  const commentDoneLabel =
+                    formatSheetCommentAutomationLabelVi(post);
                   const groupName = pickStr(post, [
                     "Tên nhóm",
                     "group_name",
@@ -189,7 +232,7 @@ export function SessionPostsModal({
                   return (
                     <tr key={idx} className="hover:bg-surface-container/60">
                       <td className="text-on-surface-variant px-md py-sm">
-                        {pageStart + idx + 1}
+                        {rowNum}
                       </td>
                       <td className="text-on-surface max-w-[140px] px-md py-sm">
                         <span className="line-clamp-2" title={groupName}>
@@ -227,6 +270,38 @@ export function SessionPostsModal({
                       <td className="text-on-surface-variant px-md py-sm whitespace-nowrap">
                         {day || "—"}
                       </td>
+                      <td className="max-w-[200px] px-md py-sm text-right align-middle">
+                        <div className="flex flex-wrap items-center justify-end gap-x-sm gap-y-1">
+                          <span
+                            className="text-on-surface block min-w-0 max-w-[92px] break-words text-right text-[10px] leading-tight font-semibold"
+                            title="Sheet: reaction"
+                          >
+                            {interactLabel}
+                          </span>
+                          <span
+                            className="text-on-surface block min-w-0 max-w-[92px] break-words text-right text-[10px] leading-tight font-semibold"
+                            title="Sheet: comment (automation)"
+                          >
+                            {commentDoneLabel}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setDetailPost({
+                                raw: post,
+                                rowNum,
+                              })
+                            }
+                            className="border-primary text-primary hover:bg-primary/5 inline-flex shrink-0 items-center gap-1 rounded-lg border bg-transparent px-sm py-1.5 text-[11px] font-bold uppercase tracking-wide"
+                          >
+                            <MaterialIcon
+                              name="visibility"
+                              className="text-[16px]"
+                            />
+                            Xem chi tiết
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -234,71 +309,6 @@ export function SessionPostsModal({
             </table>
           </div>
 
-          <div className="mt-lg space-y-md">
-            <p className="text-label-md text-on-surface-variant font-semibold uppercase">
-              Đầy đủ trường từ API (theo từng bài)
-            </p>
-            {paginatedPosts.map((raw, idx) => {
-              const post = raw as Record<string, unknown>;
-              const content = pickStr(post, ["Nội dung", "content"]);
-              const groupNameDetail =
-                pickStr(post, [
-                  "Tên nhóm",
-                  "group_name",
-                  "groupName",
-                ]).trim() ||
-                session.group_name?.trim() ||
-                "";
-              const postTitle =
-                groupNameDetail.length > 0
-                  ? `Bài ${pageStart + idx + 1} - ${groupNameDetail}`
-                  : `Bài ${pageStart + idx + 1}`;
-              return (
-                <div
-                  key={`detail-${idx}`}
-                  className="border-outline-variant bg-surface-container-low/40 rounded-lg border"
-                >
-                  <div className="border-outline-variant flex items-center justify-between border-b px-md py-sm">
-                    <span
-                      className="text-body-sm font-semibold text-on-surface line-clamp-2 min-w-0 pr-sm"
-                      title={postTitle}
-                    >
-                      {postTitle}
-                    </span>
-                  </div>
-                  {content ? (
-                    <div className="text-body-sm text-on-surface-variant border-outline-variant border-b px-md py-sm">
-                      <span className="font-semibold text-on-surface">
-                        Nội dung:{" "}
-                      </span>
-                      <span className="whitespace-pre-wrap break-words">
-                        {content}
-                      </span>
-                    </div>
-                  ) : null}
-                  <dl className="max-h-56 overflow-y-auto px-md py-sm text-xs">
-                    {sortedRecordEntries(post).map(([k, v]) => (
-                      <div
-                        key={k}
-                        className="border-outline-variant/60 grid grid-cols-1 gap-0 border-b border-dashed py-1.5 last:border-0 sm:grid-cols-[minmax(0,220px)_1fr]"
-                      >
-                        <dt className="text-on-surface-variant shrink-0 pr-sm font-medium">
-                          {k}
-                        </dt>
-                        <dd className="text-on-surface min-w-0 break-words">
-                          {typeof v === "string" && /^https?:\/\//i.test(v) ? (
-                            <ExternalLink href={v}>{v}</ExternalLink>
-                          ) : (
-                            formatCellValue(v)
-                          )}
-                        </dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-              );
-            })}
-          </div>
           <div className="text-body-sm text-on-surface-variant mt-md flex items-center justify-between gap-md">
             <span>
               Hiển thị {pageStart + 1}–
@@ -330,6 +340,32 @@ export function SessionPostsModal({
           </div>
         </div>
       </div>
+
+      {detailPost ? (
+        <SessionPostDetailModal
+          session={session}
+          post={detailPost.raw}
+          rowNumber={detailPost.rowNum}
+          titleSuffix={titleSuffix}
+          dashboardEmail={dashboardEmail}
+          linkedinPlaywrightSessionId={linkedinPlaywrightSessionId}
+          onRefreshSessions={onRefreshSessions}
+          refreshSessionsBusy={refreshSessionsBusy}
+          onReactionSucceeded={(rowNum, patch) => {
+            const key = rowPatchKey(session.id_session_crawl, rowNum);
+            setPostPatches((prev) => ({
+              ...prev,
+              [key]: { ...prev[key], ...patch },
+            }));
+            setDetailPost((d) =>
+              d && d.rowNum === rowNum
+                ? { ...d, raw: { ...d.raw, ...patch } }
+                : d,
+            );
+          }}
+          onClose={() => setDetailPost(null)}
+        />
+      ) : null}
     </div>
   );
 }

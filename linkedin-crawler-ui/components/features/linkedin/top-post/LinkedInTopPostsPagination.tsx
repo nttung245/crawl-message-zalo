@@ -1,6 +1,6 @@
 "use client";
 
-interface TopPostsPaginationProps {
+interface LinkedInTopPostsPaginationProps {
   page: number;
   totalPages: number;
   pageStart: number;
@@ -11,7 +11,7 @@ interface TopPostsPaginationProps {
   onSelectPage: (p: number) => void;
 }
 
-export function TopPostsPagination({
+export function LinkedInTopPostsPagination({
   page,
   totalPages,
   pageStart,
@@ -20,7 +20,7 @@ export function TopPostsPagination({
   onPrev,
   onNext,
   onSelectPage,
-}: TopPostsPaginationProps) {
+}: LinkedInTopPostsPaginationProps) {
   return (
     <div className="border-outline-variant mt-xl flex flex-col items-center justify-between gap-4 border-t py-md md:flex-row">
       <p className="text-body-sm text-on-surface-variant text-center md:text-left">

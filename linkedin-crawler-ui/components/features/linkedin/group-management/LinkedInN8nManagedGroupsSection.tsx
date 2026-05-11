@@ -20,7 +20,7 @@ import {
 } from "@/lib/parse-group-urls-bulk";
 import { cn } from "@/lib/utils";
 
-import { useDashboard } from "./dashboard-context";
+import { useDashboard } from "@/components/features/dashboard/dashboard-context";
 
 const GROUPS_PAGE_SIZE = 8;
 /** Chờ backend + n8n (giây) — khớp .env / timeout server (~5–6 phút). */
@@ -28,7 +28,7 @@ const ADD_LIST_GROUP_WEBHOOK_TIMEOUT_SEC = 360;
 /** Banner info ngắn sau refresh. */
 const ADD_SUCCESS_DISMISS_MS = 2000;
 
-export function N8nManagedGroupsSection() {
+export function LinkedInN8nManagedGroupsSection() {
   const d = useDashboard();
   const email = d.email.trim();
 

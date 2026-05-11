@@ -3,6 +3,7 @@ import type {
   AddListGroupRequest,
   AddN8nGroupRequest,
   BulkGroupImportResponse,
+  EnsureProfileSlugResponse,
   CrawlGroupRequest,
   CrawlResponse,
   FilterDataRequest,
@@ -12,6 +13,10 @@ import type {
   GetAllPostsResponse,
   LoginRequest,
   LoginResponse,
+  PostLinkedInCommentRequest,
+  PostLinkedInCommentResponse,
+  PostLinkedInReactionRequest,
+  PostLinkedInReactionResponse,
   N8nGroupOperationResponse,
   RemoveN8nGroupRequest,
   StartWorkflowRequest,
@@ -20,6 +25,7 @@ import type {
   UpdateN8nGroupRequest,
   VerifyLoginRequest,
   VerifyLoginResponse,
+  ProfileSlugSheetCheckResponse,
 } from "@/types/api";
 
 const JSON_HEADERS = {
@@ -76,6 +82,32 @@ export function loginLinkedIn(payload: LoginRequest): Promise<LoginResponse> {
   });
 }
 
+export function checkProfileSlugInSheet(payload: {
+  email: string;
+}): Promise<ProfileSlugSheetCheckResponse> {
+  return requestJson<ProfileSlugSheetCheckResponse>(
+    "/linkedin/me/profile-slug-sheet-check",
+    {
+      method: "POST",
+      body: JSON.stringify({ email: payload.email.trim() }),
+    },
+  );
+}
+
+/** Sau login / verify: kiểm tra sheet → nếu chưa có email thì cào slug + webhook add. */
+export function ensureProfileSlugIfMissing(payload: {
+  email: string;
+  sessionId?: string | null;
+}): Promise<EnsureProfileSlugResponse> {
+  const body: Record<string, unknown> = { email: payload.email.trim() };
+  const sid = payload.sessionId?.trim();
+  if (sid) body.session_id = sid;
+  return requestJson<EnsureProfileSlugResponse>("/linkedin/me/ensure-profile-slug", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
 export function verifyLinkedInOtp(
   payload: VerifyLoginRequest,
 ): Promise<VerifyLoginResponse> {
@@ -122,6 +154,60 @@ export function getAllLinkedInPosts(
   return requestJson<GetAllPostsResponse>("/get-all-posts", {
     method: "POST",
     body: JSON.stringify(payload),
+  });
+}
+
+/** Playwright reaction trên URL bài + webhook ``N8N_WEBHOOK_POST_REACTION`` (ghi sheet). */
+export function postLinkedInReaction(
+  payload: PostLinkedInReactionRequest,
+): Promise<PostLinkedInReactionResponse> {
+  const body: Record<string, unknown> = {
+    post_url: payload.post_url.trim(),
+    reaction: payload.reaction,
+    Email_crawl: payload.Email_crawl.trim(),
+    ID_session_crawl: payload.ID_session_crawl.trim(),
+    row_number: payload.row_number,
+    post_to_webhook: payload.post_to_webhook ?? true,
+  };
+  if (payload.sheet_row && typeof payload.sheet_row === "object") {
+    body.sheet_row = payload.sheet_row;
+  }
+  const sid = payload.session_id?.trim();
+  if (sid) body.session_id = sid;
+  if (payload.email?.trim()) body.email = payload.email.trim();
+  return requestJson<PostLinkedInReactionResponse>("/linkedin/post/react", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+/** Playwright đăng comment + webhook ``N8N_WEBHOOK_COMMENT`` / ``N8N_WEBHOOK_POST_COMMENT``. */
+export function postLinkedInComment(
+  payload: PostLinkedInCommentRequest,
+): Promise<PostLinkedInCommentResponse> {
+  const body: Record<string, unknown> = {
+    post_url: payload.post_url.trim(),
+    comment_text: payload.comment_text.trim(),
+    Email_crawl: payload.Email_crawl.trim(),
+    ID_session_crawl: payload.ID_session_crawl.trim(),
+    row_number: payload.row_number,
+    existing_app_comments: payload.existing_app_comments.map((e) => ({
+      comment: e.comment.trim(),
+      day_comment: e.day_comment.trim(),
+    })),
+    post_to_webhook: payload.post_to_webhook ?? true,
+    typing_delay_ms: payload.typing_delay_ms ?? 30,
+    timeout_ms: payload.timeout_ms ?? 20000,
+  };
+  if (payload.sheet_row && typeof payload.sheet_row === "object") {
+    body.sheet_row = payload.sheet_row;
+  }
+  const sid = payload.session_id?.trim();
+  if (sid) body.session_id = sid;
+  if (payload.email?.trim()) body.email = payload.email.trim();
+  return requestJson<PostLinkedInCommentResponse>("/linkedin/post/comment", {
+    method: "POST",
+    body: JSON.stringify(body),
   });
 }
 

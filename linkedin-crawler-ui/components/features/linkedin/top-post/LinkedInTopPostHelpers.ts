@@ -1,6 +1,8 @@
-import type { TopPostStatus } from "./types";
+import type { LinkedInTopPostStatus } from "./LinkedInTopPostTypes";
 
-export function topPostStatusLabel(status: TopPostStatus): string {
+export function linkedInTopPostStatusLabel(
+  status: LinkedInTopPostStatus,
+): string {
   switch (status) {
     case "active":
       return "Đang hot";
@@ -13,7 +15,9 @@ export function topPostStatusLabel(status: TopPostStatus): string {
   }
 }
 
-export function topPostStatusClass(status: TopPostStatus): string {
+export function linkedInTopPostStatusClass(
+  status: LinkedInTopPostStatus,
+): string {
   switch (status) {
     case "active":
       return "bg-primary/10 text-primary";

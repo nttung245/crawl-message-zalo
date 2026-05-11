@@ -5,9 +5,11 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { MaterialIcon } from "@/components/ui";
+import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
 import { cn } from "@/lib/utils";
 import { loginLinkedIn, verifyLinkedInOtp } from "@/services/linkedinCrawlerService";
 
+import { DashboardPlatformSwitcher } from "./DashboardPlatformSwitcher";
 import { useDashboard } from "./dashboard-context";
 
 const sideActive =
@@ -17,6 +19,7 @@ const sideIdle =
 
 export function DashboardSidebar() {
   const d = useDashboard();
+  const { platform } = useAppPlatform();
   const pathname = usePathname();
   const isHome = pathname === "/";
   const isGroupMgmt = pathname === "/quan-ly-nhom";
@@ -79,7 +82,7 @@ export function DashboardSidebar() {
         setAccountError("LinkedIn yêu cầu mã xác minh. Nhập mã OTP rồi bấm Xác minh OTP.");
         return;
       }
-      await d.applyAccountCredentials(email, password);
+      await d.applyAccountCredentials(email, password, loginResponse.session_id);
       setAccountOpen(false);
     } catch (error) {
       setAccountError(
@@ -110,7 +113,11 @@ export function DashboardSidebar() {
       if (!response.success) {
         throw new Error(response.message || "Xác minh OTP thất bại.");
       }
-      await d.applyAccountCredentials(draftEmail.trim(), draftPassword);
+      await d.applyAccountCredentials(
+        draftEmail.trim(),
+        draftPassword,
+        response.session_id,
+      );
       setPendingOtpSessionId(null);
       setPendingCheckpointUrl(null);
       setOtpCode("");
@@ -132,15 +139,18 @@ export function DashboardSidebar() {
         </div>
         <div>
           <h2 className="text-lg leading-tight font-black text-slate-900 dark:text-zinc-100">
-          LinkedIn Scraper
+            CrawlerPro
           </h2>
-          
+          <p className="text-on-surface-variant mt-0.5 font-sans text-[10px] font-bold tracking-wider uppercase">
+            {platform === "linkedin" ? "LinkedIn" : "Facebook"} workspace
+          </p>
         </div>
       </div>
+      <DashboardPlatformSwitcher />
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
         <Link href="/" className={cn(isHome ? sideActive : sideIdle)}>
           <MaterialIcon name="radar" className="shrink-0" />
-          <span className="min-w-0 leading-snug">Dữ liệu cào</span>
+          <span className="min-w-0 leading-snug">Post Feed</span>
         </Link>
        
        
@@ -149,20 +159,26 @@ export function DashboardSidebar() {
           className={cn(isGroupMgmt ? sideActive : sideIdle)}
         >
           <MaterialIcon name="group" className="shrink-0" />
-          <span className="min-w-0 leading-snug">Quản lý nhóm</span>
+          <span className="min-w-0 leading-snug">Groups</span>
         </Link>
         
       </nav>
       
       <div className="space-y-1 p-2">
-        <button
-          type="button"
-          onClick={openAccountModal}
-          className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left font-sans text-xs font-bold tracking-wider text-slate-500 uppercase transition-all hover:bg-slate-50 dark:text-zinc-400"
-        >
-          <MaterialIcon name="account_circle" className="shrink-0" />
-          <span className="min-w-0 leading-snug">Tài khoản</span>
-        </button>
+        {platform === "linkedin" ? (
+          <button
+            type="button"
+            onClick={openAccountModal}
+            className="flex w-full cursor-pointer items-center gap-3 px-4 py-3 text-left font-sans text-xs font-bold tracking-wider text-slate-500 uppercase transition-all hover:bg-slate-50 dark:text-zinc-400"
+          >
+            <MaterialIcon name="account_circle" className="shrink-0" />
+            <span className="min-w-0 leading-snug">Tài khoản LinkedIn</span>
+          </button>
+        ) : (
+          <p className="text-on-surface-variant px-4 py-3 font-sans text-[10px] leading-snug tracking-wide uppercase">
+            Đăng nhập / tài khoản Facebook do team Facebook tích hợp khi cần.
+          </p>
+        )}
       </div>
 
       {accountOpen ? (

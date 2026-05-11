@@ -2,7 +2,7 @@
 
 import { MaterialIcon } from "@/components/ui";
 
-export function TopPostsStatsRow() {
+export function LinkedInTopPostsStatsRow() {
   return (
     <div className="mb-xl grid grid-cols-1 gap-md md:grid-cols-4">
       <div className="enterprise-card rounded-lg p-md">

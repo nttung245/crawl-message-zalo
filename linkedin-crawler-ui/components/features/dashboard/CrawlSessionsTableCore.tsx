@@ -17,6 +17,11 @@ export interface CrawlSessionsTableCoreProps {
   busy?: boolean;
   loadingHint?: string;
   modalTitleSuffix?: string;
+  dashboardEmail?: string | null;
+  linkedinPlaywrightSessionId?: string | null;
+  /** Sau reaction + webhook OK — dialog OK gọi làm mới get-all-posts. */
+  refreshSessionsAfterReaction?: () => Promise<void>;
+  refreshSessionsBusy?: boolean;
   tableVariant?: CrawlTableViewMode;
   /** Chỉ khi ``tableVariant === 'filtered'`` — hiển thị cột «Ngày / điều kiện lọc». */
   filterAppliedLabel?: string;
@@ -31,6 +36,10 @@ export function CrawlSessionsTableCore({
   busy = false,
   loadingHint = "Đang tải dữ liệu phiên từ n8n…",
   modalTitleSuffix,
+  dashboardEmail = null,
+  linkedinPlaywrightSessionId = null,
+  refreshSessionsAfterReaction,
+  refreshSessionsBusy = false,
   tableVariant = "all",
   filterAppliedLabel = "",
 }: CrawlSessionsTableCoreProps) {
@@ -195,8 +204,13 @@ export function CrawlSessionsTableCore({
       ) : null}
 
       <SessionPostsModal
+        key={open?.id_session_crawl ?? "__closed__"}
         session={open}
         titleSuffix={modalTitleSuffix}
+        dashboardEmail={dashboardEmail}
+        linkedinPlaywrightSessionId={linkedinPlaywrightSessionId}
+        onRefreshSessions={refreshSessionsAfterReaction}
+        refreshSessionsBusy={refreshSessionsBusy}
         onClose={() => setOpen(null)}
       />
     </>

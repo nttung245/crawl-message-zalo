@@ -1,6 +1,6 @@
-import type { TopPost } from "./types";
+import type { LinkedInTopPost } from "./LinkedInTopPostTypes";
 
-export const TOP_POSTS_MOCK: TopPost[] = [
+export const LINKEDIN_TOP_POSTS_MOCK: LinkedInTopPost[] = [
   {
     id: "1",
     title: "Phân tích Q3 SaaS: hiệu quả nội bộ đạt đỉnh",
@@ -118,5 +118,5 @@ export const TOP_POSTS_MOCK: TopPost[] = [
 ];
 
 /** Tổng bản ghi (khi có API sẽ thay bằng số thật; demo = số bài mock). */
-export const TOP_POSTS_TOTAL = TOP_POSTS_MOCK.length;
-export const TOP_POSTS_PAGE_SIZE = 6;
+export const LINKEDIN_TOP_POSTS_TOTAL = LINKEDIN_TOP_POSTS_MOCK.length;
+export const LINKEDIN_TOP_POSTS_PAGE_SIZE = 6;

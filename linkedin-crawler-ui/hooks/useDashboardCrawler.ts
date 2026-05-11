@@ -9,6 +9,7 @@ import type {
 import { DASHBOARD_PAGE_SIZE } from "@/components/features/dashboard/constants";
 import {
   crawlLinkedInGroup,
+  ensureProfileSlugIfMissing,
   filterLinkedInPosts,
   getAllLinkedInPosts,
   loginLinkedIn,
@@ -95,7 +96,11 @@ export interface DashboardCrawlerValue {
   handleResetForm: () => void;
   handleValidateLinks: () => void;
   handleStartCrawl: () => Promise<void>;
-  applyAccountCredentials: (nextEmail: string, nextPassword: string) => Promise<void>;
+  applyAccountCredentials: (
+    nextEmail: string,
+    nextPassword: string,
+    linkedInSessionId?: string | null,
+  ) => Promise<void>;
   refreshDashboardData: () => Promise<void>;
   dashboardReloadToken: number;
   crawlSuccessModalOpen: boolean;
@@ -581,7 +586,11 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
   }, [loadN8nSessions]);
 
   const applyAccountCredentials = useCallback(
-    async (nextEmail: string, nextPassword: string) => {
+    async (
+      nextEmail: string,
+      nextPassword: string,
+      linkedInSessionId?: string | null,
+    ) => {
       const normalizedEmail = nextEmail.trim();
       if (!normalizedEmail || !nextPassword.trim()) {
         setErrorMessage("Vui lòng nhập email và mật khẩu LinkedIn.");
@@ -598,7 +607,23 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
         emailOverride: normalizedEmail,
       });
       setDashboardReloadToken((v) => v + 1);
-      setFeedbackMessage("Đã cập nhật tài khoản và làm mới dữ liệu mới nhất.");
+
+      let slugTail = "";
+      try {
+        const slugRes = await ensureProfileSlugIfMissing({
+          email: normalizedEmail,
+          sessionId: linkedInSessionId ?? undefined,
+        });
+        if (!slugRes.success) {
+          slugTail = ` Đồng bộ profile slug chưa xong: ${slugRes.message || "lỗi không xác định"}.`;
+        }
+      } catch (slugErr) {
+        slugTail = ` Đồng bộ profile slug chưa xong: ${slugErr instanceof Error ? slugErr.message : "lỗi mạng"}.`;
+      }
+
+      setFeedbackMessage(
+        `Đã cập nhật tài khoản và làm mới dữ liệu mới nhất.${slugTail}`,
+      );
     },
     [loadN8nSessions],
   );
