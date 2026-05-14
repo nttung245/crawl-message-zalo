@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-
+import { FaRobot } from "react-icons/fa";
 import { MaterialIcon } from "@/components/ui";
 import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
 import { cn } from "@/lib/utils";
@@ -23,6 +23,7 @@ export function DashboardSidebar() {
   const pathname = usePathname();
   const isHome = pathname === "/";
   const isGroupMgmt = pathname === "/quan-ly-nhom";
+  const isCrawlFb = pathname === "/crawl-data";
   const [accountOpen, setAccountOpen] = useState(false);
   const [draftEmail, setDraftEmail] = useState("");
   const [draftPassword, setDraftPassword] = useState("");
@@ -160,6 +161,13 @@ export function DashboardSidebar() {
         >
           <MaterialIcon name="group" className="shrink-0" />
           <span className="min-w-0 leading-snug">Groups</span>
+        </Link>
+        <Link
+          href="/crawl-data"
+          className={cn(isCrawlFb ? sideActive : sideIdle)}
+        >
+          <FaRobot className="shrink-0 text-2xl" />
+          <span className="min-w-0 leading-snug">Crawl data</span>
         </Link>
         
       </nav>
