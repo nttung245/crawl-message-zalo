@@ -23,7 +23,7 @@ export const useCrawlFB = () => {
             const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
             wsUrl = `${protocol}//${window.location.host}${baseUrl}`;
         }
-        return `${wsUrl}/ws/CrawlFbForFE/${encodeURIComponent(email)}`;
+        return `${wsUrl}/api/v1/ws/CrawlFbForFE/${encodeURIComponent(email)}`;
     };
 
     const submitCrawlData = (data: CrawlFb_form) => {
@@ -78,13 +78,13 @@ export const useCrawlFB = () => {
                     ws.close();
                 }
             } catch (error) {
-                console.error("Lỗi khi parse message từ WebSocket:", error);
+               
                 setIsLoading(false); // Tắt loading nếu parse JSON lỗi
             }
         };
 
         ws.onerror = (error) => {
-            console.error("Lỗi WebSocket Crawl FB:", error);
+            
             toast.error("Mất kết nối WebSocket với máy chủ!");
             setIsLoading(false);
         };

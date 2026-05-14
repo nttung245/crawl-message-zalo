@@ -132,7 +132,7 @@ export default function CrawlFB_Form() {
                 />
             )
             }
-
+<div className="flex flex-col">
             <div className="w-full max-w-4xl bg-white rounded-3xl shadow-xl border border-slate-200 overflow-hidden">
                 <div className="w-full flex justify-between items-center border-b bg-slate-50 px-8 py-6 ">
                     <div className="">
@@ -265,7 +265,7 @@ export default function CrawlFB_Form() {
             {result &&
                 <FacebookPosts mockPosts={result} />
             }
-
+</div>
 
             <IntentBatchModal
                 isOpen={isModalOpen}

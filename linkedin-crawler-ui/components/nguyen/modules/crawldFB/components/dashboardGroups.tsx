@@ -6,39 +6,29 @@ import { FaFacebook, FaLinkedin } from "react-icons/fa";
 import { useGetPresetGroups } from "../hooks/useGetPresetGroups";
 import CreateGroupModal from "./CreateGroup_form";
 
-export interface FacebookGroupDTO {
-    group_name: string;
-    url: string;
-    intent: string;
-    members?: number | null;
-    last_crawl?: string | null;
-    posts_per_week?: number | null;
-    health_score?: number | null;
-    chay_24h?: boolean | null;
-    status?: "ACTIVE" | "IDLE" | "DEAD";
-}
+import { FacebookGroupDTO } from "../types/dataFb.type";
 
-const isWithinLast3Weeks = (dateInput?: string | Date | null) => {
-    if (!dateInput) return false;
+const parseBackendDate = (dateInput?: string | Date | null): Date | null => {
+    if (!dateInput) return null;
+    if (dateInput instanceof Date) return dateInput;
 
-    let crawlDate: Date;
-    if (dateInput instanceof Date) {
-        crawlDate = dateInput;
-    } else {
-        // Thay thế dấu cách bằng chữ 'T' để tương thích chuẩn ISO (giúp Safari/Firefox parse không bị lỗi Invalid Date)
-        const safeDateStr = dateInput.replace(" ", "T");
-        crawlDate = new Date(safeDateStr);
-    }
+    // Chuyển "2026-05-14 15:30:00" -> "2026-05-14T15:30:00" chuẩn ISO
+    const safeDateStr = dateInput.replace(" ", "T");
+    const parsedDate = new Date(safeDateStr);
 
-    // Nếu parse lỗi thì bỏ qua
-    if (isNaN(crawlDate.getTime())) return false;
+    return isNaN(parsedDate.getTime()) ? null : parsedDate;
+};
+
+// Kiểm tra xem ngày crawl có nằm trong 7 ngày qua (1 tuần) hay không
+const isWithinLastWeek = (dateInput?: string | Date | null) => {
+    const crawlDate = parseBackendDate(dateInput);
+    if (!crawlDate) return false;
 
     const now = new Date();
     const diffTime = now.getTime() - crawlDate.getTime();
     const diffDays = diffTime / (1000 * 60 * 60 * 24);
 
-    // Trả về true nếu khoảng cách <= 21 ngày
-    return diffDays <= 21;
+    return diffDays <= 7; // Trong vòng 1 tuần
 };
 
 export function DashboardGroups() {
@@ -65,7 +55,7 @@ export function DashboardGroups() {
     // 1. TÍNH TOÁN CÁC CHỈ SỐ THỐNG KÊ (SUMMARY CARDS)
     // ==========================================
     const totalPostsIn3Weeks = presetGroups
-        .filter(g => isWithinLast3Weeks(g.date_crawl))
+        .filter(g => isWithinLastWeek(g.date_crawl))
         .reduce((sum, g) => sum + (g.posts_per_week || 0), 0);
     const activeGroups = presetGroups.filter(g => g.status === "ACTIVE").length;
     const totalPostsPerWeek = presetGroups.reduce((sum, g) => sum + (g.posts_per_week || 0), 0);
@@ -205,7 +195,7 @@ export function DashboardGroups() {
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-violet-500">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tổng Groups</p>
                     <h3 className="text-3xl font-black text-slate-800 mt-1">{totalPostsIn3Weeks}</h3>
-                    <p className="text-xs text-emerald-600 font-medium mt-2">↑ 3 tuần này</p>
+                    <p className="text-xs text-emerald-600 font-medium mt-2">↑  tuần này</p>
                 </div>
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-emerald-500">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Đang Sống</p>

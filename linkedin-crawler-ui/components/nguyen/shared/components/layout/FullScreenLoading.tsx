@@ -10,8 +10,8 @@ export default function FullScreenLoading({
   onCancel,
 }: LoadingProps) {
   return (
-    <div className="w-full min-h-screen fixed inset-0 flex items-center justify-center bg-slate-200/30 backdrop-blur-sm z-50">
-      <div className="bg-white shadow-2xl rounded-3xl p-10 max-w-md w-full border border-slate-200 text-center">
+    <div className="w-screen min-h-screen fixed inset-0 flex items-center justify-center bg-slate-200/30 backdrop-blur-sm z-50">
+      <div className="bg-white shadow-2xl rounded-3xl p-10 max-w-100 w-full border border-slate-200 text-center">
         <div className="flex justify-center mb-6">
           <div className="w-16 h-16 border-4 border-violet-200 border-t-violet-600 rounded-full animate-spin" />
         </div>

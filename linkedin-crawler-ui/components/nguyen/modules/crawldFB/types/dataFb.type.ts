@@ -26,7 +26,7 @@ export interface FacebookGroupDTO {
     intent: string;                 // Tương ứng: str
     members?: number | null;        // Tương ứng: Optional[int]
     last_crawl?: string | null;    // Tương ứng: Optional[str] (Lưu ý chữ C viết hoa theo đúng model API)
-    date_crawl?: Date | null;    // Tương ứng: Optional[str] (Lưu ý chữ C viết hoa theo đúng model API)
+    date_crawl?: string | null;    // Tương ứng: Optional[str] (Lưu ý chữ C viết hoa theo đúng model API)
     posts_per_week?: number | null; // Tương ứng: Optional[int]
     health_score?: number | null;   // Tương ứng: Optional[float]
     chay_24h?: boolean | null;      // Tương ứng: Optional[bool]

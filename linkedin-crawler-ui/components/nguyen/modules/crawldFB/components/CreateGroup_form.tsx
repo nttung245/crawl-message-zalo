@@ -223,7 +223,7 @@ export default function CreateGroupModal({ isOpen, onClose }: CreateGroupModalPr
 
                         {/* Footer / Nút Hành động */}
                         <div className="px-6 sm:px-8 py-5 bg-slate-50 border-t flex flex-col sm:flex-row justify-between items-center gap-4 sm:gap-0">
-                            <p className={`text-sm transition-colors duration-300 max-w-lg ${firstErrorMsg ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
+                            <p className={`text-sm transition-colors duration-300  ${firstErrorMsg ? 'text-red-500 font-medium' : 'text-slate-500'}`}>
                                 {firstErrorMsg || "Vui lòng điền đầy đủ các thông tin bắt buộc (*) trước khi lưu."}
                             </p>
                             
