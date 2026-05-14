@@ -205,7 +205,7 @@ export function DashboardGroups() {
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-amber-500">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Post mới / Tuần</p>
                     <h3 className="text-3xl font-black text-slate-800 mt-1">{totalPostsPerWeek}</h3>
-                    <p className="text-xs text-emerald-600 font-medium mt-2">↑ 18%</p>
+                    <p className="text-xs text-emerald-600 font-medium mt-2">↑ </p>
                 </div>
                 <div className="bg-white p-5 rounded-xl shadow-sm border border-slate-100 border-l-4 border-l-rose-500">
                     <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">Cần Check</p>
@@ -353,7 +353,7 @@ export function DashboardGroups() {
                                                         onClick={() => window.open(group.url, "_blank")}
                                                         className="px-3 py-1.5 bg-white text-violet-600 hover:bg-violet-50 font-medium rounded-lg text-xs border border-violet-200 transition"
                                                     >
-                                                        Xem posts
+                                                        Xem Group
                                                     </button>
                                                 )}
                                             </td>
