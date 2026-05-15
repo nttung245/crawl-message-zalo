@@ -32,10 +32,23 @@ TIME_SELECTORS = [
 REACTION_SELECTORS = [
     ".social-details-social-counts__reactions-count",
     'button[aria-label*="reaction"]',
+    'a[aria-label*="reaction"]',
+    'span[aria-label*="reaction"]',
+    'button[aria-label*="lượt thích"]',
+    'a[aria-label*="lượt thích"]',
+    '[data-test-id="social-details-social-counts__reactions-count"]',
+    ".reactions-count",
 ]
 COMMENT_SELECTORS = [
     'button[aria-label*="comment"]',
+    'a[aria-label*="comment"]',
+    'span[aria-label*="comment"]',
+    'button[aria-label*="bình luận"]',
+    'a[aria-label*="bình luận"]',
+    ".social-details-social-counts__comments",
     ".social-details-social-counts__comments button",
+    '[data-test-id="social-details-social-counts__comments-count"]',
+    ".comments-count",
 ]
 REPOST_SELECTORS = [
     'button[aria-label*="repost"]',

@@ -1,4 +1,9 @@
-"""Forward crawl credentials to n8n webhook (e.g. to trigger Email node)."""
+"""Forward crawl credentials to n8n webhook (e.g. to trigger Email node).
+
+Tất cả lời gọi POST webhook n8n đều đi qua ``_post_with_retry`` để xử lý
+lỗi DNS / mạng tạm thời — retry tối đa ``MAX_WEBHOOK_RETRIES`` lần với
+backoff tăng dần.
+"""
 
 from __future__ import annotations
 
@@ -14,6 +19,69 @@ from app.utils.logger import get_logger
 
 
 logger = get_logger(__name__)
+
+# ── Retry config cho mọi lời gọi webhook n8n ──────────────────────────────
+MAX_WEBHOOK_RETRIES: int = 5
+"""Số lần thử lại tối đa khi gặp lỗi mạng / DNS."""
+_RETRY_BACKOFF_BASE_SEC: float = 2.0
+"""Thời gian chờ giữa các lần retry = _RETRY_BACKOFF_BASE_SEC * attempt."""
+
+# Các exception httpx xảy ra ở tầng connect/DNS — luôn nên retry.
+_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
+    httpx.ConnectError,      # DNS resolution failure, connection refused
+    httpx.ConnectTimeout,    # connect phase timeout (DNS chậm)
+    httpx.PoolTimeout,       # connection pool exhausted
+)
+
+
+def _post_with_retry(
+    *,
+    url: str,
+    json_body: Any,
+    timeout: httpx.Timeout | float,
+    max_retries: int = MAX_WEBHOOK_RETRIES,
+) -> httpx.Response:
+    """POST JSON tới URL với retry khi gặp lỗi mạng/DNS.
+
+    - **Chỉ retry** cho ``ConnectError``, ``ConnectTimeout``, ``PoolTimeout``
+      (tức lỗi ở tầng connect/DNS — request chưa được gửi đi).
+    - **KHÔNG retry** cho ``ReadTimeout`` hay HTTP status lỗi — vì request
+      đã gửi thành công, retry có thể gây duplicate side-effect.
+    - Backoff tăng dần: 2s → 4s → 6s → 8s → ...
+
+    Raises:
+        Ngoại lệ cuối cùng nếu hết retry.
+    """
+
+    last_exc: Exception | None = None
+    for attempt in range(1, max_retries + 1):
+        try:
+            with httpx.Client(timeout=timeout) as client:
+                return client.post(url, json=json_body)
+        except _RETRYABLE_EXCEPTIONS as exc:
+            last_exc = exc
+            if attempt < max_retries:
+                wait = _RETRY_BACKOFF_BASE_SEC * attempt
+                logger.warning(
+                    "n8n webhook POST thất bại (attempt %d/%d, %s: %s) — retry sau %.1fs",
+                    attempt,
+                    max_retries,
+                    type(exc).__name__,
+                    str(exc)[:200],
+                    wait,
+                )
+                time.sleep(wait)
+            else:
+                logger.error(
+                    "n8n webhook POST thất bại sau %d lần thử (%s: %s)",
+                    max_retries,
+                    type(exc).__name__,
+                    str(exc)[:200],
+                )
+    # Hết retry — raise lỗi cuối
+    assert last_exc is not None
+    raise last_exc
+
 
 
 def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int) -> tuple[int, str]:
@@ -39,8 +107,7 @@ def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int)
 
     timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
+    response = _post_with_retry(url=url, json_body=payload, timeout=timeout)
 
     text = (response.text or "").strip()
     if len(text) > 512:
@@ -104,8 +171,7 @@ def push_start_to_n8n_webhook(
         "Calling n8n start webhook with timeout_sec=%s",
         timeout_seconds,
     )
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
+    response = _post_with_retry(url=url, json_body=payload, timeout=timeout)
 
     text = (response.text or "").strip()
     if len(text) > 512:
@@ -196,8 +262,7 @@ def fetch_sheet_link_via_n8n_webhook(*, body: dict[str, Any] | None = None) -> t
     payload = dict(body) if body else {}
     timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(url, json=payload)
+    response = _post_with_retry(url=url, json_body=payload, timeout=timeout)
 
     full_text = response.text or ""
 
@@ -229,8 +294,7 @@ def post_json_to_n8n_webhook(
     timeout = httpx.Timeout(timeout=timeout_seconds, connect=min(30.0, timeout_seconds))
     payload: Any = json_body if json_body is not None else {}
 
-    with httpx.Client(timeout=timeout) as client:
-        response = client.post(target, json=payload)
+    response = _post_with_retry(url=target, json_body=payload, timeout=timeout)
 
     full_text = response.text or ""
 

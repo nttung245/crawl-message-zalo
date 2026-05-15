@@ -3,6 +3,7 @@
 import { createContext, useContext, type ReactNode } from "react";
 
 import type { DashboardCrawlerValue } from "@/hooks/useDashboardCrawler";
+import { WelcomeRoleModal } from "@/components/features/auth/WelcomeRoleModal";
 
 const DashboardContext = createContext<DashboardCrawlerValue | null>(null);
 
@@ -23,6 +24,11 @@ export function DashboardProvider({ value, children }: DashboardProviderProps) {
   return (
     <DashboardContext.Provider value={value}>
       {children}
+      <WelcomeRoleModal
+        isOpen={value.role === null}
+        onSelect={(role) => value.setRole(role)}
+        confirmLeaderRoleWithSheet={value.confirmLeaderRoleWithSheet}
+      />
     </DashboardContext.Provider>
   );
 }

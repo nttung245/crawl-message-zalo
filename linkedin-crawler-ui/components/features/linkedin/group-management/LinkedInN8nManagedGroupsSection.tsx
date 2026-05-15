@@ -11,13 +11,16 @@ import {
 } from "@/services/linkedinCrawlerService";
 import { MaterialIcon } from "@/components/ui";
 
-import type { ManagedGroupRow } from "@/lib/n8n-groups-normalize";
-import { normalizeN8nGroupsList } from "@/lib/n8n-groups-normalize";
-import { findDuplicateManagedGroup, groupUrlMatchKey } from "@/lib/group-duplicate-check";
+import type { ManagedGroupRow } from "@/lib/LinkedIn-n8n-groups-normalize";
+import { normalizeN8nGroupsList } from "@/lib/LinkedIn-n8n-groups-normalize";
+import {
+  findDuplicateManagedGroup,
+  groupUrlMatchKey,
+} from "@/lib/LinkedIn-group-duplicate-check";
 import {
   appendCommaNewlineAfterTrailingGroupUrl,
   parseGroupUrlsFromBulkInput,
-} from "@/lib/parse-group-urls-bulk";
+} from "@/lib/LinkedIn-parse-group-urls-bulk";
 import { cn } from "@/lib/utils";
 
 import { useDashboard } from "@/components/features/dashboard/dashboard-context";
@@ -28,6 +31,12 @@ const ADD_LIST_GROUP_WEBHOOK_TIMEOUT_SEC = 360;
 /** Banner info ngắn sau refresh. */
 const ADD_SUCCESS_DISMISS_MS = 2000;
 
+export const GROUP_TYPE_OPTIONS = [
+  "Group cào",
+  "Group cộng đồng",
+  "Group việc làm",
+  "Group chuyên môn",
+];
 export function LinkedInN8nManagedGroupsSection() {
   const d = useDashboard();
   const email = d.email.trim();
@@ -38,22 +47,31 @@ export function LinkedInN8nManagedGroupsSection() {
   const [info, setInfo] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [busyMutation, setBusyMutation] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<string>("all");
 
   const [addOpen, setAddOpen] = useState(false);
   const [addUrl, setAddUrl] = useState("");
   const [addName, setAddName] = useState("");
   const [addMember, setAddMember] = useState("");
+  const [addTypeOption, setAddTypeOption] = useState("");
+  const [addTypeCustom, setAddTypeCustom] = useState("");
 
   const [bulkOpen, setBulkOpen] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  const [bulkTypeOption, setBulkTypeOption] = useState("");
+  const [bulkTypeCustom, setBulkTypeCustom] = useState("");
 
   /** Thông báo sau add thành công — chỉ đóng khi người dùng bấm OK. */
-  const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(null);
+  const [addSuccessMessage, setAddSuccessMessage] = useState<string | null>(
+    null,
+  );
 
   const [editRow, setEditRow] = useState<ManagedGroupRow | null>(null);
   const [editNewUrl, setEditNewUrl] = useState("");
   const [editNewName, setEditNewName] = useState("");
   const [editNewMember, setEditNewMember] = useState("");
+  const [editTypeOption, setEditTypeOption] = useState("");
+  const [editTypeCustom, setEditTypeCustom] = useState("");
 
   const loadGroups = useCallback(async () => {
     if (!email) {
@@ -71,7 +89,9 @@ export function LinkedInN8nManagedGroupsSection() {
       const list = normalizeN8nGroupsList(res.data?.groups ?? res.data?.parsed);
       setRows(list);
       setPage(1);
-      const totalFromApi = typeof res.data?.total === "number" ? res.data.total : list.length;
+      setTypeFilter("all");
+      const totalFromApi =
+        typeof res.data?.total === "number" ? res.data.total : list.length;
       if (list.length === 0) {
         setInfo(
           "Webhook trả về nhưng không có dòng nhóm sau khi parse — kiểm tra JSON n8n (mảng hoặc { data/groups/rows }).",
@@ -91,12 +111,28 @@ export function LinkedInN8nManagedGroupsSection() {
     if (email) void loadGroups();
   }, [email, d.dashboardReloadToken, loadGroups]);
 
-  const totalPages = Math.max(1, Math.ceil(rows.length / GROUPS_PAGE_SIZE));
+  /** Danh sách type duy nhất từ data n8n (không tính rỗng/undefined). */
+  const uniqueTypes = useMemo(() => {
+    const set = new Set<string>();
+    for (const r of rows) {
+      if (r.type && r.type.trim()) set.add(r.type.trim());
+    }
+    return Array.from(set).sort();
+  }, [rows]);
+
+  /** Rows sau khi lọc type. */
+  const filteredRows = useMemo(() => {
+    if (typeFilter === "all") return rows;
+    if (typeFilter === "__empty__") return rows.filter((r) => !r.type || !r.type.trim());
+    return rows.filter((r) => r.type?.trim() === typeFilter);
+  }, [rows, typeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / GROUPS_PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const pageRows = useMemo(() => {
     const start = (safePage - 1) * GROUPS_PAGE_SIZE;
-    return rows.slice(start, start + GROUPS_PAGE_SIZE);
-  }, [rows, safePage]);
+    return filteredRows.slice(start, start + GROUPS_PAGE_SIZE);
+  }, [filteredRows, safePage]);
 
   const bulkParsedUrls = useMemo(
     () => parseGroupUrlsFromBulkInput(bulkText),
@@ -107,14 +143,16 @@ export function LinkedInN8nManagedGroupsSection() {
     if (!rows.length) return new Set<string>();
     const keys = new Set<string>();
     for (const u of bulkParsedUrls) {
-      if (findDuplicateManagedGroup(rows, u, email)) keys.add(groupUrlMatchKey(u));
+      if (findDuplicateManagedGroup(rows, u, email))
+        keys.add(groupUrlMatchKey(u));
     }
     return keys;
   }, [bulkParsedUrls, rows, email]);
 
   const bulkHasDuplicateInForm = bulkDuplicateKeys.size > 0;
   const bulkDuplicateUrls = useMemo(
-    () => bulkParsedUrls.filter((u) => bulkDuplicateKeys.has(groupUrlMatchKey(u))),
+    () =>
+      bulkParsedUrls.filter((u) => bulkDuplicateKeys.has(groupUrlMatchKey(u))),
     [bulkParsedUrls, bulkDuplicateKeys],
   );
   const bulkSubmitDisabled =
@@ -130,11 +168,15 @@ export function LinkedInN8nManagedGroupsSection() {
     setAddUrl("");
     setAddName("");
     setAddMember("");
+    setAddTypeOption("");
+    setAddTypeCustom("");
     setAddOpen(true);
   };
 
   const openBulkAdd = () => {
     setBulkText("");
+    setBulkTypeOption("");
+    setBulkTypeCustom("");
     setError(null);
     setBulkOpen(true);
   };
@@ -168,15 +210,21 @@ export function LinkedInN8nManagedGroupsSection() {
       );
       return;
     }
-    if (rows.length > 0 && email && group_urls.some((u) => findDuplicateManagedGroup(rows, u, email))) {
+    if (
+      rows.length > 0 &&
+      email &&
+      group_urls.some((u) => findDuplicateManagedGroup(rows, u, email))
+    ) {
       return;
     }
     setBusyMutation(true);
     setInfo(null);
+    const finalBulkType = bulkTypeOption === "Khác" ? bulkTypeCustom.trim() : bulkTypeOption;
     try {
       const res = await addListGroupBulk({
         group_urls,
         email,
+        type: finalBulkType,
         post_to_webhook: true,
         delay_min_sec: 2,
         delay_max_sec: 5,
@@ -207,21 +255,32 @@ export function LinkedInN8nManagedGroupsSection() {
       return;
     }
     const m = Number(addMember.replace(/\s/g, ""));
-    if (!addUrl.trim() || !addName.trim() || addMember.trim() === "" || Number.isNaN(m) || m < 0) {
+    if (
+      !addUrl.trim() ||
+      !addName.trim() ||
+      addMember.trim() === "" ||
+      Number.isNaN(m) ||
+      m < 0
+    ) {
       setError("Điền đủ URL nhóm, tên nhóm và số thành viên (số ≥ 0).");
       return;
     }
-    if (rows.length > 0 && findDuplicateManagedGroup(rows, addUrl.trim(), email)) {
+    if (
+      rows.length > 0 &&
+      findDuplicateManagedGroup(rows, addUrl.trim(), email)
+    ) {
       return;
     }
     setBusyMutation(true);
     setError(null);
+    const finalAddType = addTypeOption === "Khác" ? addTypeCustom.trim() : addTypeOption;
     try {
       const res = await addN8nGroup({
         url_group: addUrl.trim(),
         name_group: addName.trim(),
         member: m,
         email,
+        type: finalAddType,
       });
       if (!res.success) throw new Error(res.message || "Thêm nhóm thất bại.");
       setAddOpen(false);
@@ -238,6 +297,17 @@ export function LinkedInN8nManagedGroupsSection() {
     setEditNewUrl("");
     setEditNewName("");
     setEditNewMember("");
+
+    if (!row.type) {
+      setEditTypeOption("");
+      setEditTypeCustom("");
+    } else if (GROUP_TYPE_OPTIONS.includes(row.type)) {
+      setEditTypeOption(row.type);
+      setEditTypeCustom("");
+    } else {
+      setEditTypeOption("Khác");
+      setEditTypeCustom(row.type);
+    }
   };
 
   const submitEdit = async () => {
@@ -260,6 +330,10 @@ export function LinkedInN8nManagedGroupsSection() {
         }
         payload.new_member = n;
       }
+      const finalEditType = editTypeOption === "Khác" ? editTypeCustom.trim() : editTypeOption;
+      if (finalEditType !== editRow.type) {
+        payload.new_type = finalEditType;
+      }
       const res = await updateN8nGroup(payload);
       if (!res.success) throw new Error(res.message || "Cập nhật thất bại.");
       setEditRow(null);
@@ -274,7 +348,9 @@ export function LinkedInN8nManagedGroupsSection() {
 
   const confirmRemove = async (row: ManagedGroupRow) => {
     if (!email) return;
-    const ok = window.confirm(`Xóa nhóm khỏi n8n?\n${row.name_group}\n${row.url_group}`);
+    const ok = window.confirm(
+      `Xóa nhóm khỏi n8n?\n${row.name_group}\n${row.url_group}`,
+    );
     if (!ok) return;
     setBusyMutation(true);
     setError(null);
@@ -297,10 +373,7 @@ export function LinkedInN8nManagedGroupsSection() {
     <section className="border-outline-variant bg-surface-container-lowest mb-xl rounded-xl border p-lg shadow-sm">
       <div className="mb-lg flex flex-col justify-between gap-md md:flex-row md:items-center">
         <div>
-          <h2 className="text-h2 text-on-surface font-semibold">
-            Nhóm cào
-          </h2>
-          
+          <h2 className="text-h2 text-on-surface font-semibold">Nhóm cào</h2>
         </div>
         <div className="flex flex-wrap gap-sm">
           <button
@@ -318,7 +391,10 @@ export function LinkedInN8nManagedGroupsSection() {
             onClick={openBulkAdd}
             disabled={!email || busyMutation}
           >
-            <MaterialIcon name="playlist_add" className="shrink-0 text-[18px]" />
+            <MaterialIcon
+              name="playlist_add"
+              className="shrink-0 text-[18px]"
+            />
             Thêm hàng loạt
           </button>
           <button
@@ -338,8 +414,9 @@ export function LinkedInN8nManagedGroupsSection() {
           className="border-outline-variant bg-surface-container-low rounded-lg border border-dashed px-md py-lg text-body-sm text-on-surface-variant"
           role="status"
         >
-          Nhập email LinkedIn trên trang <strong className="text-on-surface">Crawler trực tiếp</strong> rồi quay lại
-          để tải danh sách nhóm.
+          Nhập email LinkedIn trên trang{" "}
+          <strong className="text-on-surface">Crawler trực tiếp</strong> rồi
+          quay lại để tải danh sách nhóm.
         </div>
       ) : null}
 
@@ -362,12 +439,16 @@ export function LinkedInN8nManagedGroupsSection() {
       ) : null}
 
       {email && loading && rows.length === 0 ? (
-        <p className="text-body-sm text-on-surface-variant py-lg text-center">Đang tải dữ liệu nhóm…</p>
+        <p className="text-body-sm text-on-surface-variant py-lg text-center">
+          Đang tải dữ liệu nhóm…
+        </p>
       ) : null}
 
       {email && !loading && rows.length === 0 && !error ? (
         <div className="border-outline-variant bg-surface-container-low rounded-xl border border-dashed px-lg py-xl text-center">
-          <p className="text-body-md text-on-surface font-semibold">Chưa có dòng nhóm</p>
+          <p className="text-body-md text-on-surface font-semibold">
+            Chưa có dòng nhóm
+          </p>
           <p className="text-body-sm text-on-surface-variant mt-xs">
             Bấm «Tải lại danh sách» hoặc «Thêm nhóm» sau khi cấu hình webhook{" "}
             <code className="text-xs">N8N_WEBHOOK_GET_GROUP</code>.
@@ -377,6 +458,35 @@ export function LinkedInN8nManagedGroupsSection() {
 
       {rows.length > 0 ? (
         <>
+          {/* ── Type filter dropdown ── */}
+          {uniqueTypes.length > 0 ? (
+            <div className="mb-md flex flex-wrap items-center gap-2">
+              <label
+                htmlFor="type-filter-select"
+                className="text-label-md text-on-surface-variant font-semibold uppercase"
+              >
+                Lọc loại:
+              </label>
+              <select
+                id="type-filter-select"
+                value={typeFilter}
+                onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+                className="border-outline-variant bg-surface focus:border-primary rounded-lg border px-md py-1.5 text-sm font-medium text-on-surface shadow-sm transition-colors"
+              >
+                <option value="all">Tất cả ({rows.length})</option>
+                {uniqueTypes.map((t) => (
+                  <option key={t} value={t}>
+                    {t} ({rows.filter((r) => r.type?.trim() === t).length})
+                  </option>
+                ))}
+                {rows.some((r) => !r.type || !r.type.trim()) ? (
+                  <option value="__empty__">
+                    Chưa phân loại ({rows.filter((r) => !r.type || !r.type.trim()).length})
+                  </option>
+                ) : null}
+              </select>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-lg border border-outline-variant">
             <table className="w-full min-w-[720px] border-collapse text-left text-sm">
               <thead className="bg-surface-container-low border-outline-variant border-b">
@@ -390,6 +500,9 @@ export function LinkedInN8nManagedGroupsSection() {
                   <th className="text-table-header text-on-surface-variant px-md py-md font-semibold uppercase">
                     Tên nhóm
                   </th>
+                  <th className="text-table-header text-on-surface-variant px-md py-md font-semibold uppercase">
+                    Loại nhóm
+                  </th>
                   <th className="text-table-header text-on-surface-variant px-md py-md text-right font-semibold uppercase">
                     Thành viên
                   </th>
@@ -400,9 +513,13 @@ export function LinkedInN8nManagedGroupsSection() {
               </thead>
               <tbody className="divide-outline-variant divide-y">
                 {pageRows.map((row, idx) => (
-                  <tr key={`${row.url_group}-${idx}`} className="hover:bg-surface-container/50">
+                  <tr
+                    key={`${row.url_group}-${idx}`}
+                    className="hover:bg-surface-container/50"
+                  >
                     <td className="text-on-surface-variant px-md py-md tabular-nums">
-                      {row.row_number ?? (safePage - 1) * GROUPS_PAGE_SIZE + idx + 1}
+                      {row.row_number ??
+                        (safePage - 1) * GROUPS_PAGE_SIZE + idx + 1}
                     </td>
                     <td className="max-w-[280px] px-md py-md">
                       <a
@@ -417,6 +534,11 @@ export function LinkedInN8nManagedGroupsSection() {
                     <td className="text-on-surface max-w-[200px] px-md py-md">
                       <span className="line-clamp-2" title={row.name_group}>
                         {row.name_group}
+                      </span>
+                    </td>
+                    <td className="text-on-surface max-w-[150px] px-md py-md">
+                      <span className="line-clamp-2" title={row.type}>
+                        {row.type || "-"}
                       </span>
                     </td>
                     <td className="text-on-surface px-md py-md text-right tabular-nums">
@@ -454,7 +576,10 @@ export function LinkedInN8nManagedGroupsSection() {
 
           <div className="text-body-sm text-on-surface-variant mt-lg flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <span>
-              Trang {safePage}/{totalPages} — {rows.length} nhóm
+              Trang {safePage}/{totalPages} —{" "}
+              {typeFilter === "all"
+                ? `${rows.length} nhóm`
+                : `${filteredRows.length}/${rows.length} nhóm`}
             </span>
             <div className="flex items-center gap-base">
               <button
@@ -466,7 +591,9 @@ export function LinkedInN8nManagedGroupsSection() {
               >
                 <MaterialIcon name="chevron_left" />
               </button>
-              <span className="text-on-surface px-md font-bold">{safePage}</span>
+              <span className="text-on-surface px-md font-bold">
+                {safePage}
+              </span>
               <button
                 type="button"
                 className="hover:bg-surface-container-high rounded p-2 transition-colors disabled:opacity-30"
@@ -498,14 +625,48 @@ export function LinkedInN8nManagedGroupsSection() {
             aria-modal="true"
             aria-labelledby="bulk-add-group-title"
           >
-            <h3 id="bulk-add-group-title" className="text-h3 text-on-surface font-semibold">
+            <h3
+              id="bulk-add-group-title"
+              className="text-h3 text-on-surface font-semibold"
+            >
               Thêm nhóm hàng loạt
             </h3>
             <p className="text-body-sm text-on-surface-variant mt-sm">
-              Dán URL nhóm (mỗi dòng một link, hoặc cách nhau bởi dấu phẩy). Khi rời ô nhập, hệ thống có thể tự thêm
-              dấu phẩy và xuống dòng sau link cuối để dán tiếp. Quá trình cào + chờ n8n có thể mất vài phút — không đóng
-              trang.
+              Dán URL nhóm (mỗi dòng một link, hoặc cách nhau bởi dấu phẩy). Khi
+              rời ô nhập, hệ thống có thể tự thêm dấu phẩy và xuống dòng sau
+              link cuối để dán tiếp. Quá trình cào + chờ n8n có thể mất vài phút
+              — không đóng trang.
             </p>
+            <div className="mt-md">
+              <label
+                htmlFor="bulk-group-urls"
+                className="text-label-md text-on-surface-variant font-semibold uppercase"
+              >
+                Loại nhóm
+              </label>
+              <select
+                className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
+                value={bulkTypeOption}
+                onChange={(e) => setBulkTypeOption(e.target.value)}
+              >
+                <option value="">Chọn loại nhóm...</option>
+                {uniqueTypes.map((opt) => (
+                  <option key={opt} value={opt}>
+                    {opt}
+                  </option>
+                ))}
+                <option value="Khác">Khác (tự nhập)</option>
+              </select>
+              {bulkTypeOption === "Khác" && (
+                <input
+                  className="border-outline-variant bg-surface focus:border-primary mt-sm w-full rounded-lg border px-md py-sm"
+                  placeholder="Nhập loại nhóm mới..."
+                  value={bulkTypeCustom}
+                  onChange={(e) => setBulkTypeCustom(e.target.value)}
+                  autoFocus
+                />
+              )}
+            </div>
             <div className="mt-md">
               <label
                 htmlFor="bulk-group-urls"
@@ -551,7 +712,10 @@ export function LinkedInN8nManagedGroupsSection() {
               {bulkParsedUrls.length > 0 ? (
                 <p className="text-body-sm text-on-surface-variant mt-xs">
                   Đã nhận diện:{" "}
-                  <strong className="text-on-surface">{bulkParsedUrls.length}</strong> URL hợp lệ
+                  <strong className="text-on-surface">
+                    {bulkParsedUrls.length}
+                  </strong>{" "}
+                  URL hợp lệ
                 </p>
               ) : null}
             </div>
@@ -594,12 +758,17 @@ export function LinkedInN8nManagedGroupsSection() {
             aria-modal="true"
             aria-labelledby="add-group-title"
           >
-            <h3 id="add-group-title" className="text-h3 text-on-surface font-semibold">
+            <h3
+              id="add-group-title"
+              className="text-h3 text-on-surface font-semibold"
+            >
               Thêm nhóm
             </h3>
             <div className="mt-md flex flex-col gap-base">
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">URL nhóm</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  URL nhóm
+                </label>
                 <input
                   className={cn(
                     "bg-surface mt-1 w-full rounded-lg border px-md py-sm",
@@ -621,7 +790,9 @@ export function LinkedInN8nManagedGroupsSection() {
                 ) : null}
               </div>
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">Tên nhóm</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Tên nhóm
+                </label>
                 <input
                   className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
                   value={addName}
@@ -629,7 +800,36 @@ export function LinkedInN8nManagedGroupsSection() {
                 />
               </div>
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">Số thành viên</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Loại nhóm
+                </label>
+                <select
+                  className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
+                  value={addTypeOption}
+                  onChange={(e) => setAddTypeOption(e.target.value)}
+                >
+                  <option value="">Chọn loại nhóm...</option>
+                  {uniqueTypes.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  <option value="Khác">Khác (tự nhập)</option>
+                </select>
+                {addTypeOption === "Khác" && (
+                  <input
+                    className="border-outline-variant bg-surface focus:border-primary mt-sm w-full rounded-lg border px-md py-sm"
+                    placeholder="Nhập loại nhóm mới..."
+                    value={addTypeCustom}
+                    onChange={(e) => setAddTypeCustom(e.target.value)}
+                    autoFocus
+                  />
+                )}
+              </div>
+              <div>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Số thành viên
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -678,17 +878,25 @@ export function LinkedInN8nManagedGroupsSection() {
             aria-modal="true"
             aria-labelledby="edit-group-title"
           >
-            <h3 id="edit-group-title" className="text-h3 text-on-surface font-semibold">
+            <h3
+              id="edit-group-title"
+              className="text-h3 text-on-surface font-semibold"
+            >
               Cập nhật nhóm
             </h3>
             <p className="text-body-sm text-on-surface-variant mt-sm">
-              Hiện tại: <span className="font-medium text-on-surface">{editRow.name_group}</span> —{" "}
-              {editRow.member.toLocaleString("vi-VN")} thành viên. Để trống các ô bên dưới nếu giữ nguyên (backend gửi
-              giá trị cũ).
+              Hiện tại:{" "}
+              <span className="font-medium text-on-surface">
+                {editRow.name_group}
+              </span>{" "}
+              — {editRow.member.toLocaleString("vi-VN")} thành viên. Để trống
+              các ô bên dưới nếu giữ nguyên (backend gửi giá trị cũ).
             </p>
             <div className="mt-md flex flex-col gap-base">
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">URL mới (tuỳ chọn)</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  URL mới (tuỳ chọn)
+                </label>
                 <input
                   className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
                   value={editNewUrl}
@@ -697,7 +905,9 @@ export function LinkedInN8nManagedGroupsSection() {
                 />
               </div>
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">Tên mới (tuỳ chọn)</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Tên mới (tuỳ chọn)
+                </label>
                 <input
                   className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
                   value={editNewName}
@@ -706,7 +916,36 @@ export function LinkedInN8nManagedGroupsSection() {
                 />
               </div>
               <div>
-                <label className="text-label-md text-on-surface-variant font-semibold uppercase">Thành viên mới (tuỳ chọn)</label>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Loại nhóm mới (tuỳ chọn)
+                </label>
+                <select
+                  className="border-outline-variant bg-surface focus:border-primary mt-1 w-full rounded-lg border px-md py-sm"
+                  value={editTypeOption}
+                  onChange={(e) => setEditTypeOption(e.target.value)}
+                >
+                  <option value="">Không đổi / Bỏ loại</option>
+                  {uniqueTypes.map((opt) => (
+                    <option key={opt} value={opt}>
+                      {opt}
+                    </option>
+                  ))}
+                  <option value="Khác">Khác (tự nhập)</option>
+                </select>
+                {editTypeOption === "Khác" && (
+                  <input
+                    className="border-outline-variant bg-surface focus:border-primary mt-sm w-full rounded-lg border px-md py-sm"
+                    placeholder="Nhập loại nhóm mới..."
+                    value={editTypeCustom}
+                    onChange={(e) => setEditTypeCustom(e.target.value)}
+                    autoFocus
+                  />
+                )}
+              </div>
+              <div>
+                <label className="text-label-md text-on-surface-variant font-semibold uppercase">
+                  Thành viên mới (tuỳ chọn)
+                </label>
                 <input
                   type="number"
                   min={0}
@@ -749,9 +988,16 @@ export function LinkedInN8nManagedGroupsSection() {
         >
           <div className="border-outline-variant bg-surface w-[min(92vw,440px)] rounded-xl border p-lg shadow-xl">
             <div className="flex items-start gap-md">
-              <MaterialIcon name="check_circle" className="text-primary shrink-0 text-[40px]" filled />
+              <MaterialIcon
+                name="check_circle"
+                className="text-primary shrink-0 text-[40px]"
+                filled
+              />
               <div className="min-w-0 flex-1">
-                <h3 id="add-success-title" className="text-h3 text-on-surface font-semibold">
+                <h3
+                  id="add-success-title"
+                  className="text-h3 text-on-surface font-semibold"
+                >
                   Thành công
                 </h3>
                 <p

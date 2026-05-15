@@ -6,13 +6,16 @@ import { MaterialIcon } from "@/components/ui";
 import type { CrawlSessionGroup } from "@/types/api";
 
 import {
-  formatSheetCommentAutomationLabelVi,
-  formatSheetInteractionLabelVi,
 } from "./post-sheet-engagement";
+import { SheetCommentStatus } from "./SheetCommentStatus";
+import { SheetInteractionStatus } from "./SheetInteractionStatus";
 import {
   enrichPostRowNumberIfMissing,
   pickNum,
+  pickPostUrlFromRecord,
+  pickPositiveRowNumberFromPost,
   pickStr,
+  postsShareSameLinkedInUrl,
 } from "./n8n-sheet-helpers";
 import { SessionPostDetailModal } from "./SessionPostDetailModal";
 
@@ -205,9 +208,6 @@ export function SessionPostsModal({
                 {paginatedPosts.map((raw, idx) => {
                   const rowNum = pageStart + idx + 1;
                   const post = mergedPost(raw as Record<string, unknown>, rowNum);
-                  const interactLabel = formatSheetInteractionLabelVi(post);
-                  const commentDoneLabel =
-                    formatSheetCommentAutomationLabelVi(post);
                   const groupName = pickStr(post, [
                     "Tên nhóm",
                     "group_name",
@@ -272,18 +272,16 @@ export function SessionPostsModal({
                       </td>
                       <td className="max-w-[200px] px-md py-sm text-right align-middle">
                         <div className="flex flex-wrap items-center justify-end gap-x-sm gap-y-1">
-                          <span
-                            className="text-on-surface block min-w-0 max-w-[92px] break-words text-right text-[10px] leading-tight font-semibold"
-                            title="Sheet: reaction"
-                          >
-                            {interactLabel}
-                          </span>
-                          <span
-                            className="text-on-surface block min-w-0 max-w-[92px] break-words text-right text-[10px] leading-tight font-semibold"
-                            title="Sheet: comment (automation)"
-                          >
-                            {commentDoneLabel}
-                          </span>
+                          <SheetInteractionStatus
+                            post={post}
+                            variant="table"
+                            className="max-w-[92px]"
+                          />
+                          <SheetCommentStatus
+                            post={post}
+                            variant="table"
+                            className="max-w-[92px]"
+                          />
                           <button
                             type="button"
                             onClick={() =>
@@ -351,17 +349,38 @@ export function SessionPostsModal({
           linkedinPlaywrightSessionId={linkedinPlaywrightSessionId}
           onRefreshSessions={onRefreshSessions}
           refreshSessionsBusy={refreshSessionsBusy}
-          onReactionSucceeded={(rowNum, patch) => {
-            const key = rowPatchKey(session.id_session_crawl, rowNum);
-            setPostPatches((prev) => ({
-              ...prev,
-              [key]: { ...prev[key], ...patch },
-            }));
-            setDetailPost((d) =>
-              d && d.rowNum === rowNum
-                ? { ...d, raw: { ...d.raw, ...patch } }
-                : d,
-            );
+          onReactionSucceeded={(rowNum, patch, postUrlForSync) => {
+            const sid = session.id_session_crawl;
+            const targetUrl = (postUrlForSync || "").trim();
+            setPostPatches((prev) => {
+              const next = { ...prev };
+              posts.forEach((raw, idx) => {
+                const ordinal = idx + 1;
+                const row =
+                  pickPositiveRowNumberFromPost(raw) ?? ordinal;
+                const url = pickPostUrlFromRecord(raw);
+                const matchesRow = row === rowNum;
+                const matchesUrl =
+                  targetUrl && url
+                    ? postsShareSameLinkedInUrl(url, targetUrl)
+                    : false;
+                if (!matchesRow && !matchesUrl) return;
+                const key = rowPatchKey(sid, row);
+                next[key] = { ...next[key], ...patch };
+              });
+              return next;
+            });
+            setDetailPost((d) => {
+              if (!d) return d;
+              const url = pickPostUrlFromRecord(d.raw);
+              const matchesRow = d.rowNum === rowNum;
+              const matchesUrl =
+                targetUrl && url
+                  ? postsShareSameLinkedInUrl(url, targetUrl)
+                  : false;
+              if (!matchesRow && !matchesUrl) return d;
+              return { ...d, raw: { ...d.raw, ...patch } };
+            });
           }}
           onClose={() => setDetailPost(null)}
         />

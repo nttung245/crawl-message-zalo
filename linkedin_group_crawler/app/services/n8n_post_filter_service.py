@@ -276,6 +276,51 @@ def group_key_from_post(post: dict[str, Any]) -> str:
     return f"name:{n}" if n else "__unknown__"
 
 
+_ROW_NUMBER_KEYS_EXACT = (
+    "row_number",
+    "rowNumber",
+    "STT",
+    "stt",
+)
+
+
+def _post_has_meaningful_row_number(post: dict[str, Any]) -> bool:
+    """Ô STT / row_number có số nguyên > 0 (không trống / 0)."""
+
+    for key in _ROW_NUMBER_KEYS_EXACT:
+        if key not in post:
+            continue
+        raw = post.get(key)
+        if raw is None:
+            continue
+        try:
+            if isinstance(raw, (int, float)):
+                n = int(raw)
+            else:
+                s = str(raw).strip()
+                if not s:
+                    continue
+                n = int(s)
+        except (TypeError, ValueError):
+            continue
+        if n > 0:
+            return True
+    return False
+
+
+def enrich_post_row_number_if_missing(post: dict[str, Any], ordinal: int) -> dict[str, Any]:
+    """Gán ``row_number`` / ``rowNumber`` = thứ tự trong phiên (1…n) khi sheet/n8n không có."""
+
+    if _post_has_meaningful_row_number(post):
+        return post
+    out = dict(post)
+    out["row_number"] = ordinal
+    out["rowNumber"] = ordinal
+    out["STT"] = ordinal
+    out["stt"] = ordinal
+    return out
+
+
 def pick_top_post_per_group(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Trong một phiên cào: mỗi nhóm một bài — chọn bài rank cao nhất; thứ tự nhóm = lần đầu gặp."""
 
@@ -305,7 +350,11 @@ def build_crawl_sessions_from_posts(posts: list[dict[str, Any]]) -> list[dict[st
 
     sessions: list[dict[str, Any]] = []
     for sid in order:
-        plist = pick_top_post_per_group(bucket_posts[sid])
+        plist_raw = pick_top_post_per_group(bucket_posts[sid])
+        plist = [
+            enrich_post_row_number_if_missing(p, idx + 1)
+            for idx, p in enumerate(plist_raw)
+        ]
         gu = ""
         gn = ""
         ec = ""

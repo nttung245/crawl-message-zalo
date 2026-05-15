@@ -52,6 +52,12 @@ class StatusDataResponse(BaseModel):
     n8n_webhook_update_group_configured: bool = False
     n8n_webhook_add_list_group_configured: bool = False
     n8n_webhook_bulk_import_groups_configured: bool = False
+    n8n_webhook_get_profile_slugs_configured: bool = False
+    n8n_webhook_add_profile_slug_configured: bool = False
+    n8n_webhook_post_reaction_configured: bool = False
+    n8n_webhook_post_comment_configured: bool = False
+    n8n_webhook_assign_kpi_configured: bool = False
+    n8n_webhook_check_permission_configured: bool = False
     google_sheet_configured: bool = False
 
 
@@ -183,6 +189,47 @@ class BulkGroupImportResponse(BaseResponse):
     data: Optional[BulkGroupImportData] = None
 
 
+class ProfileSlugData(BaseModel):
+    """Slug và URL profile công khai của user đang đăng nhập."""
+
+    profile_slug: str = Field(description="Phần path sau /in/, ví dụ nmhoang-dev.")
+    profile_url: str = Field(description="URL đầy đủ https://www.linkedin.com/in/<slug>/")
+    session_id: str = Field(description="Session id đã dùng để resolve storage state.")
+
+
+class ProfileSlugResponse(BaseResponse):
+    data: Optional[ProfileSlugData] = None
+
+
+class ProfileSlugSheetCheckData(BaseModel):
+    email_found_in_sheet: bool
+    webhook_http_status: int
+    row_count: int = Field(description="Số dòng dict đã parse từ ``data``.")
+    matched_profile_slug: Optional[str] = Field(
+        default=None,
+        description="Slug đọc từ dòng khớp email (nếu sheet có cột).",
+    )
+
+
+class ProfileSlugSheetCheckResponse(BaseResponse):
+    data: Optional[ProfileSlugSheetCheckData] = None
+
+
+class EnsureProfileSlugData(BaseModel):
+    email_found_in_sheet: bool = False
+    skipped_playwright: bool = False
+    skipped_register_webhook: bool = False
+    sheet_check_skipped_no_webhook: bool = False
+    profile_slug: Optional[str] = None
+    profile_url: Optional[str] = None
+    sheet_webhook_http_status: Optional[int] = None
+    register_webhook_http_status: Optional[int] = None
+
+
+class EnsureProfileSlugResponse(BaseResponse):
+    data: Optional[EnsureProfileSlugData] = None
+
+
 class SheetLinkFromN8nData(BaseModel):
     """Kết quả sau khi gọi webhook lấy link sheet."""
 
@@ -234,6 +281,16 @@ class LinkedinSheetGroupsResponse(BaseResponse):
     data: Optional[LinkedinSheetGroupsData] = None
 
 
+class LinkedinAppStatsData(BaseModel):
+    total_comments: int = 0
+    total_interactions: int = 0
+    total_posts_crawled: int = 0
+
+
+class LinkedinAppStatsResponse(BaseResponse):
+    data: Optional[LinkedinAppStatsData] = None
+
+
 class LinkedinAppCrawlGroupResult(BaseModel):
     group_url: str
     success: bool
@@ -248,3 +305,156 @@ class LinkedinAppCrawlBatchData(BaseModel):
 
 class LinkedinAppCrawlBatchResponse(BaseResponse):
     data: Optional[LinkedinAppCrawlBatchData] = None
+
+
+class PostReactionData(BaseModel):
+    """Kết quả POST /linkedin/post/react."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    reaction: str
+    row_number: int
+    Email_crawl: str
+    ID_session_crawl: str
+    post_url: str
+    final_url: str = ""
+    resolved_playwright_session_id: str = ""
+    webhook_called: bool = False
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = None
+    playwright_skipped: bool = False
+    synced_row_count: int = 0
+    webhook_sync_success_count: int = 0
+
+
+class PostReactionResponse(BaseResponse):
+    data: Optional[PostReactionData] = None
+
+
+class PostCommentData(BaseModel):
+    """Kết quả POST /linkedin/post/comment."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    comment_text: str
+    app_comments: list[dict[str, Any]]
+    row_number: int
+    Email_crawl: str
+    ID_session_crawl: str
+    post_url: str
+    final_url: str = ""
+    resolved_playwright_session_id: str = ""
+    webhook_called: bool = False
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = None
+    synced_row_count: int = 0
+    webhook_sync_success_count: int = 0
+
+
+class PostCommentResponse(BaseResponse):
+    data: Optional[PostCommentData] = None
+
+
+class PostCommentDeleteData(BaseModel):
+    """Kết quả POST /linkedin/post/comment/delete."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    comment_text: str
+    row_number: int
+    Email_crawl: str
+    ID_session_crawl: str
+    post_url: str
+    final_url: str = ""
+    resolved_playwright_session_id: str = ""
+    webhook_called: bool = False
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = None
+    synced_row_count: int = 0
+    webhook_sync_success_count: int = 0
+
+
+class PostCommentDeleteResponse(BaseResponse):
+    data: Optional[PostCommentDeleteData] = None
+
+
+class PostCommentEditData(BaseModel):
+    """Kết quả POST /linkedin/post/comment/edit."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    old_comment_text: str
+    new_comment_text: str
+    row_number: int
+    Email_crawl: str
+    ID_session_crawl: str
+    post_url: str
+    final_url: str = ""
+    resolved_playwright_session_id: str = ""
+    webhook_called: bool = False
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = None
+    synced_row_count: int = 0
+    webhook_sync_success_count: int = 0
+
+
+class PostCommentEditResponse(BaseResponse):
+    data: Optional[PostCommentEditData] = None
+
+
+class SyncPostProgressData(BaseModel):
+    """Kết quả POST /linkedin/post/sync-progress."""
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    post_url: str
+    reaction: Optional[str] = None
+    comments: list[dict[str, Any]] = []
+    total_reactions: int = 0
+    total_comments: int = 0
+    row_number: Optional[int] = None
+    webhook_called: bool = False
+    webhook_http_status: Optional[int] = None
+    webhook_response_preview: Optional[str] = None
+
+
+class SyncPostProgressResponse(BaseResponse):
+    data: Optional[SyncPostProgressData] = None
+
+
+class SyncAllProgressData(BaseModel):
+    """Kết quả POST /linkedin/sync-all-progress."""
+
+    posts_attempted: int
+    posts_succeeded: int
+    details: list[SyncPostProgressData]
+
+
+class SyncAllProgressResponse(BaseResponse):
+    data: Optional[SyncAllProgressData] = None
+
+
+class CheckPermissionData(BaseModel):
+    permission: bool = False
+
+
+class CheckPermissionResponse(BaseResponse):
+    data: Optional[CheckPermissionData] = None
+
+
+class KpiMemberData(BaseModel):
+    email: str
+    role: str = "member"
+    profile_slug: Optional[str] = None
+    email_leader: Optional[str] = None
+    kpi: list[dict[str, Any]] = []
+
+
+class GetAllKpiResponse(BaseResponse):
+    total: int = 0
+    data: list[KpiMemberData] = []
+
+
+class GetKpiByEmailResponse(BaseResponse):
+    total: int = 0
+    data: list[KpiMemberData] = []

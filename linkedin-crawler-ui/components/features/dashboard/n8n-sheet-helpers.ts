@@ -54,6 +54,36 @@ export function hasMeaningfulRowNumber(record: Record<string, unknown>): boolean
 }
 
 /** ``row_number`` / ``STT`` … đúng như bản ghi từ API (get-all-posts); không ép số cột «#». Chỉ fallback khi không có số ≥ 1. */
+const POST_URL_KEYS = [
+  "URL_Bài_Viết",
+  "post_url",
+  "postUrl",
+  "urlbaiviet",
+] as const;
+
+/** URL bài từ bản ghi sheet/API. */
+export function pickPostUrlFromRecord(
+  record: Record<string, unknown>,
+): string {
+  return pickStr(record, [...POST_URL_KEYS]);
+}
+
+function linkedinActivityIdFromUrl(url: string): string {
+  const match = url.match(/urn:li:activity:(\d+)/i);
+  return match?.[1] ?? "";
+}
+
+/** So khớp cùng bài LinkedIn (ưu tiên activity id). */
+export function postsShareSameLinkedInUrl(left: string, right: string): boolean {
+  const a = left.trim();
+  const b = right.trim();
+  if (!a || !b) return false;
+  const idA = linkedinActivityIdFromUrl(a);
+  const idB = linkedinActivityIdFromUrl(b);
+  if (idA && idB && idA === idB) return true;
+  return a.replace(/\/$/, "") === b.replace(/\/$/, "");
+}
+
 export function pickPositiveRowNumberFromPost(
   record: Record<string, unknown>,
 ): number | undefined {

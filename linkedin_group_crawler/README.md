@@ -14,16 +14,19 @@ py -3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 - Private proxy code: `/opt/apps/minhhoang-linkedin-scraper/minhhoang-private-proxy`
 
 Port runtime:
+
 - Backend: `127.0.0.1:8101`
 - Frontend: `127.0.0.1:3101`
 - Proxy public: `0.0.0.0:18080`
 
 URL su dung:
-- UI: `http://10.30.50.29:18080/minhhoang-scraper/quan-ly-nhom`
+
+- UI: `http://10.30.50.29:18080/minhhoang-scraper/`
 - API docs: `http://10.30.50.29:18080/minhhoang-scraper/api/docs`
 - API health (GET): `http://10.30.50.29:18080/minhhoang-scraper/api/health`
 
 Luu y:
+
 - Khong dung Nginx shared lam duong vao chinh.
 - Namespace rieng cua app la `/minhhoang-scraper`.
 
@@ -44,11 +47,13 @@ NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY=secret_api_key
 ```
 
 Luu y:
+
 - FE mo qua `:18080` thi API URL phai cung origin `:18080`.
 
 ## 4) PM2 process chuan
 
 Ten process:
+
 - `minhhoang-backend`
 - `minhhoang-frontend`
 - `minhhoang-proxy`
@@ -100,26 +105,38 @@ const PORT = process.env.PORT || 18080;
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Credentials", "true");
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-API-Key, X-Requested-With");
+  res.setHeader(
+    "Access-Control-Allow-Methods",
+    "GET,POST,PUT,PATCH,DELETE,OPTIONS",
+  );
+  res.setHeader(
+    "Access-Control-Allow-Headers",
+    "Content-Type, Authorization, X-API-Key, X-Requested-With",
+  );
   if (req.method === "OPTIONS") return res.sendStatus(204);
   next();
 });
 
 // API: rewrite bo /minhhoang-scraper/api
-app.use(createProxyMiddleware({
-  target: "http://127.0.0.1:8101",
-  changeOrigin: true,
-  pathFilter: (path) => path.startsWith("/minhhoang-scraper/api"),
-  pathRewrite: { "^/minhhoang-scraper/api": "" },
-}));
+app.use(
+  createProxyMiddleware({
+    target: "http://127.0.0.1:8101",
+    changeOrigin: true,
+    pathFilter: (path) => path.startsWith("/minhhoang-scraper/api"),
+    pathRewrite: { "^/minhhoang-scraper/api": "" },
+  }),
+);
 
 // Frontend: GIU NGUYEN duong dan /minhhoang-scraper/*
-app.use(createProxyMiddleware({
-  target: "http://127.0.0.1:3101",
-  changeOrigin: true,
-  pathFilter: (path) => path.startsWith("/minhhoang-scraper") && !path.startsWith("/minhhoang-scraper/api"),
-}));
+app.use(
+  createProxyMiddleware({
+    target: "http://127.0.0.1:3101",
+    changeOrigin: true,
+    pathFilter: (path) =>
+      path.startsWith("/minhhoang-scraper") &&
+      !path.startsWith("/minhhoang-scraper/api"),
+  }),
+);
 
 app.listen(PORT, "0.0.0.0", () => {
   console.log(`minhhoang-private-proxy listening on :${PORT}`);
@@ -127,6 +144,7 @@ app.listen(PORT, "0.0.0.0", () => {
 ```
 
 Quan trong:
+
 - Khong dung `app.use("/minhhoang-scraper", proxy)` neu muon giu nguyen path, vi Express se cat prefix truoc khi forward.
 - Bat buoc listen `0.0.0.0` neu can truy cap tu may khac trong LAN.
 - Khong them redirect tay `/minhhoang-scraper -> /minhhoang-scraper/` trong proxy neu da co redirect tu Next, de tranh `ERR_TOO_MANY_REDIRECTS`.
@@ -157,6 +175,7 @@ curl -s -o /dev/null -w "api=%{http_code}\n" http://127.0.0.1:18080/minhhoang-sc
 ```
 
 Gia tri pass:
+
 - `backend=200`
 - `direct=200`
 - `root=200`
@@ -166,7 +185,8 @@ Gia tri pass:
 
 ## 9) Xu ly su co thuong gap
 
-1) `Connection refused` tu may local vao `:18080`
+1. `Connection refused` tu may local vao `:18080`
+
 - Kiem tra proxy listen `0.0.0.0:18080`:
   ```bash
   ss -ltnp | rg 18080
@@ -176,15 +196,18 @@ Gia tri pass:
   sudo ufw allow 18080/tcp
   ```
 
-2) `api=200` nhung `page=404`
+2. `api=200` nhung `page=404`
+
 - Loi mapping prefix cua proxy.
 - Dung lai file `server.js` theo muc 6 va restart `minhhoang-proxy`.
 
-3) `backend errored` voi `venv/bin/activate: No such file`
+3. `backend errored` voi `venv/bin/activate: No such file`
+
 - VM dang dung `.venv`, khong phai `venv`.
 - Sua PM2 command backend theo muc 5.
 
-4) Sau pull/build thay doi nhung UI khong cap nhat
+4. Sau pull/build thay doi nhung UI khong cap nhat
+
 - Hard refresh trinh duyet: `Ctrl + F5`.
 - Rebuild frontend theo muc 7.
 
@@ -199,6 +222,7 @@ Gia tri pass:
 ## 11) Ghi chu Python 3.8
 
 VM dang chay Python 3.8, da fix:
+
 - `from typing import Annotated` -> `from typing_extensions import Annotated`
 - `@dataclass(slots=True)` -> `@dataclass`
 

@@ -1,7 +1,10 @@
 "use client";
 
 import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
-import { APP_PLATFORM_LABEL, type AppPlatform } from "@/lib/app-platform";
+import {
+  APP_PLATFORM_LABEL,
+  type AppPlatform,
+} from "@/lib/LinkedIn-app-platform";
 import { cn } from "@/lib/utils";
 
 const options: AppPlatform[] = ["linkedin", "facebook"];
