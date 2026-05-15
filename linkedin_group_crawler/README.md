@@ -3,8 +3,13 @@
 ## 1) Chay local nhanh
 
 ```bash
+cd linkedin_group_crawler
 py -3 -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
+
+API docs: `http://127.0.0.1:8000/docs` — header `x-api-key` = gia tri `API_KEY` trong `.env`.
+
+Ban do day du (API, UI, luong KPI/sync): [../CRAWL_DATA_LINKEDIN_MAP.md](../CRAWL_DATA_LINKEDIN_MAP.md).
 
 ## 2) Kien truc deploy on dinh tren VM
 
@@ -227,3 +232,61 @@ VM dang chay Python 3.8, da fix:
 - `@dataclass(slots=True)` -> `@dataclass`
 
 Khuyen nghi dai han: nang cap Python 3.10+.
+
+---
+
+## 12) Tinh nang moi (2026-05)
+
+### Dong bo tien do bai (`sync-progress`)
+
+- `POST /linkedin/post/sync-progress` — Playwright mo **truc tiep URL bai**, doc reaction + comment (marker You/Bạn) + so like/comment.
+- Frontend: sau popup thanh cong (comment/reaction), nut OK goi sync; slug lay tu **sheet** (`kpi/get-by-email` hoac cot `profile_slug` tren dong), **khong** qua `/linkedin/me/profile-slug` (tranh vao `/in/me` thua).
+- Service: `app/services/sync_progress_service.py`.
+
+### KPI & leader (`/admin/team`)
+
+- Leader: `POST /kpi/get-all` → lay member; moi member `POST /get-all-posts` rieng → gop feed tinh KPI thuc te.
+- `POST /kpi/assign`, `POST /kpi/get-by-email`, `POST /team/add-member`, `POST /auth/check-permission`.
+- UI: `linkedin-crawler-ui/app/(dashboard)/admin/team` — chi role `leader`.
+
+### Member dashboard
+
+- `LinkedInStats`: KPI tuan + actuals tu `get-all-posts` (email dang nhap).
+- Leader vao home LinkedIn → redirect `/admin/team`.
+
+---
+
+## 13) Cau hinh webhook n8n (.env)
+
+Mau bien: [.env.example](.env.example). **Khong commit** `.env` that.
+
+| Bien | Ghi chu |
+|------|---------|
+| `N8N_WEBHOOK_URL` | Credentials → `/n8n/webhook-credentials` (**khong** dung ten `N8N_WEBHOOK`) |
+| `N8N_WEBHOOK_START` | `POST /start` |
+| `N8N_WEBHOOK_GET_ALL_POSTS` | `get-all-posts` + `filter-data` |
+| `N8N_WEBHOOK_REACTION` | Reaction, sync-progress, sync-all (ghi sheet) |
+| `N8N_WEBHOOK_GET_ALL_KPI` / `N8N_WEBHOOK_GET_KPI_BY_EMAIL` / `N8N_WEBHOOK_ASSIGN_KPI` | **URL rieng** tren n8n (khong copy chung 1 webhook neu workflow khac nhau) |
+| `N8N_CHECK_PERMISSION` vs `N8N_WEBHOOK_ADD_MEMBER` | **Khong trung URL** — body khac nhau (`email` vs `email_member`+`email_leader`) |
+| `LEADER_CODE` | Xac nhan leader tren UI |
+
+Sau sua `.env` tren VM: `pm2 restart minhhoang-backend --update-env`.
+
+---
+
+## 14) Frontend local (tham khao)
+
+```bash
+cd linkedin-crawler-ui
+npm install
+npm run dev
+```
+
+`.env.local`:
+
+```env
+NEXT_PUBLIC_LINKEDIN_CRAWLER_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY=<cung API_KEY backend>
+```
+
+Production qua proxy: xem muc 3 (`basePath` `/minhhoang-scraper`).

@@ -1,6 +1,6 @@
 # CrawlDataLinkedin - Project Map
 
-Ngay tao: 2026-05-12
+Ngay cap nhat: 2026-05-15 (cap nhat KPI leader, sync-progress, slug tu sheet)
 
 Tai lieu nay tom tat chuc nang cua tung khu vuc (backend + frontend), cac file chinh, luong tuong tac, va danh sach API. Noi dung duoc tong hop tu cac file trong repo (link chi tiet o tung muc).
 
@@ -60,6 +60,8 @@ File: [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/
 - `POST /linkedin/post/comment` -> `linkedin_post_comment` (comment + ghi sheet)
 - `POST /linkedin/post/comment/delete` -> `linkedin_post_comment_delete` (xoa comment + ghi sheet)
 - `POST /linkedin/post/comment/edit` -> `linkedin_post_comment_edit` (sua comment + ghi sheet)
+- `POST /linkedin/post/sync-progress` -> `linkedin_post_sync_progress` (doc lai reaction/comment/metrics tren 1 bai + ghi sheet qua webhook)
+- `POST /linkedin/sync-all-progress` -> `linkedin_sync_all_progress` (dong bo tat ca bai cua user tu danh sach n8n)
 
 **Crawl**
 
@@ -86,6 +88,21 @@ File: [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/
 
 - `POST /filter-data` -> `filter_data` (goi n8n, loc theo ngay)
 - `POST /get-all-posts` -> `get_all_posts` (goi n8n, gom theo phien)
+- `POST /filter-data` dung chung webhook `N8N_WEBHOOK_GET_ALL_POSTS` (loc ngay tren backend)
+
+**Auth / role / KPI / team (leader)**
+
+- `POST /auth/check-permission` -> `check_permission` (leader/member qua n8n, env `N8N_CHECK_PERMISSION`)
+- `POST /auth/verify-leader-code` -> `verify_leader_code` (so sanh `LEADER_CODE` trong .env)
+- `POST /kpi/assign` -> `linkedin_assign_kpi` (leader gan KPI, env `N8N_WEBHOOK_ASSIGN_KPI`)
+- `POST /kpi/get-all` -> `get_all_kpi` (danh sach member + KPI theo `email_leader`, env `N8N_WEBHOOK_GET_ALL_KPI`)
+- `POST /kpi/get-by-email` -> `get_kpi_by_email` (profile_slug + KPI theo email member, env `N8N_WEBHOOK_GET_KPI_BY_EMAIL`)
+- `POST /team/add-member` -> `add_member` (env `N8N_WEBHOOK_ADD_MEMBER` — **nen URL rieng**, khong trung check-permission)
+
+**Profiles (sheet)**
+
+- `POST /linkedin/all-profiles` -> `get_all_profiles`
+- `POST /linkedin/me/profile-slug-update` -> `update_profile_slug_endpoint` (cap nhat role/slug tren sheet)
 
 **LinkedIn App router (Google Sheet)**
 
@@ -119,6 +136,7 @@ Thu muc: [linkedin_group_crawler/app/services](linkedin_group_crawler/app/servic
 - `group_bulk_import_service.py`: crawl danh sach group
 - `n8n_post_filter_service.py`: normalize / filter posts tu n8n
 - `n8n_webhook_service.py`: call webhook (post_json, push_start, push_credentials, ...)
+- `sync_progress_service.py`: Playwright `goto(post_url)` — doc reaction, comment (marker You/Bạn), metrics; **khong can vao /in/me** khi sync 1 bai
 - `google_sheet_service.py`: doc/ghi Google Sheets
 - `ranking_service.py`: chon top post / loc bai
 
@@ -139,10 +157,12 @@ Thu muc: [linkedin_group_crawler/app/utils](linkedin_group_crawler/app/utils)
 ### 3.1 App Router / Pages
 
 - Root layout: [linkedin-crawler-ui/app/layout.tsx](linkedin-crawler-ui/app/layout.tsx)
-- Dashboard home: [linkedin-crawler-ui/app/(dashboard)/page.tsx](<linkedin-crawler-ui/app/(dashboard)/page.tsx>)
-  - Render: `DashboardHomeContent`
-- Group management: [linkedin-crawler-ui/app/(dashboard)/quan-ly-nhom/page.tsx](<linkedin-crawler-ui/app/(dashboard)/quan-ly-nhom/page.tsx>)
-  - Render: `PlatformGroupManagementContent`
+- Dashboard home: [linkedin-crawler-ui/app/(dashboard)/page.tsx](linkedin-crawler-ui/app/(dashboard)/page.tsx)
+  - Render: `DashboardHomeContent` → LinkedIn: `LinkedInDashboardHomeContent` (member) hoac redirect leader → `/admin/team`
+- Leader team admin: [linkedin-crawler-ui/app/(dashboard)/admin/team/page.tsx](linkedin-crawler-ui/app/(dashboard)/admin/team/page.tsx)
+  - Chi leader; member → [linkedin-crawler-ui/app/403/page.tsx](linkedin-crawler-ui/app/403/page.tsx)
+- Group management: [linkedin-crawler-ui/app/(dashboard)/quan-ly-nhom/page.tsx](linkedin-crawler-ui/app/(dashboard)/quan-ly-nhom/page.tsx)
+  - Render: `PlatformGroupManagementContent` (member; leader redirect admin)
 - Top posts: [linkedin-crawler-ui/app/top-post/page.tsx](linkedin-crawler-ui/app/top-post/page.tsx)
   - Render: `LinkedInTopPostsPage`
 
@@ -151,39 +171,59 @@ Thu muc: [linkedin_group_crawler/app/utils](linkedin_group_crawler/app/utils)
 - Dashboard entry: [linkedin-crawler-ui/components/features/dashboard/DashboardHomeContent.tsx](linkedin-crawler-ui/components/features/dashboard/DashboardHomeContent.tsx)
   - Switch Facebook/LinkedIn theo `AppPlatformProvider`
 - LinkedIn dashboard: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedInDashboardHomeContent.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedInDashboardHomeContent.tsx)
+  - Member: form + `LinkedInStats` (KPI tuan, actuals tu get-all-posts)
+  - Leader: `router.replace("/admin/team")` khi vao home
   - Form crawler: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlerConfigCard.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlerConfigCard.tsx)
   - Ket qua: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx)
   - Bang phien + modal: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlSessionsTableCore.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlSessionsTableCore.tsx)
   - Modal phien: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostsModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostsModal.tsx)
   - Modal chi tiet post: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx)
 
-### 3.3 Group management
+### 3.3 Leader — quan ly doi & KPI
+
+- Page: [linkedin-crawler-ui/app/(dashboard)/admin/team/page.tsx](linkedin-crawler-ui/app/(dashboard)/admin/team/page.tsx)
+- Noi dung: [linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamPageContent.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamPageContent.tsx)
+  - `fetchTeamMembers` → `POST /kpi/get-all` (`email_leader`)
+  - Sau do `get-all-posts` **lan luot theo email tung member** (gop `teamMembersPostsResult`) — **khong** dung email leader de dem KPI
+  - Dem thuc te: [linkedin-crawler-ui/lib/admin-team-kpi-metrics.ts](linkedin-crawler-ui/lib/admin-team-kpi-metrics.ts) (`email_crawl` = email member)
+  - Bang + modal KPI: `AdminTeamTable`, `AssignKpiModal` (xem KPI theo tuan, so sanh actual vs target)
+  - `AddMemberModal` → `POST /team/add-member`
+
+### 3.4 Auth UI
+
+- [linkedin-crawler-ui/components/features/auth/WelcomeRoleModal.tsx](linkedin-crawler-ui/components/features/auth/WelcomeRoleModal.tsx): chon leader/member lan dau
+- [linkedin-crawler-ui/components/features/auth/ForbiddenPage.tsx](linkedin-crawler-ui/components/features/auth/ForbiddenPage.tsx): 403
+- [linkedin-crawler-ui/components/features/dashboard/DashboardSidebar.tsx](linkedin-crawler-ui/components/features/dashboard/DashboardSidebar.tsx): login, OTP, nav leader → `/admin/team`
+
+### 3.5 Group management
 
 - Group management page content: [linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInGroupManagementPageContent.tsx](linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInGroupManagementPageContent.tsx)
 - N8n managed groups: [linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInN8nManagedGroupsSection.tsx](linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInN8nManagedGroupsSection.tsx)
 - Local group list: [linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInGroupsToCrawlSection.tsx](linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInGroupsToCrawlSection.tsx)
 
-### 3.4 Top-post page (UI demo / mock)
+### 3.6 Top-post page (UI demo / mock)
 
 - Main page: [linkedin-crawler-ui/components/features/linkedin/top-post/LinkedInTopPostsPage.tsx](linkedin-crawler-ui/components/features/linkedin/top-post/LinkedInTopPostsPage.tsx)
 - Card/UI helpers: [linkedin-crawler-ui/components/features/linkedin/top-post](linkedin-crawler-ui/components/features/linkedin/top-post)
   - Mock data, stats row, sidebar, pagination
 
-### 3.5 Hooks / Services / Lib
+### 3.7 Hooks / Services / Lib
 
 - Hook: [linkedin-crawler-ui/hooks/useDashboardCrawler.ts](linkedin-crawler-ui/hooks/useDashboardCrawler.ts)
-  - Quan ly state form, crawl sessions, filter
+  - Form, crawl sessions, filter, role, `teamMembers`, `memberKpi`, `memberKpiStats`
+  - Leader: `teamMembersPostsResult` + `loadLeaderTeamPostsForMemberEmails` (get-all-posts tung member)
+  - `fetchTeamMembers`, `handleSyncAllProgress`, `checkPermission` qua sidebar
 - API client: [linkedin-crawler-ui/services/linkedinCrawlerService.ts](linkedin-crawler-ui/services/linkedinCrawlerService.ts)
-  - `requestJson` -> goi backend (base URL tu env)
-  - Wrapper cho `login`, `verify`, `start`, `crawl`, `filter`, `get-all`, reaction/comment/delete/edit
+  - Them: `syncPostProgress`, `syncAllProgress`, `getAllKpi`, `getKpiByEmail`, `assignKpi`, `checkPermission`, `addMember`, `verifyLeaderCode`, `updateProfileSlug`
 - Types: [linkedin-crawler-ui/types/api.ts](linkedin-crawler-ui/types/api.ts)
-  - Dinh nghia request/response cho frontend
+  - `KpiMemberData`, `CrawlSessionGroup`, sync/KPI request models
 - Lib helpers: [linkedin-crawler-ui/lib](linkedin-crawler-ui/lib)
-  - `env.ts`: API base/key
-  - `LinkedIn-n8n-groups-normalize.ts`: normalize danh sach nhom n8n
-  - `LinkedIn-appComments.ts`: parse/merge comments trong sheet
-  - `LinkedIn-postReactionWebhookBody.ts`: payload reaction
-  - `LinkedIn-parse-group-urls-bulk.ts`: parse danh sach URL
+  - `env.ts`, `credentials.ts`, `date-helpers.ts`
+  - `kpi-month-weeks.ts`: tuan lich T2–CN, merge KPI payload
+  - `admin-team-kpi-metrics.ts`: dem phiên/bài/comment/tuong tac theo `email_crawl` + khoang ngay
+  - `merge-crawl-session-groups.ts`: gop nhieu lan get-all-posts (leader)
+  - `LinkedIn-resolve-profile-slug-from-sheet.ts`: slug tu sheet / `kpi/get-by-email` (sync 1 bai, **khong** Playwright /in/me)
+  - `LinkedIn-appComments.ts`, `LinkedIn-postReactionWebhookBody.ts`, `LinkedIn-n8n-groups-normalize.ts`, ...
 
 ---
 
@@ -206,10 +246,24 @@ Thu muc: [linkedin_group_crawler/app/utils](linkedin_group_crawler/app/utils)
 - Modal post: [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx)
   - Reaction -> `POST /linkedin/post/react`
   - Comment -> `POST /linkedin/post/comment`
-  - Delete comment -> `POST /linkedin/post/comment/delete`
-  - Edit comment -> `POST /linkedin/post/comment/edit`
+  - Delete comment -> `POST /linkedin/post/comment/delete` (van can `getMyProfileSlug` → recent-activity)
+  - Edit comment -> `POST /linkedin/post/comment/edit` (van can slug Playwright)
+  - **Sau popup OK** (comment/reaction/...): `runSyncProgress` → `resolveProfileSlugFromSheetForEmail` → `POST /linkedin/post/sync-progress`
+  - Sync: Playwright **chi** `goto(post_url)`; slug chi de thoa API, doc comment bang marker **You/Bạn**
 
-Backend tiep tuc dong bo len sheet qua webhook `N8N_WEBHOOK_POST_REACTION` (va cac webhook khac tuy chuc nang).
+Backend ghi sheet qua webhook `N8N_WEBHOOK_REACTION` (alias `N8N_WEBHOOK_POST_REACTION`).
+
+### 4.4 Leader — KPI va feed posts
+
+```text
+POST /kpi/get-all (email_leader)
+  → danh sach member + profile_slug + kpi[]
+  → voi moi email member: POST /get-all-posts { email: member }
+  → mergeCrawlSessionGroups → teamMembersPostsResult
+  → computeMemberActualsInYmdRange(email_member, ...) cho bang + stats
+```
+
+Modal **Xem KPI**: chon tuan → `findKpiOverlappingWindow` + actuals cung khoang ngay tren feed da gop.
 
 ### 4.3 Group management (n8n)
 
@@ -233,11 +287,25 @@ Backend tiep tuc dong bo len sheet qua webhook `N8N_WEBHOOK_POST_REACTION` (va c
 
 ## 6) Ghi chu ve config
 
-Backend env: [linkedin_group_crawler/.env](linkedin_group_crawler/.env)
+Backend: [linkedin_group_crawler/.env](linkedin_group_crawler/.env) — mau: [linkedin_group_crawler/.env.example](linkedin_group_crawler/.env.example)
 
-- Chua API key, webhook URLs, headless, timeout, Google Sheet config.
+| Bien .env | Endpoint / muc dich |
+|-----------|---------------------|
+| `N8N_WEBHOOK_URL` | `/n8n/webhook-credentials` (email/pass) — **khong** dung key `N8N_WEBHOOK` |
+| `N8N_WEBHOOK_START` | `POST /start` |
+| `N8N_WEBHOOK_GET_ALL_POSTS` | `POST /get-all-posts`, `POST /filter-data` |
+| `N8N_WEBHOOK_REACTION` | reaction, comment webhook, **sync-progress**, sync-all |
+| `N8N_WEBHOOK_COMMENT` | (tu chon) webhook rieng sau comment |
+| `N8N_WEBHOOK_GET_PROFILE_SLUGS` / `N8N_WEBHOOK_ADD_PROFILE_SLUG` | profile slug sheet |
+| `N8N_CHECK_PERMISSION` | `POST /auth/check-permission` |
+| `N8N_WEBHOOK_ASSIGN_KPI` | `POST /kpi/assign` |
+| `N8N_WEBHOOK_GET_ALL_KPI` | `POST /kpi/get-all` |
+| `N8N_WEBHOOK_GET_KPI_BY_EMAIL` | `POST /kpi/get-by-email` (slug + KPI member) |
+| `N8N_WEBHOOK_ADD_MEMBER` | `POST /team/add-member` — **URL rieng**, khong trung check-permission |
+| `LEADER_CODE` | `POST /auth/verify-leader-code` |
+| `API_KEY` | header `x-api-key` |
 
-Frontend env: [linkedin-crawler-ui/.env.local](linkedin-crawler-ui/.env.local)
+Frontend: [linkedin-crawler-ui/.env.local](linkedin-crawler-ui/.env.local)
 
 - `NEXT_PUBLIC_LINKEDIN_CRAWLER_API_URL`
 - `NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY`
@@ -299,6 +367,7 @@ Thu muc: [linkedin_group_crawler/app/services](linkedin_group_crawler/app/servic
 - [linkedin_group_crawler/app/services/profile_slug_service.py](linkedin_group_crawler/app/services/profile_slug_service.py): Lay profile slug tu /in/me hoac menu Me, validate slug, tra ve profile_url.
 - [linkedin_group_crawler/app/services/profile_slug_sheet_service.py](linkedin_group_crawler/app/services/profile_slug_sheet_service.py): Doc webhook danh sach profile slug, normalize rows, tim email khop, (tu chon) ghi slug moi qua webhook.
 - [linkedin_group_crawler/app/services/ranking_service.py](linkedin_group_crawler/app/services/ranking_service.py): Tinh score tu likes/comments/reposts, loc theo ngay muc tieu, chon top post, pick bai moi nhat fallback.
+- [linkedin_group_crawler/app/services/sync_progress_service.py](linkedin_group_crawler/app/services/sync_progress_service.py): `sync_post_engagement` / `sync_post_engagement_on_page` — doc reaction, comment (You/Bạn), metrics; goto truc tiep `post_url`.
 
 ---
 
@@ -342,7 +411,8 @@ Luu y: Trong code co 2 bo component tuong tu nhau:
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx): Khu vuc loc + bang phien cho LinkedIn.
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlSessionsTableCore.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlSessionsTableCore.tsx): Bang phien LinkedIn, mo `LinkedIn-SessionPostsModal`.
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostsModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostsModal.tsx): Modal danh sach bai cua phien, mo modal chi tiet.
-- [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx): Modal chi tiet post (reaction/comment/delete/edit + webhook OK dialog).
+- [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx): Modal chi tiet post (reaction/comment/delete/edit + popup OK → sync-progress; slug tu sheet cho sync).
+- [linkedin-crawler-ui/components/features/linkedin/stats/LinkedInStats.tsx](linkedin-crawler-ui/components/features/linkedin/stats/LinkedInStats.tsx): KPI member (tuan hien tai, actuals tu get-all-posts).
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers.ts](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers.ts): Helper read row number, post_url, session meta cho sheet_row.
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-post-sheet-engagement.ts](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-post-sheet-engagement.ts): Parse reaction/comment automation tu sheet; build patch.
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-reaction-icons.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-reaction-icons.tsx): Icon + label reaction + alias mapping.
@@ -371,17 +441,25 @@ Luu y: Trong code co 2 bo component tuong tu nhau:
 - [linkedin-crawler-ui/components/features/linkedin/top-post/LinkedInTopPostTypes.ts](linkedin-crawler-ui/components/features/linkedin/top-post/LinkedInTopPostTypes.ts): Types cho top post.
 - [linkedin-crawler-ui/components/features/linkedin/top-post/index.ts](linkedin-crawler-ui/components/features/linkedin/top-post/index.ts): Export top-post page/types.
 
-### 9.5 components/features/facebook
+### 9.5 components/features/linkedin/admin/team
+
+- [linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamPageContent.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamPageContent.tsx): Stats + loc ngay + bang doi.
+- [linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamTable.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamTable.tsx): Bang member, nut Giao/Xem/Sua KPI.
+- [linkedin-crawler-ui/components/features/linkedin/admin/team/AssignKpiModal.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AssignKpiModal.tsx): Giao/sua/xem KPI theo tuan.
+- [linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamStats.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AdminTeamStats.tsx): The tong hop doi.
+- [linkedin-crawler-ui/components/features/linkedin/admin/team/AddMemberModal.tsx](linkedin-crawler-ui/components/features/linkedin/admin/team/AddMemberModal.tsx): Them member.
+
+### 9.6 components/features/facebook
 
 - [linkedin-crawler-ui/components/features/facebook/FacebookDashboardHomeContent.tsx](linkedin-crawler-ui/components/features/facebook/FacebookDashboardHomeContent.tsx): Placeholder khu vuc dashboard Facebook.
 - [linkedin-crawler-ui/components/features/facebook/FacebookGroupManagementPlaceholder.tsx](linkedin-crawler-ui/components/features/facebook/FacebookGroupManagementPlaceholder.tsx): Placeholder quan ly nhom Facebook.
 - [linkedin-crawler-ui/components/features/facebook/index.ts](linkedin-crawler-ui/components/features/facebook/index.ts): Export placeholder Facebook.
 
-### 9.6 components/providers
+### 9.7 components/providers
 
 - [linkedin-crawler-ui/components/providers/AppPlatformProvider.tsx](linkedin-crawler-ui/components/providers/AppPlatformProvider.tsx): Context chon platform (linkedin/facebook) + luu localStorage.
 
-### 9.7 components/ui
+### 9.8 components/ui
 
 - [linkedin-crawler-ui/components/ui/MaterialIcon.tsx](linkedin-crawler-ui/components/ui/MaterialIcon.tsx): Wrapper Material Symbols (name, filled, className).
 - [linkedin-crawler-ui/components/ui/index.ts](linkedin-crawler-ui/components/ui/index.ts): Export UI components.
