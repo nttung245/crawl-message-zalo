@@ -16,7 +16,7 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-_TIME_TEXT_RE = re.compile(r"^\d+\s*(s|m|h|d|w|mo|yr)$", re.IGNORECASE)
+_TIME_TEXT_RE = re.compile(r"^(?:\(edited\)\s*)?\d+\s*(s|m|h|d|w|mo|yr)$", re.IGNORECASE)
 _GROUP_POST_PATH_RE = re.compile(r"urn:li:groupPost:([^/?]+)", re.IGNORECASE)
 _ACTIVITY_PATH_RE = re.compile(r"urn:li:activity:([^/?]+)", re.IGNORECASE)
 _FSD_COMMENT_RE = re.compile(

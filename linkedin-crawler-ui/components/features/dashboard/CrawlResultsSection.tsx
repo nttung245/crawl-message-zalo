@@ -75,7 +75,9 @@ export function CrawlResultsSection() {
             <button
               type="button"
               className="bg-primary text-on-primary hover:bg-primary-container flex items-center gap-2 rounded-lg px-md py-sm text-xs font-bold tracking-wider uppercase transition-all disabled:cursor-not-allowed disabled:opacity-50"
-              onClick={d.handleGetAllPosts}
+              onClick={() => {
+                d.handleGetAllPosts();
+              }}
               disabled={d.isGettingAllPosts}
             >
               <MaterialIcon name="refresh" className="shrink-0 text-[18px]" />

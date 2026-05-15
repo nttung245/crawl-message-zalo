@@ -1,3 +1,7 @@
+/**
+ * @deprecated Use @/lib/LinkedIn-n8n-groups-normalize instead
+ */
+
 import { deriveGroupDisplayName } from "@/components/features/dashboard/dashboard-helpers";
 
 /** Một dòng nhóm sau khi chuẩn hóa từ JSON n8n. */
@@ -20,7 +24,8 @@ function pickStr(obj: Record<string, unknown>, keys: string[]): string {
 function pickNum(obj: Record<string, unknown>, keys: string[]): number {
   for (const k of keys) {
     const v = obj[k];
-    if (typeof v === "number" && !Number.isNaN(v)) return Math.max(0, Math.trunc(v));
+    if (typeof v === "number" && !Number.isNaN(v))
+      return Math.max(0, Math.trunc(v));
     if (typeof v === "string" && v.trim()) {
       const n = Number(String(v).replace(/\s/g, "").replace(/,/g, ""));
       if (!Number.isNaN(n)) return Math.max(0, Math.trunc(n));
@@ -62,7 +67,12 @@ function rowFromUnknown(item: unknown): ManagedGroupRow | null {
     "count",
     "Số thành viên",
   ]);
-  const email = pickStr(o, ["email", "Email_crawl", "email_crawl", "userEmail"]);
+  const email = pickStr(o, [
+    "email",
+    "Email_crawl",
+    "email_crawl",
+    "userEmail",
+  ]);
   return { row_number, url_group: url, name_group: name, email, member };
 }
 
@@ -81,7 +91,14 @@ export function normalizeN8nGroupsList(parsed: unknown): ManagedGroupRow[] {
     if (Array.isArray(o.groups)) {
       return normalizeN8nGroupsList(o.groups);
     }
-    for (const key of ["data", "groups", "rows", "items", "results", "records"]) {
+    for (const key of [
+      "data",
+      "groups",
+      "rows",
+      "items",
+      "results",
+      "records",
+    ]) {
       const arr = o[key];
       if (Array.isArray(arr)) return normalizeN8nGroupsList(arr);
     }

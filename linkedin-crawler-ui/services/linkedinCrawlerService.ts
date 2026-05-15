@@ -1,20 +1,31 @@
 import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
   AddListGroupRequest,
+  AddMemberRequest,
   AddN8nGroupRequest,
+  ApiResponse,
+  AssignKpiRequest,
   BulkGroupImportResponse,
+  CheckPermissionRequest,
+  CheckPermissionResponse,
   EnsureProfileSlugResponse,
   CrawlGroupRequest,
   CrawlResponse,
   FilterDataRequest,
   FilterDataResponse,
+  GetAllKpiRequest,
+  GetAllKpiResponse,
   GetAllN8nGroupsRequest,
   GetAllPostsRequest,
   GetAllPostsResponse,
+  GetKpiByEmailRequest,
+  GetKpiByEmailResponse,
   LoginRequest,
   LoginResponse,
   PostLinkedInCommentRequest,
   PostLinkedInCommentResponse,
+  PostLinkedInCommentDeleteResponse,
+  PostLinkedInCommentEditResponse,
   PostLinkedInReactionRequest,
   PostLinkedInReactionResponse,
   N8nGroupOperationResponse,
@@ -23,9 +34,15 @@ import type {
   StartWorkflowResponse,
   StatusResponse,
   UpdateN8nGroupRequest,
+  VerifyLeaderCodeRequest,
   VerifyLoginRequest,
   VerifyLoginResponse,
   ProfileSlugSheetCheckResponse,
+  GetMyProfileSlugResponse,
+  LinkedinAppStatsRequest,
+  LinkedinAppStatsResponse,
+  GetProfilesRequest,
+  UpdateProfileSlugRequest,
 } from "@/types/api";
 
 const JSON_HEADERS = {
@@ -102,7 +119,26 @@ export function ensureProfileSlugIfMissing(payload: {
   const body: Record<string, unknown> = { email: payload.email.trim() };
   const sid = payload.sessionId?.trim();
   if (sid) body.session_id = sid;
-  return requestJson<EnsureProfileSlugResponse>("/linkedin/me/ensure-profile-slug", {
+  return requestJson<EnsureProfileSlugResponse>(
+    "/linkedin/me/ensure-profile-slug",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+/** Lấy profile slug qua Playwright (menu Me → View profile). Cần ít nhất một trong sessionId, email. */
+export function getMyProfileSlug(payload: {
+  sessionId?: string | null;
+  email?: string | null;
+}): Promise<GetMyProfileSlugResponse> {
+  const session_id = payload.sessionId?.trim() || undefined;
+  const email = payload.email?.trim() || undefined;
+  const body: Record<string, unknown> = {};
+  if (session_id) body.session_id = session_id;
+  if (email) body.email = email;
+  return requestJson<GetMyProfileSlugResponse>("/linkedin/me/profile-slug", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -168,6 +204,7 @@ export function postLinkedInReaction(
     ID_session_crawl: payload.ID_session_crawl.trim(),
     row_number: payload.row_number,
     post_to_webhook: payload.post_to_webhook ?? true,
+    clear_reaction: payload.clear_reaction ?? false,
   };
   if (payload.sheet_row && typeof payload.sheet_row === "object") {
     body.sheet_row = payload.sheet_row;
@@ -181,7 +218,7 @@ export function postLinkedInReaction(
   });
 }
 
-/** Playwright đăng comment + webhook ``N8N_WEBHOOK_COMMENT`` / ``N8N_WEBHOOK_POST_COMMENT``. */
+/** Playwright đăng comment + webhook reaction (mảng dòng khớp url+email). */
 export function postLinkedInComment(
   payload: PostLinkedInCommentRequest,
 ): Promise<PostLinkedInCommentResponse> {
@@ -192,8 +229,8 @@ export function postLinkedInComment(
     ID_session_crawl: payload.ID_session_crawl.trim(),
     row_number: payload.row_number,
     existing_app_comments: payload.existing_app_comments.map((e) => ({
-      comment: e.comment.trim(),
-      day_comment: e.day_comment.trim(),
+      comment_content: e.comment_content.trim(),
+      "ngày comment": e["ngày comment"].trim(),
     })),
     post_to_webhook: payload.post_to_webhook ?? true,
     typing_delay_ms: payload.typing_delay_ms ?? 30,
@@ -209,6 +246,88 @@ export function postLinkedInComment(
     method: "POST",
     body: JSON.stringify(body),
   });
+}
+
+export function deleteLinkedInComment(payload: {
+  profile_slug: string;
+  post_url: string;
+  comment_text: string;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  session_id?: string;
+  email?: string;
+  post_to_webhook?: boolean;
+  sheet_row?: Record<string, unknown>;
+  max_scroll?: number;
+  timeout_ms?: number;
+}): Promise<PostLinkedInCommentDeleteResponse> {
+  const body: Record<string, unknown> = {
+    profile_slug: payload.profile_slug.trim(),
+    post_url: payload.post_url.trim(),
+    comment_text: payload.comment_text.trim(),
+    Email_crawl: payload.Email_crawl.trim(),
+    ID_session_crawl: payload.ID_session_crawl.trim(),
+    row_number: payload.row_number,
+    post_to_webhook: payload.post_to_webhook ?? true,
+    max_scroll: payload.max_scroll ?? 8,
+    timeout_ms: payload.timeout_ms ?? 120000,
+  };
+  if (payload.sheet_row && typeof payload.sheet_row === "object") {
+    body.sheet_row = payload.sheet_row;
+  }
+  const sid = payload.session_id?.trim();
+  if (sid) body.session_id = sid;
+  if (payload.email?.trim()) body.email = payload.email.trim();
+
+  return requestJson<PostLinkedInCommentDeleteResponse>(
+    "/linkedin/post/comment/delete",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+export function editLinkedInComment(payload: {
+  profile_slug: string;
+  post_url: string;
+  comment_text: string;
+  new_comment_text: string;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  session_id?: string;
+  email?: string;
+  post_to_webhook?: boolean;
+  sheet_row?: Record<string, unknown>;
+  timeout_ms?: number;
+}): Promise<PostLinkedInCommentEditResponse> {
+  const body: Record<string, unknown> = {
+    profile_slug: payload.profile_slug.trim(),
+    post_url: payload.post_url.trim(),
+    comment_text: payload.comment_text.trim(),
+    new_comment_text: payload.new_comment_text.trim(),
+    Email_crawl: payload.Email_crawl.trim(),
+    ID_session_crawl: payload.ID_session_crawl.trim(),
+    row_number: payload.row_number,
+    post_to_webhook: payload.post_to_webhook ?? true,
+    timeout_ms: payload.timeout_ms ?? 120000,
+  };
+  if (payload.sheet_row && typeof payload.sheet_row === "object") {
+    body.sheet_row = payload.sheet_row;
+  }
+  const sid = payload.session_id?.trim();
+  if (sid) body.session_id = sid;
+  if (payload.email?.trim()) body.email = payload.email.trim();
+
+  return requestJson<PostLinkedInCommentEditResponse>(
+    "/linkedin/post/comment/edit",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function getAllN8nGroups(
@@ -283,5 +402,135 @@ export function updateN8nGroup(
   return requestJson<N8nGroupOperationResponse>("/groups/update", {
     method: "POST",
     body: JSON.stringify(body),
+  });
+}
+
+/** Đọc lại tiến độ (reaction/comments) cho 1 bài viết. */
+export function syncPostProgress(payload: {
+  post_url: string;
+  profile_slug: string;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  sheet_row?: Record<string, unknown> | null;
+  session_id?: string | null;
+  email?: string | null;
+  post_to_webhook?: boolean;
+  timeout_ms?: number;
+}): Promise<import("@/types/api").SyncPostProgressResponse> {
+  return requestJson<import("@/types/api").SyncPostProgressResponse>(
+    "/linkedin/post/sync-progress",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+/** Đọc lại tiến độ cho toàn bộ bài viết của user. */
+export function syncAllProgress(payload: {
+  email_crawl: string;
+  profile_slug: string;
+  session_id?: string | null;
+  email?: string | null;
+  timeout_ms_per_post?: number;
+  limit_posts?: number;
+}): Promise<import("@/types/api").SyncAllProgressResponse> {
+  return requestJson<import("@/types/api").SyncAllProgressResponse>(
+    "/linkedin/sync-all-progress",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export function getLinkedInStats(
+  payload: LinkedinAppStatsRequest,
+): Promise<LinkedinAppStatsResponse> {
+  return requestJson<LinkedinAppStatsResponse>("/linkedin-app/stats", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Leader gán KPI cho member. */
+export function assignKpi(
+  payload: AssignKpiRequest,
+): Promise<ApiResponse<unknown>> {
+  return requestJson<ApiResponse<unknown>>("/kpi/assign", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Kiểm tra quyền leader/member. */
+export function checkPermission(
+  payload: CheckPermissionRequest,
+): Promise<CheckPermissionResponse> {
+  return requestJson<CheckPermissionResponse>("/auth/check-permission", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Lấy toàn bộ KPI cho leader. */
+export function getAllKpi(
+  payload: GetAllKpiRequest,
+): Promise<GetAllKpiResponse> {
+  return requestJson<GetAllKpiResponse>("/kpi/get-all", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Lấy KPI cho member theo email. */
+export function getKpiByEmail(
+  payload: GetKpiByEmailRequest,
+): Promise<GetKpiByEmailResponse> {
+  return requestJson<GetKpiByEmailResponse>("/kpi/get-by-email", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Thêm thành viên mới vào đội ngũ. */
+export function addMember(
+  payload: AddMemberRequest,
+): Promise<ApiResponse<unknown>> {
+  return requestJson<ApiResponse<unknown>>("/team/add-member", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+/** Xác nhận mã code leader. */
+export function verifyLeaderCode(
+  payload: VerifyLeaderCodeRequest,
+): Promise<ApiResponse<unknown>> {
+  return requestJson<ApiResponse<unknown>>("/auth/verify-leader-code", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+export const getAllProfiles = async (
+  payload: GetProfilesRequest,
+): Promise<ApiResponse<any[]>> => {
+  const response = await fetch(`${API_BASE_URL}/linkedin/all-profiles`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": API_KEY,
+    },
+    body: JSON.stringify(payload),
+  });
+  return response.json();
+};
+export function updateProfileSlug(
+  payload: UpdateProfileSlugRequest,
+): Promise<ApiResponse<unknown>> {
+  return requestJson<ApiResponse<unknown>>("/linkedin/me/profile-slug-update", {
+    method: "POST",
+    body: JSON.stringify(payload),
   });
 }

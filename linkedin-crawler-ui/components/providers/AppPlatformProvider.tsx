@@ -13,7 +13,7 @@ import {
   APP_PLATFORM_STORAGE_KEY,
   type AppPlatform,
   isAppPlatform,
-} from "@/lib/app-platform";
+} from "@/lib/LinkedIn-app-platform";
 
 type AppPlatformContextValue = {
   platform: AppPlatform;
@@ -22,7 +22,11 @@ type AppPlatformContextValue = {
 
 const AppPlatformContext = createContext<AppPlatformContextValue | null>(null);
 
-export function AppPlatformProvider({ children }: { children: React.ReactNode }) {
+export function AppPlatformProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const [platform, setPlatformState] = useState<AppPlatform>("linkedin");
 
   useEffect(() => {
@@ -49,7 +53,9 @@ export function AppPlatformProvider({ children }: { children: React.ReactNode })
   );
 
   return (
-    <AppPlatformContext.Provider value={value}>{children}</AppPlatformContext.Provider>
+    <AppPlatformContext.Provider value={value}>
+      {children}
+    </AppPlatformContext.Provider>
   );
 }
 

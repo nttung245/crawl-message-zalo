@@ -1,4 +1,7 @@
-import type { ManagedGroupRow } from "@/lib/n8n-groups-normalize";
+/**
+ * @deprecated Use @/lib/LinkedIn-group-duplicate-check instead
+ */
+import type { ManagedGroupRow } from "@/lib/LinkedIn-n8n-groups-normalize";
 
 /** Khớp logic ``_group_url_match_key`` trên backend (normalize linkedin path + lowercase). */
 export function groupUrlMatchKey(url: string): string {

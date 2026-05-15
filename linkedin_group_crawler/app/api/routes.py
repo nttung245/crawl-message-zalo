@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import json
 import random
 import re
@@ -11,17 +11,27 @@ from typing import Any
 from typing_extensions import Annotated
 
 import httpx
+from playwright.sync_api import sync_playwright
 from fastapi import APIRouter, Cookie, Depends, Header, HTTPException, Query, status
 
-from app.config import BASE_DIR, settings
+from app.config import BASE_DIR, Settings, settings
 from app.schemas.request_models import (
+    AddMemberRequest,
     AddListGroupRequest,
+    AssignKpiRequest,
+    CheckPermissionRequest,
     CrawlGroupRequest,
+    EnsureProfileSlugRequest,
     FilterDataRequest,
+    GetAllKpiRequest,
     GetAllPostsRequest,
+    GetKpiByEmailRequest,
+    GetMyProfileSlugRequest,
+    GetProfilesRequest,
     LinkedinAppCrawlBatchRequest,
     LinkedinAppFilterPostsSheetRequest,
     LinkedinAppGetAllPostsSheetRequest,
+    LinkedinAppStatsRequest,
     LoginRequest,
     N8nAddGroupRequest,
     N8nCredentialWebhookRequest,
@@ -30,7 +40,16 @@ from app.schemas.request_models import (
     N8nRemoveGroupRequest,
     N8nUpdateGroupRequest,
     N8nWebhookPassthroughRequest,
+    PostCommentRequest,
+    PostCommentDeleteRequest,
+    PostCommentEditRequest,
+    PostReactionRequest,
+    ProfileSlugSheetCheckRequest,
     StartWorkflowRequest,
+    SyncAllProgressRequest,
+    SyncPostProgressRequest,
+    UpdateProfileSlugRequest,
+    VerifyLeaderCodeRequest,
     VerifyLoginRequest,
 )
 from app.schemas.response_models import (
@@ -38,13 +57,22 @@ from app.schemas.response_models import (
     BulkGroupImportData,
     BulkGroupImportResponse,
     BulkGroupImportScrapedItem,
+    CheckPermissionResponse,
+    CheckPermissionData,
     CrawlDataResponse,
     CrawlResponse,
+    EnsureProfileSlugData,
+    EnsureProfileSlugResponse,
     FilterDataResponse,
+    GetAllKpiResponse,
+    KpiMemberData,
     GetAllPostsResponse,
+    GetKpiByEmailResponse,
     LinkedinAppCrawlBatchData,
     LinkedinAppCrawlBatchResponse,
     LinkedinAppCrawlGroupResult,
+    LinkedinAppStatsData,
+    LinkedinAppStatsResponse,
     LinkedinSheetFilterPostsResponse,
     LinkedinSheetGroupsData,
     LinkedinSheetGroupsResponse,
@@ -53,27 +81,82 @@ from app.schemas.response_models import (
     LoginResponse,
     N8nWebhookNotifyData,
     N8nWebhookNotifyResponse,
+    PostCommentData,
+    PostCommentDeleteData,
+    PostCommentDeleteResponse,
+    PostCommentEditData,
+    PostCommentEditResponse,
+    PostCommentResponse,
+    PostReactionData,
+    PostReactionResponse,
     SheetLinkFromN8nData,
     SheetLinkFromN8nResponse,
     StatusDataResponse,
     StatusResponse,
+    ProfileSlugData,
+    ProfileSlugResponse,
+    ProfileSlugSheetCheckData,
+    ProfileSlugSheetCheckResponse,
     TopPostResponse,
+    SyncAllProgressData,
+    SyncAllProgressResponse,
+    SyncPostProgressData,
+    SyncPostProgressResponse,
     VerifyLoginResponse,
 )
 from app.services.auth_service import (
     PendingLoginSessionNotFoundError,
+    build_session_state_path,
     login_and_save_session,
     verify_pending_login_otp,
 )
 from app.services.crawler_service import open_group_and_collect_posts
 from app.services.group_bulk_import_service import bulk_scrape_groups
+from app.services.profile_slug_sheet_service import (
+    check_email_in_profile_slug_sheet,
+    extract_profile_slug_hint,
+    fetch_sheet_rows_via_webhook,
+    register_profile_slug_via_webhook,
+)
+from app.services.profile_slug_service import get_my_profile_slug
+from app.services.post_comment_service import comment_on_linkedin_post
+from app.services.post_comment_delete_service import (
+    delete_linkedin_comment_from_post_detail,
+    delete_linkedin_comment_from_recent_activity,
+)
+from app.services.post_comment_edit_service import edit_linkedin_comment_from_post_detail
+from app.services.post_reaction_service import (
+    react_to_linkedin_post,
+    remove_reaction_from_linkedin_post,
+)
+from app.services.post_comment_sync_service import (
+    build_comment_action_record,
+    fetch_posts_for_email_via_n8n as fetch_posts_for_comment_sync,
+    merge_comment_entries,
+    send_sheet_rows_overwrite_webhook as send_comment_rows_overwrite_webhook,
+    apply_comments_to_sheet_rows,
+)
+from app.services.post_reaction_sync_service import (
+    apply_reaction_to_sheet_rows,
+    build_reaction_action_record,
+    fetch_posts_for_email_via_n8n,
+    send_sheet_rows_overwrite_webhook,
+    should_skip_playwright_for_clear_reaction,
+    should_skip_playwright_for_existing_reaction,
+)
 from app.services.n8n_webhook_service import (
+    _post_with_retry,
     extract_sheet_link_from_n8n_response_body,
     fetch_sheet_link_via_n8n_webhook,
     post_json_to_n8n_webhook,
     push_credentials_to_n8n_webhook,
     push_start_to_n8n_webhook,
 )
+from app.services.sync_progress_service import (
+    sync_post_engagement,
+    sync_post_engagement_on_page,
+)
+
 from app.services import google_sheet_service as gsheet
 from app.services.n8n_post_filter_service import (
     build_crawl_sessions_from_posts,
@@ -87,6 +170,14 @@ from app.services.ranking_service import (
     select_most_recent_posts,
 )
 from app.utils.logger import get_logger
+from app.utils.webhook_payload_keys import (
+    enrich_webhook_sheet_metrics,
+    merge_sheet_row_into_webhook_body,
+    sync_webhook_body_row_number_aliases,
+    update_metrics_from_sync,
+)
+from app.utils.post_reaction_webhook_ack import evaluate_post_reaction_webhook_response
+from app.utils.webhook_payload_sanitize import sanitize_webhook_payload
 
 
 router = APIRouter()
@@ -170,6 +261,11 @@ def _extract_webhook_message_and_payload(raw_preview: str) -> tuple[str | None, 
     return text, parsed
 
 
+def get_settings() -> Settings:
+    """Dependency to get application settings."""
+    return settings
+
+
 def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
     """Optionally protect endpoints with an API key."""
 
@@ -232,6 +328,24 @@ def system_status() -> StatusResponse:
             ),
             n8n_webhook_update_group_configured=bool(
                 (settings.n8n_webhook_update_group_url or "").strip(),
+            ),
+            n8n_webhook_get_profile_slugs_configured=bool(
+                (settings.n8n_webhook_get_profile_slugs_url or "").strip(),
+            ),
+            n8n_webhook_add_profile_slug_configured=bool(
+                (settings.n8n_webhook_add_profile_slug_url or "").strip(),
+            ),
+            n8n_webhook_post_reaction_configured=bool(
+                (settings.n8n_webhook_post_reaction_url or "").strip(),
+            ),
+            n8n_webhook_post_comment_configured=bool(
+                (settings.n8n_webhook_post_comment_url or "").strip(),
+            ),
+            n8n_webhook_assign_kpi_configured=bool(
+                (settings.n8n_webhook_assign_kpi_url or "").strip(),
+            ),
+            n8n_webhook_check_permission_configured=bool(
+                (settings.n8n_webhook_check_permission_url or "").strip(),
             ),
             google_sheet_configured=gsheet.spreadsheet_configured(),
         ),
@@ -326,6 +440,771 @@ def verify_login(payload: VerifyLoginRequest) -> VerifyLoginResponse:
             need_otp=False,
             checkpoint_url=None,
         )
+
+
+@router.post(
+    "/linkedin/me/profile-slug",
+    response_model=ProfileSlugResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_me_profile_slug(payload: GetMyProfileSlugRequest) -> ProfileSlugResponse:
+    """Vào feed → nút Me/Tôi → link View profile → trả slug ``/in/<slug>``."""
+
+    try:
+        normalized_session_id, slug, profile_url = get_my_profile_slug(
+            session_id=payload.session_id,
+            email=payload.email,
+        )
+        return ProfileSlugResponse(
+            success=True,
+            message="Đã lấy profile slug.",
+            data=ProfileSlugData(
+                profile_slug=slug,
+                profile_url=profile_url,
+                session_id=normalized_session_id,
+            ),
+        )
+    except FileNotFoundError as exc:
+        return ProfileSlugResponse(success=False, message=str(exc), data=None)
+    except RuntimeError as exc:
+        return ProfileSlugResponse(success=False, message=str(exc), data=None)
+    except ValueError as exc:
+        return ProfileSlugResponse(success=False, message=str(exc), data=None)
+    except Exception as exc:
+        logger.exception("linkedin/me/profile-slug failed")
+        return ProfileSlugResponse(success=False, message=str(exc), data=None)
+
+
+@router.post(
+    "/linkedin/post/react",
+    response_model=PostReactionResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_post_react(payload: PostReactionRequest) -> PostReactionResponse:
+    """Reaction app → Playwright → get-all → sửa mảng dòng khớp → POST một webhook ghi đè Sheet."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if payload.post_to_webhook and not webhook_url:
+        return PostReactionResponse(
+            success=False,
+            message="post_to_webhook=true nhưng N8N_WEBHOOK_POST_REACTION chưa được cấu hình trong .env.",
+            data=None,
+        )
+
+    pw_email = payload.playwright_resolve_email()
+    owner_email = payload.Email_crawl.strip()
+    fallback_row = dict(payload.sheet_row) if isinstance(payload.sheet_row, dict) else None
+    reaction_action = build_reaction_action_record(
+        owner_email=owner_email,
+        post_url=payload.post_url,
+        reaction=payload.reaction,
+        id_session_crawl=payload.ID_session_crawl,
+        row_number=payload.row_number,
+        sheet_row=fallback_row,
+        clear_reaction=payload.clear_reaction,
+    )
+    trigger_rows = [fallback_row] if fallback_row else []
+    if payload.clear_reaction:
+        skip_playwright = should_skip_playwright_for_clear_reaction(trigger_rows)
+    else:
+        skip_playwright = should_skip_playwright_for_existing_reaction(
+            trigger_rows,
+            reaction_kind=payload.reaction,
+        )
+
+    resolved_sid = ""
+    final_url = payload.post_url
+    playwright_executed = False
+
+    if skip_playwright:
+        try:
+            resolved_sid, _ = build_session_state_path(
+                session_id=payload.session_id,
+                email=pw_email,
+            )
+        except Exception:
+            resolved_sid = (payload.session_id or "").strip()
+        if payload.clear_reaction:
+            logger.info(
+                "linkedin/post/react: bỏ qua Playwright — sheet chưa có reaction để gỡ",
+            )
+        else:
+            logger.info(
+                "linkedin/post/react: bỏ qua Playwright — dòng trigger đã có reaction trên sheet",
+            )
+    else:
+        try:
+            if payload.clear_reaction:
+                resolved_sid, final_url = remove_reaction_from_linkedin_post(
+                    post_url=payload.post_url,
+                    reaction=payload.reaction,
+                    session_id=payload.session_id,
+                    email=pw_email,
+                )
+            else:
+                resolved_sid, final_url = react_to_linkedin_post(
+                    post_url=payload.post_url,
+                    reaction=payload.reaction,
+                    session_id=payload.session_id,
+                    email=pw_email,
+                )
+            playwright_executed = True
+        except FileNotFoundError as exc:
+            return PostReactionResponse(success=False, message=str(exc), data=None)
+        except ValueError as exc:
+            return PostReactionResponse(success=False, message=str(exc), data=None)
+        except RuntimeError as exc:
+            logger.warning("linkedin/post/react: %s", exc)
+            return PostReactionResponse(success=False, message=str(exc), data=None)
+        except Exception as exc:
+            logger.exception("linkedin/post/react failed")
+            return PostReactionResponse(success=False, message=str(exc), data=None)
+
+    all_posts = fetch_posts_for_email_via_n8n(owner_email)
+    if not all_posts and fallback_row:
+        all_posts = [fallback_row]
+
+    triggered_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+    updated_posts, matched_row_count = apply_reaction_to_sheet_rows(
+        all_posts,
+        action=reaction_action,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        playwright_executed=playwright_executed,
+        triggered_at=triggered_at,
+    )
+
+    base_data = PostReactionData(
+        reaction="" if payload.clear_reaction else payload.reaction,
+        row_number=payload.row_number,
+        Email_crawl=payload.Email_crawl,
+        ID_session_crawl=payload.ID_session_crawl,
+        post_url=payload.post_url,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        webhook_called=False,
+        playwright_skipped=skip_playwright,
+        synced_row_count=matched_row_count,
+        webhook_sync_success_count=0,
+    )
+
+    if not payload.post_to_webhook:
+        if skip_playwright:
+            if payload.clear_reaction:
+                msg = "Bỏ qua Playwright vì sheet chưa có reaction (không gửi webhook ghi đè Sheet)."
+            else:
+                msg = "Bỏ qua Playwright vì bài đã tương tác (không gửi webhook ghi đè Sheet)."
+        elif payload.clear_reaction:
+            msg = "Đã gỡ reaction trên LinkedIn (bỏ qua webhook ghi đè Sheet)."
+        else:
+            msg = "Đã reaction trên LinkedIn (bỏ qua webhook ghi đè Sheet)."
+        return PostReactionResponse(
+            success=True,
+            message=msg,
+            data=base_data,
+        )
+
+    try:
+        synced_count, success_count, http_status, preview = send_sheet_rows_overwrite_webhook(
+            webhook_url=webhook_url,
+            rows=updated_posts,
+            matched_row_count=matched_row_count,
+        )
+    except RuntimeError as exc:
+        return PostReactionResponse(
+            success=False,
+            message=str(exc),
+            data=base_data,
+        )
+    except httpx.RequestError as exc:
+        logger.warning("POST reaction webhook network error: %s", type(exc).__name__)
+        return PostReactionResponse(
+            success=False,
+            message="Không kết nối được tới webhook reaction (N8N_WEBHOOK_REACTION).",
+            data=base_data,
+        )
+    except Exception as exc:
+        logger.exception("POST reaction webhook failed")
+        return PostReactionResponse(success=False, message=str(exc), data=base_data)
+
+    webhook_ok = success_count > 0 and success_count == synced_count
+    data_out = base_data.model_copy(
+        update={
+            "webhook_called": True,
+            "webhook_http_status": http_status,
+            "webhook_response_preview": preview,
+            "synced_row_count": synced_count,
+            "webhook_sync_success_count": success_count,
+        },
+    )
+    if skip_playwright:
+        if payload.clear_reaction:
+            ack_msg = (
+                f"Đã gửi {len(updated_posts)} dòng lên n8n ghi đè Sheet "
+                f"({success_count}/{synced_count} dòng khớp url+email; bỏ qua Playwright vì sheet chưa có reaction)."
+            )
+        else:
+            ack_msg = (
+                f"Đã gửi {len(updated_posts)} dòng lên n8n ghi đè Sheet "
+                f"({success_count}/{synced_count} dòng khớp url+email; bỏ qua Playwright)."
+            )
+    elif payload.clear_reaction and webhook_ok:
+        ack_msg = (
+            f"Đã gỡ reaction trên LinkedIn và gửi {len(updated_posts)} dòng lên n8n "
+            f"({success_count}/{synced_count} dòng khớp url+email)."
+        )
+    elif webhook_ok:
+        ack_msg = (
+            f"Đã reaction trên LinkedIn và gửi {len(updated_posts)} dòng lên n8n "
+            f"({success_count}/{synced_count} dòng khớp url+email)."
+        )
+    elif payload.clear_reaction:
+        ack_msg = (
+            f"Đã gỡ reaction nhưng webhook ghi đè Sheet chưa xác nhận đủ "
+            f"({success_count}/{synced_count} dòng khớp; HTTP {http_status})."
+        )
+    else:
+        ack_msg = (
+            f"Đã reaction nhưng webhook ghi đè Sheet chưa xác nhận đủ "
+            f"({success_count}/{synced_count} dòng khớp; HTTP {http_status})."
+        )
+    return PostReactionResponse(success=webhook_ok, message=ack_msg, data=data_out)
+
+
+@router.post(
+    "/linkedin/post/comment",
+    response_model=PostCommentResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_post_comment(payload: PostCommentRequest) -> PostCommentResponse:
+    """Playwright đăng comment → get-all → sửa mảng dòng khớp → POST webhook reaction (mảng JSON)."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if payload.post_to_webhook and not webhook_url:
+        return PostCommentResponse(
+            success=False,
+            message="post_to_webhook=true nhưng N8N_WEBHOOK_POST_REACTION chưa được cấu hình trong .env.",
+            data=None,
+        )
+
+    pw_email = payload.playwright_resolve_email()
+    today_iso = date.today().isoformat()
+    merged_comments = merge_comment_entries(
+        [e.model_dump(by_alias=True) for e in payload.existing_app_comments],
+        comment_content=payload.comment_text.strip(),
+        comment_day=today_iso,
+    )
+
+    try:
+        resolved_sid, final_url = comment_on_linkedin_post(
+            post_url=payload.post_url,
+            comment_text=payload.comment_text,
+            session_id=payload.session_id,
+            email=pw_email,
+            typing_delay_ms=payload.typing_delay_ms,
+            timeout_ms=payload.timeout_ms,
+        )
+    except FileNotFoundError as exc:
+        return PostCommentResponse(success=False, message=str(exc), data=None)
+    except ValueError as exc:
+        return PostCommentResponse(success=False, message=str(exc), data=None)
+    except RuntimeError as exc:
+        logger.warning("linkedin/post/comment: %s", exc)
+        return PostCommentResponse(success=False, message=str(exc), data=None)
+    except Exception as exc:
+        logger.exception("linkedin/post/comment failed")
+        return PostCommentResponse(success=False, message=str(exc), data=None)
+
+    owner_email = payload.Email_crawl.strip()
+    fallback_row = dict(payload.sheet_row) if isinstance(payload.sheet_row, dict) else None
+    comment_action = build_comment_action_record(
+        owner_email=owner_email,
+        post_url=payload.post_url,
+        id_session_crawl=payload.ID_session_crawl,
+        row_number=payload.row_number,
+        sheet_row=fallback_row,
+        comments_cell=merged_comments,
+    )
+
+    all_posts = fetch_posts_for_comment_sync(owner_email)
+    if not all_posts and fallback_row:
+        all_posts = [fallback_row]
+
+    updated_posts, matched_row_count = apply_comments_to_sheet_rows(
+        all_posts,
+        action=comment_action,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        playwright_executed=True,
+    )
+
+    base_data = PostCommentData(
+        comment_text=payload.comment_text.strip(),
+        app_comments=list(merged_comments),
+        row_number=payload.row_number,
+        Email_crawl=payload.Email_crawl,
+        ID_session_crawl=payload.ID_session_crawl,
+        post_url=payload.post_url,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        webhook_called=False,
+        synced_row_count=matched_row_count,
+        webhook_sync_success_count=0,
+    )
+
+    if not payload.post_to_webhook:
+        return PostCommentResponse(
+            success=True,
+            message="Đã đăng comment trên LinkedIn (bỏ qua webhook ghi đè Sheet).",
+            data=base_data,
+        )
+
+    try:
+        synced_count, success_count, http_status, preview = send_comment_rows_overwrite_webhook(
+            webhook_url=webhook_url,
+            rows=updated_posts,
+            matched_row_count=matched_row_count,
+        )
+    except RuntimeError as exc:
+        return PostCommentResponse(
+            success=False,
+            message=str(exc),
+            data=base_data,
+        )
+    except httpx.RequestError as exc:
+        logger.warning("POST comment webhook network error: %s", type(exc).__name__)
+        return PostCommentResponse(
+            success=False,
+            message="Không kết nối được tới webhook reaction (N8N_WEBHOOK_POST_REACTION).",
+            data=base_data,
+        )
+    except Exception as exc:
+        logger.exception("POST comment webhook failed")
+        return PostCommentResponse(success=False, message=str(exc), data=base_data)
+
+    webhook_ok = success_count > 0 and success_count == synced_count
+    data_out = base_data.model_copy(
+        update={
+            "webhook_called": True,
+            "webhook_http_status": http_status,
+            "webhook_response_preview": preview,
+            "synced_row_count": synced_count,
+            "webhook_sync_success_count": success_count,
+        },
+    )
+    if webhook_ok:
+        ack_msg = (
+            f"Đã đăng comment trên LinkedIn và gửi {len(updated_posts)} dòng lên n8n "
+            f"({success_count}/{synced_count} dòng khớp url+email)."
+        )
+    else:
+        ack_msg = (
+            f"Đã comment nhưng webhook ghi đè Sheet chưa xác nhận đủ "
+            f"({success_count}/{synced_count} dòng khớp; HTTP {http_status})."
+        )
+    return PostCommentResponse(success=webhook_ok, message=ack_msg, data=data_out)
+
+
+@router.post(
+    "/linkedin/post/comment/delete",
+    response_model=PostCommentDeleteResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_post_comment_delete(payload: PostCommentDeleteRequest) -> PostCommentDeleteResponse:
+    """Xóa comment từ LinkedIn post detail — optimized direct URL route."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if payload.post_to_webhook and not webhook_url:
+        return PostCommentDeleteResponse(
+            success=False,
+            message="post_to_webhook=true nhưng N8N_WEBHOOK_REACTION chưa được cấu hình trong .env.",
+            data=None,
+        )
+
+    pw_email = payload.playwright_resolve_email()
+    owner_email = payload.Email_crawl.strip()
+    fallback_row = dict(payload.sheet_row) if isinstance(payload.sheet_row, dict) else None
+
+    # Run Playwright to delete comment — use optimized post detail route
+    try:
+        resolved_sid, final_url = delete_linkedin_comment_from_post_detail(
+            post_url=payload.post_url,
+            comment_text=payload.comment_text.strip(),
+            profile_slug=payload.profile_slug.strip(),
+            session_id=payload.session_id,
+            email=pw_email,
+            timeout_ms=payload.timeout_ms,
+        )
+    except FileNotFoundError as exc:
+        return PostCommentDeleteResponse(success=False, message=str(exc), data=None)
+    except ValueError as exc:
+        return PostCommentDeleteResponse(success=False, message=str(exc), data=None)
+    except RuntimeError as exc:
+        logger.warning("linkedin/post/comment/delete: %s", exc)
+        return PostCommentDeleteResponse(success=False, message=str(exc), data=None)
+    except Exception as exc:
+        logger.exception("linkedin/post/comment/delete failed")
+        return PostCommentDeleteResponse(success=False, message=str(exc), data=None)
+
+    # Build action record for comment deletion
+    delete_action = build_comment_action_record(
+        owner_email=owner_email,
+        post_url=payload.post_url,
+        id_session_crawl=payload.ID_session_crawl,
+        row_number=payload.row_number,
+        sheet_row=fallback_row,
+        comments_cell=[],  # Empty array to clear comments on sheet
+    )
+
+    # Get all posts to refresh data
+    all_posts = fetch_posts_for_comment_sync(owner_email)
+    if not all_posts and fallback_row:
+        all_posts = [fallback_row]
+
+    # Apply deletion to sheet rows
+    updated_posts, matched_row_count = apply_comments_to_sheet_rows(
+        all_posts,
+        action=delete_action,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        playwright_executed=True,
+    )
+
+    base_data = PostCommentDeleteData(
+        comment_text=payload.comment_text.strip(),
+        row_number=payload.row_number,
+        Email_crawl=payload.Email_crawl,
+        ID_session_crawl=payload.ID_session_crawl,
+        post_url=payload.post_url,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        webhook_called=False,
+        synced_row_count=matched_row_count,
+        webhook_sync_success_count=0,
+    )
+
+    if not payload.post_to_webhook:
+        return PostCommentDeleteResponse(
+            success=True,
+            message="Đã xóa comment trên LinkedIn (bỏ qua webhook ghi đè Sheet).",
+            data=base_data,
+        )
+
+    try:
+        synced_count, success_count, http_status, preview = send_comment_rows_overwrite_webhook(
+            webhook_url=webhook_url,
+            rows=updated_posts,
+            matched_row_count=matched_row_count,
+        )
+    except RuntimeError as exc:
+        return PostCommentDeleteResponse(
+            success=False,
+            message=str(exc),
+            data=base_data,
+        )
+    except httpx.RequestError as exc:
+        logger.warning("DELETE comment webhook network error: %s", type(exc).__name__)
+        return PostCommentDeleteResponse(
+            success=False,
+            message="Không kết nối được tới webhook reaction (N8N_WEBHOOK_REACTION).",
+            data=base_data,
+        )
+    except Exception as exc:
+        logger.exception("DELETE comment webhook failed")
+        return PostCommentDeleteResponse(success=False, message=str(exc), data=base_data)
+
+    webhook_ok = success_count > 0 and success_count == synced_count
+    data_out = base_data.model_copy(
+        update={
+            "webhook_called": True,
+            "webhook_http_status": http_status,
+            "webhook_response_preview": preview,
+            "synced_row_count": synced_count,
+            "webhook_sync_success_count": success_count,
+        },
+    )
+    if webhook_ok:
+        ack_msg = (
+            f"Đã xóa comment trên LinkedIn và gửi {len(updated_posts)} dòng lên n8n "
+            f"({success_count}/{synced_count} dòng khớp url+email)."
+        )
+    else:
+        ack_msg = (
+            f"Đã xóa comment nhưng webhook ghi đè Sheet chưa xác nhận đủ "
+            f"({success_count}/{synced_count} dòng khớp; HTTP {http_status})."
+        )
+    return PostCommentDeleteResponse(success=webhook_ok, message=ack_msg, data=data_out)
+
+
+@router.post(
+    "/linkedin/post/comment/edit",
+    response_model=PostCommentEditResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_post_comment_edit(payload: PostCommentEditRequest) -> PostCommentEditResponse:
+    """Chỉnh sửa comment từ LinkedIn post detail — gửi webhook ghi đè Sheet."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if payload.post_to_webhook and not webhook_url:
+        return PostCommentEditResponse(
+            success=False,
+            message="post_to_webhook=true nhưng N8N_WEBHOOK_REACTION chưa được cấu hình trong .env.",
+            data=None,
+        )
+
+    pw_email = payload.playwright_resolve_email()
+    owner_email = payload.Email_crawl.strip()
+    fallback_row = dict(payload.sheet_row) if isinstance(payload.sheet_row, dict) else None
+
+    # Run Playwright to edit comment
+    try:
+        resolved_sid, final_url = edit_linkedin_comment_from_post_detail(
+            post_url=payload.post_url,
+            comment_text=payload.comment_text.strip(),
+            new_comment_text=payload.new_comment_text.strip(),
+            profile_slug=payload.profile_slug.strip(),
+            session_id=payload.session_id,
+            email=pw_email,
+            timeout_ms=payload.timeout_ms,
+        )
+    except FileNotFoundError as exc:
+        return PostCommentEditResponse(success=False, message=str(exc), data=None)
+    except ValueError as exc:
+        return PostCommentEditResponse(success=False, message=str(exc), data=None)
+    except RuntimeError as exc:
+        logger.warning("linkedin/post/comment/edit: %s", exc)
+        return PostCommentEditResponse(success=False, message=str(exc), data=None)
+    except Exception as exc:
+        logger.exception("linkedin/post/comment/edit failed")
+        return PostCommentEditResponse(success=False, message=str(exc), data=None)
+
+    # Build base data
+    base_data = PostCommentEditData(
+        old_comment_text=payload.comment_text.strip(),
+        new_comment_text=payload.new_comment_text.strip(),
+        row_number=payload.row_number,
+        Email_crawl=owner_email,
+        ID_session_crawl=payload.ID_session_crawl,
+        post_url=payload.post_url,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+    )
+
+    if not payload.post_to_webhook:
+        logger.info(
+            "Edit comment succeeded but post_to_webhook=false — skipping webhook."
+        )
+        return PostCommentEditResponse(
+            success=True,
+            message="Đã chỉnh sửa comment trên LinkedIn (bỏ qua webhook ghi đè Sheet).",
+            data=base_data,
+        )
+
+    # Post to webhook
+    try:
+        webhook_payload = {
+            "Email_crawl": owner_email,
+            "ID_session_crawl": payload.ID_session_crawl,
+            "row_number": payload.row_number,
+            **fallback_row,
+        }
+        http_status = None
+        response_preview = None
+        resp = _post_with_retry(url=webhook_url, json_body=webhook_payload, timeout=30.0)
+        http_status = resp.status_code
+        try:
+            resp_text = resp.text[:500]
+            response_preview = resp_text if resp_text else f"HTTP {http_status}"
+        except Exception:
+            response_preview = f"HTTP {http_status}"
+        
+        base_data.webhook_called = True
+        base_data.webhook_http_status = http_status
+        base_data.webhook_response_preview = response_preview
+        
+        webhook_ok = 200 <= http_status < 300 if http_status else False
+        if webhook_ok:
+            ack_msg = "Đã chỉnh sửa comment trên LinkedIn và gửi 1 dòng lên n8n."
+        else:
+            ack_msg = f"Đã chỉnh sửa comment nhưng webhook ghi đè Sheet trả HTTP {http_status}."
+    except Exception as exc:
+        logger.exception("Webhook post during edit comment failed")
+        base_data.webhook_called = False
+        return PostCommentEditResponse(
+            success=False, 
+            message=f"Comment chỉnh sửa thành công nhưng webhook lỗi: {str(exc)}",
+            data=base_data
+        )
+
+    return PostCommentEditResponse(success=True, message=ack_msg, data=base_data)
+
+
+@router.post(
+    "/linkedin/me/profile-slug-sheet-check",
+    response_model=ProfileSlugSheetCheckResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_me_profile_slug_sheet_check(
+    payload: ProfileSlugSheetCheckRequest,
+) -> ProfileSlugSheetCheckResponse:
+    """POST webhook ``N8N_WEBHOOK_GET_PROFILE_SLUGS`` và kiểm tra email đã có trong ``data`` chưa."""
+
+    url = (settings.n8n_webhook_get_profile_slugs_url or "").strip()
+    if not url:
+        return ProfileSlugSheetCheckResponse(
+            success=False,
+            message="N8N_WEBHOOK_GET_PROFILE_SLUGS chưa được cấu hình trong .env.",
+            data=None,
+        )
+
+    try:
+        outcome = check_email_in_profile_slug_sheet(payload.email)
+    except httpx.RequestError as exc:
+        logger.warning("profile-slug-sheet-check webhook lỗi mạng: %s", type(exc).__name__)
+        return ProfileSlugSheetCheckResponse(
+            success=False,
+            message="Không kết nối được tới webhook GET_PROFILE_SLUGS.",
+            data=None,
+        )
+    except Exception as exc:
+        logger.exception("profile-slug-sheet-check failed")
+        return ProfileSlugSheetCheckResponse(success=False, message=str(exc), data=None)
+
+    ok_http = outcome.http_status < 400
+    matched_slug = extract_profile_slug_hint(outcome.matched_row)
+    return ProfileSlugSheetCheckResponse(
+        success=ok_http,
+        message="Đã kiểm tra sheet profile slug."
+        if ok_http
+        else f"Webhook GET_PROFILE_SLUGS trả HTTP {outcome.http_status}",
+        data=ProfileSlugSheetCheckData(
+            email_found_in_sheet=outcome.email_found_in_sheet,
+            webhook_http_status=outcome.http_status,
+            row_count=len(outcome.rows),
+            matched_profile_slug=matched_slug,
+        ),
+    )
+
+
+@router.post(
+    "/linkedin/me/ensure-profile-slug",
+    response_model=EnsureProfileSlugResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_me_ensure_profile_slug(payload: EnsureProfileSlugRequest) -> EnsureProfileSlugResponse:
+    """Sheet có email → bỏ qua; không có → cào slug trên feed + POST ``N8N_WEBHOOK_ADD_PROFILE_SLUG``."""
+
+    owner_email = payload.email.strip()
+    sheet_url_configured = bool((settings.n8n_webhook_get_profile_slugs_url or "").strip())
+
+    if sheet_url_configured:
+        try:
+            outcome = check_email_in_profile_slug_sheet(owner_email)
+        except httpx.RequestError:
+            return EnsureProfileSlugResponse(
+                success=False,
+                message="Không kết nối được tới webhook GET_PROFILE_SLUGS.",
+                data=None,
+            )
+        except Exception as exc:
+            logger.exception("ensure-profile-slug sheet check failed")
+            return EnsureProfileSlugResponse(success=False, message=str(exc), data=None)
+
+        if outcome.http_status >= 400:
+            return EnsureProfileSlugResponse(
+                success=False,
+                message=f"Webhook GET_PROFILE_SLUGS trả HTTP {outcome.http_status}",
+                data=EnsureProfileSlugData(
+                    sheet_webhook_http_status=outcome.http_status,
+                ),
+            )
+
+        if outcome.email_found_in_sheet:
+            return EnsureProfileSlugResponse(
+                success=True,
+                message="Email đã có trong sheet — không lấy slug và không gọi add profile slug.",
+                data=EnsureProfileSlugData(
+                    email_found_in_sheet=True,
+                    skipped_playwright=True,
+                    skipped_register_webhook=True,
+                    sheet_webhook_http_status=outcome.http_status,
+                ),
+            )
+
+    try:
+        _, slug, profile_url = get_my_profile_slug(
+            session_id=payload.session_id,
+            email=owner_email,
+        )
+    except FileNotFoundError as exc:
+        return EnsureProfileSlugResponse(success=False, message=str(exc), data=None)
+    except RuntimeError as exc:
+        return EnsureProfileSlugResponse(success=False, message=str(exc), data=None)
+    except ValueError as exc:
+        return EnsureProfileSlugResponse(success=False, message=str(exc), data=None)
+    except Exception as exc:
+        logger.exception("ensure-profile-slug playwright failed")
+        return EnsureProfileSlugResponse(success=False, message=str(exc), data=None)
+
+    add_url = (settings.n8n_webhook_add_profile_slug_url or "").strip()
+    if not add_url:
+        return EnsureProfileSlugResponse(
+            success=True,
+            message="Đã lấy profile slug (Playwright). Chưa cấu hình N8N_WEBHOOK_ADD_PROFILE_SLUG — bỏ qua ghi sheet.",
+            data=EnsureProfileSlugData(
+                email_found_in_sheet=False,
+                skipped_register_webhook=True,
+                sheet_check_skipped_no_webhook=not sheet_url_configured,
+                profile_slug=slug,
+                profile_url=profile_url,
+            ),
+        )
+
+    try:
+        reg_status, _parsed, _preview = register_profile_slug_via_webhook(
+            webhook_url=add_url,
+            email=owner_email,
+            profile_slug=slug,
+            profile_url=profile_url,
+            timeout_sec=float(settings.n8n_webhook_add_profile_slug_timeout_sec),
+        )
+    except httpx.RequestError:
+        return EnsureProfileSlugResponse(
+            success=False,
+            message="Không kết nối được tới webhook ADD_PROFILE_SLUG.",
+            data=EnsureProfileSlugData(
+                profile_slug=slug,
+                profile_url=profile_url,
+                sheet_check_skipped_no_webhook=not sheet_url_configured,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("ensure-profile-slug register webhook failed")
+        return EnsureProfileSlugResponse(
+            success=False,
+            message=str(exc),
+            data=EnsureProfileSlugData(
+                profile_slug=slug,
+                profile_url=profile_url,
+                sheet_check_skipped_no_webhook=not sheet_url_configured,
+            ),
+        )
+
+    register_ok = reg_status < 400
+    return EnsureProfileSlugResponse(
+        success=register_ok,
+        message="Đã đăng ký profile slug qua webhook."
+        if register_ok
+        else f"Webhook ADD_PROFILE_SLUG trả HTTP {reg_status}",
+        data=EnsureProfileSlugData(
+            email_found_in_sheet=False,
+            profile_slug=slug,
+            profile_url=profile_url,
+            register_webhook_called=True,
+            register_webhook_http_status=reg_status,
+            sheet_check_skipped_no_webhook=not sheet_url_configured,
+        ),
+    )
 
 
 @router.post("/crawl-linkedin-group", response_model=CrawlResponse, dependencies=[Depends(verify_api_key)])
@@ -471,12 +1350,24 @@ def _n8n_get_all_groups_webhook_body(email: str) -> dict[str, Any]:
 
 
 def _pick_group_rows(parsed: Any) -> list[dict[str, Any]]:
-    if isinstance(parsed, dict):
-        data = parsed.get("data")
-        if isinstance(data, list):
-            return [x for x in data if isinstance(x, dict)]
+    """Trích mảng dòng nhóm từ JSON n8n.
+
+    Khớp các dạng hay gặp (cùng ``linkedin-crawler-ui/lib/n8n-groups-normalize.ts``):
+    mảng thuần; hoặc object có một trong các key ``data`` / ``groups`` / ``rows`` / … là list.
+    Nếu ``data`` là object (không phải list), thử đệ quy một lớp (vd. envelope lồng nhau).
+    """
+
     if isinstance(parsed, list):
         return [x for x in parsed if isinstance(x, dict)]
+    if not isinstance(parsed, dict):
+        return []
+    for key in ("data", "groups", "rows", "items", "results", "records"):
+        inner = parsed.get(key)
+        if isinstance(inner, list):
+            return [x for x in inner if isinstance(x, dict)]
+    nested = parsed.get("data")
+    if isinstance(nested, dict) and nested is not parsed:
+        return _pick_group_rows(nested)
     return []
 
 
@@ -508,6 +1399,7 @@ def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
         )
         raw_email = _pick_group_field(item, ("email", "Email_crawl", "email_crawl"))
         raw_member = _pick_group_field(item, ("member", "members", "Thành viên", "thanh_vien"))
+        raw_type = _pick_group_field(item, ("type", "Loại nhóm", "loai_nhom", "intent"))
 
         url_group = str(raw_url or "").strip()
         if not url_group:
@@ -519,6 +1411,8 @@ def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
         except (TypeError, ValueError):
             member = 0
 
+        group_type = str(raw_type or "").strip()
+
         out.append(
             {
                 "row_number": row_number,
@@ -526,6 +1420,7 @@ def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
                 "name_group": name_group,
                 "email": email,
                 "member": max(0, member),
+                "type": group_type,
             },
         )
     return out
@@ -1049,6 +1944,7 @@ def add_list_group(
             "email": owner_email,
             "Email_crawl": owner_email,
             "userEmail": owner_email,
+            "type": payload.type.strip(),
         }
         for item in scraped_items
     ]
@@ -1059,8 +1955,11 @@ def add_list_group(
     }
 
     try:
-        with httpx.Client(timeout=max(1.0, float(webhook_timeout))) as client:
-            webhook_resp = client.post(webhook_url, json=webhook_payload)
+        webhook_resp = _post_with_retry(
+            url=webhook_url,
+            json_body=webhook_payload,
+            timeout=max(1.0, float(webhook_timeout)),
+        )
         text = (webhook_resp.text or "").strip()
         preview = _truncate_webhook_preview(text)
         parsed: Any = None
@@ -1129,8 +2028,7 @@ def filter_data(payload: FilterDataRequest) -> FilterDataResponse:
 
         timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(url, json=webhook_payload)
+        response = _post_with_retry(url=url, json_body=webhook_payload, timeout=timeout)
 
         text = (response.text or "").strip()
 
@@ -1201,8 +2099,7 @@ def get_all_posts(payload: GetAllPostsRequest) -> GetAllPostsResponse:
 
         timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
-        with httpx.Client(timeout=timeout) as client:
-            response = client.post(url, json=webhook_payload)
+        response = _post_with_retry(url=url, json_body=webhook_payload, timeout=timeout)
 
         logger.info(
             "n8n get all posts webhook responded status=%s (body length=%s)",
@@ -1331,6 +2228,73 @@ def linkedin_app_sheet_filter_posts(payload: LinkedinAppFilterPostsSheetRequest)
     except Exception as exc:
         logger.exception("linkedin-app filter-post failed")
         return LinkedinSheetFilterPostsResponse(
+            success=False,
+            message=gsheet.safe_http_message(exc),
+            data=None,
+        )
+
+
+@linkedin_app_router.post("/stats", response_model=LinkedinAppStatsResponse)
+def linkedin_app_stats(payload: LinkedinAppStatsRequest) -> LinkedinAppStatsResponse:
+    """Calculate engagement stats for a user based on all posts in sheet."""
+
+    try:
+        if not gsheet.spreadsheet_configured():
+            return LinkedinAppStatsResponse(
+                success=False,
+                message="Google Sheet chưa cấu hình.",
+                data=None,
+            )
+
+        _, rows = gsheet.read_top_posts_as_dicts()
+        filtered = gsheet.filter_sheet_top_posts_for_owner(
+            rows,
+            owner_email_token=payload.email,
+        )
+
+        total_comments = 0
+        total_interactions = 0
+        total_posts = len(filtered)
+
+        for row in filtered:
+            # Count comments by user (from automation column)
+            app_comments = parseAppCommentsFromPost(row) if 'parseAppCommentsFromPost' in globals() else []
+            # Wait, I need to make sure parseAppCommentsFromPost is available or use countAppCommentsFromPost logic
+            
+            # Simple count from row
+            comm_count = 0
+            for k in ["comment", "Comment", "Da_comment", "Đã bình luận"]:
+                if k in row and row[k] and str(row[k]).strip() and str(row[k]).strip().lower() not in ["null", "0", "false", "no"]:
+                    # Try to parse as JSON array
+                    try:
+                        val = row[k]
+                        if isinstance(val, str) and val.strip().startswith("["):
+                            comm_count = len(json.loads(val))
+                        else:
+                            comm_count = 1
+                    except:
+                        comm_count = 1
+                    break
+            total_comments += comm_count
+
+            # Count interactions
+            for k in ["reaction", "Reaction", "tuong_tac", "Tuong_tac"]:
+                if k in row and row[k] and str(row[k]).strip() and str(row[k]).strip().lower() not in ["null", "0", "false", "no"]:
+                    total_interactions += 1
+                    break
+
+        return LinkedinAppStatsResponse(
+            success=True,
+            message="Đã lấy thông số thống kê.",
+            data=LinkedinAppStatsData(
+                total_comments=total_comments,
+                total_interactions=total_interactions,
+                total_posts_crawled=total_posts,
+            ),
+        )
+    except Exception as exc:
+        logger.exception("linkedin-app stats failed")
+        return LinkedinAppStatsResponse(
             success=False,
             message=gsheet.safe_http_message(exc),
             data=None,
@@ -1505,3 +2469,718 @@ def linkedin_app_crawl_batch(payload: LinkedinAppCrawlBatchRequest) -> LinkedinA
             spreadsheet_id=settings.google_spreadsheet_id,
         ),
     )
+@router.post(
+    "/linkedin/post/sync-progress",
+    response_model=SyncPostProgressResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_post_sync_progress(payload: SyncPostProgressRequest) -> SyncPostProgressResponse:
+    """Sync engagement for ONE post."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if payload.post_to_webhook and not webhook_url:
+        return SyncPostProgressResponse(
+            success=False,
+            message="post_to_webhook=true nhưng N8N_WEBHOOK_POST_REACTION chưa được cấu hình.",
+            data=None,
+        )
+
+    pw_email = payload.playwright_resolve_email()
+    owner_email = payload.Email_crawl.strip()
+    
+    try:
+        res = sync_post_engagement(
+            post_url=payload.post_url,
+            profile_slug=payload.profile_slug,
+            session_id=payload.session_id,
+            email=pw_email,
+            timeout_ms=payload.timeout_ms,
+        )
+    except Exception as exc:
+        logger.exception("Sync progress failed")
+        return SyncPostProgressResponse(success=False, message=str(exc), data=None)
+
+    # Prepare data for response
+    sync_data = SyncPostProgressData(
+        post_url=payload.post_url,
+        reaction=res.get("reaction"),
+        comments=res.get("comments", []),
+        total_reactions=res.get("total_reactions", 0),
+        total_comments=res.get("total_comments", 0),
+        row_number=payload.row_number,
+        webhook_called=False,
+    )
+
+    if not payload.post_to_webhook:
+        return SyncPostProgressResponse(
+            success=True,
+            message="Đã đọc xong tiến độ trên LinkedIn (bỏ qua webhook).",
+            data=sync_data,
+        )
+
+    # Send to n8n
+    try:
+        # Fetch all posts to merge
+        all_posts = fetch_posts_for_email_via_n8n(owner_email)
+        if not all_posts and payload.sheet_row:
+            all_posts = [dict(payload.sheet_row)]
+
+        triggered_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        
+        # Apply reaction
+        reaction_kind = res.get("reaction")
+        reaction_action = build_reaction_action_record(
+            owner_email=owner_email,
+            post_url=payload.post_url,
+            reaction=reaction_kind or "",
+            id_session_crawl=payload.ID_session_crawl,
+            row_number=payload.row_number,
+            sheet_row=payload.sheet_row,
+            clear_reaction=not reaction_kind,
+        )
+        updated_posts, _ = apply_reaction_to_sheet_rows(
+            all_posts,
+            action=reaction_action,
+            final_url=payload.post_url,
+            resolved_playwright_session_id=res.get("session_id", ""),
+            playwright_executed=True,
+            triggered_at=triggered_at,
+        )
+
+        # Apply comments
+        comment_action = build_comment_action_record(
+            owner_email=owner_email,
+            post_url=payload.post_url,
+            comments_cell=res.get("comments", []),
+            id_session_crawl=payload.ID_session_crawl,
+            row_number=payload.row_number,
+            sheet_row=payload.sheet_row,
+        )
+        
+        final_posts, matched_count = apply_comments_to_sheet_rows(
+            updated_posts,
+            action=comment_action,
+            final_url=payload.post_url,
+            resolved_playwright_session_id=res.get("session_id", ""),
+            playwright_executed=True,
+        )
+
+        # Update metrics from sync for exact counts
+        for row in final_posts:
+            update_metrics_from_sync(
+                row, 
+                res.get("total_reactions", 0), 
+                res.get("total_comments", 0)
+            )
+
+        # POST to webhook
+        synced_count, success_count, http_status, preview = send_sheet_rows_overwrite_webhook(
+            webhook_url=webhook_url,
+            rows=final_posts,
+            matched_row_count=matched_count,
+        )
+        
+        sync_data.webhook_called = True
+        sync_data.webhook_http_status = http_status
+        sync_data.webhook_response_preview = preview
+        
+        return SyncPostProgressResponse(
+            success=True,
+            message=f"Đã làm mới tiến độ cho bài viết ({success_count} dòng Sheet được cập nhật).",
+            data=sync_data,
+        )
+    except Exception as exc:
+        logger.exception("Webhook sync failed")
+        return SyncPostProgressResponse(
+            success=False,
+            message=f"Lỗi khi gửi webhook đồng bộ: {exc}",
+            data=sync_data,
+        )
+
+
+@router.post(
+    "/linkedin/sync-all-progress",
+    response_model=SyncAllProgressResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_sync_all_progress(payload: SyncAllProgressRequest) -> SyncAllProgressResponse:
+    """Sync engagement for ALL posts of a user."""
+
+    webhook_url = (settings.n8n_webhook_post_reaction_url or "").strip()
+    if not webhook_url:
+        return SyncAllProgressResponse(
+            success=False,
+            message="N8N_WEBHOOK_POST_REACTION chưa được cấu hình.",
+            data=None,
+        )
+
+    owner_email = payload.email_crawl.strip()
+    pw_email = payload.playwright_resolve_email()
+    
+    # 1. Fetch all posts
+    try:
+        all_posts = fetch_posts_for_email_via_n8n(owner_email)
+    except Exception as exc:
+        return SyncAllProgressResponse(success=False, message=f"Không thể lấy danh sách bài viết: {exc}", data=None)
+
+    if not all_posts:
+        return SyncAllProgressResponse(success=True, message="Không có bài viết nào để đồng bộ.", data=SyncAllProgressData(posts_attempted=0, posts_succeeded=0, details=[]))
+
+    # 2. Filter posts with URLs
+    posts_to_sync = []
+    for row in all_posts:
+        url = (row.get("URL_Bài_Viết") or row.get("post_url") or row.get("postUrl") or "").strip()
+        if url:
+            posts_to_sync.append(row)
+    
+    if payload.limit_posts:
+        posts_to_sync = posts_to_sync[:payload.limit_posts]
+
+    if not posts_to_sync:
+        return SyncAllProgressResponse(success=True, message="Không tìm thấy bài viết có URL để đồng bộ.", data=SyncAllProgressData(posts_attempted=0, posts_succeeded=0, details=[]))
+
+    # 3. Resolve session
+    try:
+        resolved_sid, state_path = build_session_state_path(
+            session_id=payload.session_id,
+            email=pw_email,
+        )
+    except Exception as exc:
+        return SyncAllProgressResponse(success=False, message=f"Lỗi session: {exc}", data=None)
+
+    results_details = []
+    success_count = 0
+    
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=settings.headless, args=["--no-sandbox"])
+        try:
+            context = browser.new_context(storage_state=str(state_path))
+            page = context.new_page()
+            page.set_default_timeout(payload.timeout_ms_per_post)
+            
+            for row in posts_to_sync:
+                url = (row.get("URL_Bài_Viết") or row.get("post_url") or row.get("postUrl") or "").strip()
+                row_num = row.get("row_number") or row.get("rowNumber")
+                id_session = row.get("ID_session_crawl") or row.get("id_session_crawl")
+                
+                # Sync logic
+                res = sync_post_engagement_on_page(page, url, payload.profile_slug, payload.timeout_ms_per_post)
+                
+                detail = SyncPostProgressData(
+                    post_url=url,
+                    reaction=res.get("reaction"),
+                    comments=res.get("comments", []),
+                    total_reactions=res.get("total_reactions", 0),
+                    total_comments=res.get("total_comments", 0),
+                    row_number=row_num,
+                    webhook_called=False,
+                )
+                
+                if res.get("error"):
+                    results_details.append(detail)
+                    continue
+
+                # Apply to all_posts (stateful update)
+                triggered_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+                
+                # Apply reaction
+                reaction_kind = res.get("reaction")
+                reaction_action = build_reaction_action_record(
+                    owner_email=owner_email,
+                    post_url=url,
+                    reaction=reaction_kind or "",
+                    id_session_crawl=id_session or "",
+                    row_number=row_num or 0,
+                    sheet_row=row,
+                    clear_reaction=not reaction_kind,
+                )
+                all_posts, _ = apply_reaction_to_sheet_rows(
+                    all_posts,
+                    action=reaction_action,
+                    final_url=url,
+                    resolved_playwright_session_id=resolved_sid,
+                    playwright_executed=True,
+                    triggered_at=triggered_at,
+                )
+
+                # Apply comments
+                comment_action = build_comment_action_record(
+                    owner_email=owner_email,
+                    post_url=url,
+                    comments_cell=res.get("comments", []),
+                    id_session_crawl=id_session or "",
+                    row_number=row_num or 0,
+                    sheet_row=row,
+                )
+                
+                all_posts, _ = apply_comments_to_sheet_rows(
+                    all_posts,
+                    action=comment_action,
+                    final_url=url,
+                    resolved_playwright_session_id=resolved_sid,
+                    playwright_executed=True,
+                )
+                
+                # Update metrics for current post in all_posts
+                for row_item in all_posts:
+                    row_url = (row_item.get("URL_Bài_Viết") or row_item.get("post_url") or row_item.get("postUrl") or "").strip()
+                    if row_url == url:
+                        update_metrics_from_sync(
+                            row_item,
+                            res.get("total_reactions", 0),
+                            res.get("total_comments", 0)
+                        )
+                
+                detail.webhook_called = True
+                results_details.append(detail)
+                success_count += 1
+            
+            # 4. Final webhook call to update sheet for ALL synced posts
+            if success_count > 0:
+                _, _, status_code, preview = send_sheet_rows_overwrite_webhook(
+                    webhook_url=webhook_url,
+                    rows=all_posts,
+                    matched_row_count=success_count,
+                )
+                for d in results_details:
+                    if d.webhook_called:
+                        d.webhook_http_status = status_code
+                        d.webhook_response_preview = preview
+
+            return SyncAllProgressResponse(
+                success=True,
+                message=f"Đã hoàn thành làm mới tiến độ ({success_count}/{len(posts_to_sync)} bài viết).",
+                data=SyncAllProgressData(
+                    posts_attempted=len(posts_to_sync),
+                    posts_succeeded=success_count,
+                    details=results_details
+                )
+            )
+        finally:
+            browser.close()
+
+@router.post(
+    "/kpi/assign",
+    response_model=BaseResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def linkedin_assign_kpi(payload: AssignKpiRequest) -> BaseResponse:
+    """Leader gán KPI cho member — Forward JSON tới ``N8N_WEBHOOK_ASSIGN_KPI``."""
+
+    if payload.leader_role != "leader":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Chỉ leader mới có quyền gán KPI.",
+        )
+
+    webhook_url = settings.n8n_webhook_assign_kpi_url
+    if not webhook_url:
+        return BaseResponse(
+            success=False,
+            message="N8N_WEBHOOK_ASSIGN_KPI chưa được cấu hình trong .env.",
+        )
+
+    try:
+        # Chuyển đổi sang dict, sử dụng alias để khớp key frontend/n8n mong đợi
+        json_body = payload.model_dump(mode="json", by_alias=True)
+        
+        status_code, response_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body=json_body,
+        )
+        
+        return BaseResponse(
+            success=True,
+            message=f"Đã gán KPI và gửi tới n8n thành công (Status: {status_code}).",
+            data={
+                "webhook_status": status_code,
+                "response_preview": response_text[:200]
+            }
+        )
+    except Exception as exc:
+        logger.exception("KPI assignment webhook failed")
+        return BaseResponse(
+            success=False,
+            message=f"Lỗi khi gửi KPI tới n8n: {exc}",
+        )
+
+
+@router.post(
+    "/auth/check-permission",
+    response_model=CheckPermissionResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def check_permission(payload: CheckPermissionRequest) -> CheckPermissionResponse:
+    """Kiểm tra quyền leader/member qua webhook n8n."""
+
+    webhook_url = settings.n8n_webhook_check_permission_url
+    if not webhook_url:
+        return CheckPermissionResponse(
+            success=False,
+            message="N8N_CHECK_PERMISSION chưa được cấu hình trong .env.",
+            data=CheckPermissionData(permission=False),
+        )
+
+    try:
+        status_code, response_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body={"email": payload.email},
+        )
+
+        permission = False
+        try:
+            resp_data = json.loads(response_text)
+            if isinstance(resp_data, dict):
+                permission = bool(resp_data.get("permission", False))
+            elif isinstance(resp_data, list) and len(resp_data) > 0:
+                # Trường hợp n8n trả về mảng
+                first = resp_data[0]
+                if isinstance(first, dict):
+                    permission = bool(first.get("permission", False))
+        except:
+            pass
+
+        return CheckPermissionResponse(
+            success=True,
+            message="Checked permission successfully",
+            data=CheckPermissionData(permission=permission),
+        )
+    except Exception as exc:
+        logger.exception("Check permission webhook failed")
+        return CheckPermissionResponse(
+            success=False,
+            message=f"Lỗi khi kiểm tra quyền: {exc}",
+            data=CheckPermissionData(permission=False),
+        )
+
+
+def _norm_header_key(key: str) -> str:
+    """Chuẩn hóa key sheet/n8n để lookup không phân biệt hoa thường, khoảng trắng, BOM."""
+    s = str(key).replace("\ufeff", "").strip().lower()
+    return "".join(ch for ch in s if ch not in " \t\n\r-_")
+
+
+def _row_get_ci(row: dict[str, Any], *logical_names: str) -> Any:
+    """Lấy giá trị theo tên cột tương đương (Google Sheet / n8n đổi tên cột)."""
+    idx: dict[str, Any] = {}
+    for k, v in row.items():
+        nk = _norm_header_key(str(k))
+        if nk not in idx:
+            idx[nk] = v
+    for name in logical_names:
+        nk = _norm_header_key(name)
+        if nk in idx:
+            return idx[nk]
+    return None
+
+
+def _unwrap_n8n_row(item: dict[str, Any]) -> dict[str, Any]:
+    """Một item n8n thường là ``{ \"json\": { ...dòng sheet... } }``."""
+    inner = item.get("json")
+    if isinstance(inner, dict):
+        return inner
+    return item
+
+
+def _row_looks_like_profile(row: dict[str, Any]) -> bool:
+    email = str(_row_get_ci(row, "email", "Email", "Email_crawl", "email_crawl", "userEmail", "mail") or "").strip()
+    return bool(email and "@" in email)
+
+
+def _coerce_payload_to_row_dicts(parsed: Any) -> list[dict[str, Any]]:
+    """Đệ quy / đa dạng format: list, ``{data:[]}``, n8n ``[{json:{}}]``, dict index→row."""
+    if parsed is None:
+        return []
+    if isinstance(parsed, str) and parsed.strip():
+        try:
+            return _coerce_payload_to_row_dicts(json.loads(parsed))
+        except Exception:
+            return []
+    if isinstance(parsed, list):
+        out: list[dict[str, Any]] = []
+        for item in parsed:
+            if not isinstance(item, dict):
+                continue
+            row = _unwrap_n8n_row(item)
+            if isinstance(row, dict) and _row_looks_like_profile(row):
+                out.append(row)
+        return out
+    if isinstance(parsed, dict):
+        # n8n đôi khi trả một object bọc json
+        inner_json = parsed.get("json")
+        if isinstance(inner_json, dict) and _row_looks_like_profile(inner_json):
+            return [inner_json]
+        for key in ("data", "rows", "records", "items", "results", "output"):
+            inner = parsed.get(key)
+            if inner is not None:
+                got = _coerce_payload_to_row_dicts(inner)
+                if got:
+                    return got
+        if _row_looks_like_profile(parsed):
+            return [parsed]
+        # { "0": {...}, "1": {...} }
+        dict_rows = [
+            v
+            for v in parsed.values()
+            if isinstance(v, dict) and _row_looks_like_profile(v)
+        ]
+        if dict_rows:
+            return dict_rows
+    return []
+
+
+def _parse_get_all_kpi_rows(response_text: str) -> list[dict[str, Any]]:
+    """Chuẩn hóa n8n / Google Sheet → list dict dòng profile."""
+    try:
+        parsed = json.loads(response_text)
+    except Exception:
+        return []
+    return _coerce_payload_to_row_dicts(parsed)
+
+
+def _normalize_kpi_member_row(
+    row: dict[str, Any],
+    leader_email: str,
+    *,
+    require_leader_match: bool = True,
+) -> KpiMemberData | None:
+    """Map dòng sheet → ``KpiMemberData``.
+
+    ``require_leader_match=True`` (get-all): lọc theo ``email_leader`` trùng leader gọi API.
+    ``require_leader_match=False`` (get-by-email): giữ nguyên dòng n8n, không lọc leader.
+    """
+    email = str(
+        _row_get_ci(row, "email", "Email", "Email_crawl", "email_crawl", "userEmail", "mail", "EMAIL")
+        or "",
+    ).strip()
+    if not email:
+        return None
+
+    row_leader = str(
+        _row_get_ci(
+            row,
+            "email_leader",
+            "emailLeader",
+            "leader_email",
+            "Leader_email",
+            "email_leader_crawl",
+            "Leader",
+            "leaderEmail",
+            "Email_leader",
+            "EMAIL_LEADER",
+        )
+        or "",
+    ).strip().lower()
+
+    if require_leader_match:
+        leader_norm = leader_email.strip().lower()
+        if not leader_norm:
+            return None
+        if row_leader and row_leader != leader_norm:
+            return None
+        effective_leader: str | None = row_leader or leader_norm
+    else:
+        leader_norm = ""
+        effective_leader = row_leader or None
+
+    role = str(_row_get_ci(row, "role", "Role", "member_role", "memberRole") or "member").strip() or "member"
+    if require_leader_match and role.lower() == "leader" and email.strip().lower() == leader_norm:
+        return None
+
+    slug_raw = _row_get_ci(row, "profile_slug", "profileSlug", "slug", "Profile_slug")
+    slug_s = str(slug_raw).strip() if slug_raw is not None else ""
+
+    kpi_raw = _row_get_ci(row, "kpi", "KPI", "Kpi")
+    kpi_list = _parse_kpi_field_to_dict_list(kpi_raw)
+
+    return KpiMemberData(
+        email=email,
+        role=role,
+        profile_slug=slug_s or None,
+        email_leader=effective_leader,
+        kpi=kpi_list,
+    )
+
+
+def _parse_kpi_field_to_dict_list(raw: Any) -> list[dict[str, Any]]:
+    """Sheet/n8n hay trả ``kpi`` là JSON string hoặc một object — ép về ``list[dict]`` cho Pydantic."""
+    out: list[dict[str, Any]] = []
+    if isinstance(raw, list):
+        for el in raw:
+            if isinstance(el, dict):
+                out.append(el)
+        return out
+    if isinstance(raw, str) and raw.strip():
+        try:
+            loaded = json.loads(raw)
+        except Exception:
+            return []
+        if isinstance(loaded, list):
+            for el in loaded:
+                if isinstance(el, dict):
+                    out.append(el)
+        elif isinstance(loaded, dict):
+            out = [loaded]
+    return out
+
+
+@router.post(
+    "/kpi/get-all",
+    response_model=GetAllKpiResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def get_all_kpi(payload: GetAllKpiRequest) -> GetAllKpiResponse:
+    """Lấy toàn bộ KPI cho leader qua n8n; chuẩn hóa alias cột và lọc theo ``email_leader``."""
+    webhook_url = settings.n8n_webhook_get_all_kpi_url
+    if not webhook_url:
+        return GetAllKpiResponse(success=False, message="Webhook get-all-kpi chưa cấu hình.")
+
+    leader = payload.email_leader.strip()
+    if not leader:
+        return GetAllKpiResponse(success=False, message="email_leader không hợp lệ.")
+
+    try:
+        _status_code, response_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body={"email_leader": leader},
+        )
+        raw_rows = _parse_get_all_kpi_rows(response_text)
+        normalized: list[KpiMemberData] = []
+        for item in raw_rows:
+            mem = _normalize_kpi_member_row(item, leader)
+            if mem is not None:
+                normalized.append(mem)
+
+        return GetAllKpiResponse(
+            success=True,
+            message="Success",
+            total=len(normalized),
+            data=normalized,
+        )
+    except Exception as exc:
+        logger.exception("get_all_kpi failed")
+        return GetAllKpiResponse(success=False, message=str(exc))
+
+
+@router.post(
+    "/kpi/get-by-email",
+    response_model=GetKpiByEmailResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def get_kpi_by_email(payload: GetKpiByEmailRequest) -> GetKpiByEmailResponse:
+    """Lấy KPI cho member qua n8n."""
+    webhook_url = settings.n8n_webhook_get_kpi_by_email_url
+    if not webhook_url:
+        return GetKpiByEmailResponse(success=False, message="Webhook get-kpi-by-email chưa cấu hình.")
+
+    try:
+        _status_code, response_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body={"email": payload.email},
+        )
+        parsed = json.loads(response_text)
+        raw_rows = _coerce_payload_to_row_dicts(parsed)
+        normalized: list[KpiMemberData] = []
+        for item in raw_rows:
+            mem = _normalize_kpi_member_row(
+                item,
+                "",
+                require_leader_match=False,
+            )
+            if mem is not None:
+                normalized.append(mem)
+
+        return GetKpiByEmailResponse(
+            success=True,
+            message="Success",
+            total=len(normalized),
+            data=normalized,
+        )
+    except Exception as exc:
+        return GetKpiByEmailResponse(success=False, message=str(exc))
+
+
+@router.post(
+    "/team/add-member",
+    response_model=BaseResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def add_member(payload: AddMemberRequest) -> BaseResponse:
+    """Thêm member mới qua n8n."""
+    webhook_url = settings.n8n_webhook_add_member_url
+    if not webhook_url:
+        return BaseResponse(success=False, message="Webhook add-member chưa cấu hình.")
+
+    try:
+        status_code, response_text = post_json_to_n8n_webhook(
+            url=webhook_url,
+            json_body={
+                "email_member": payload.email_member,
+                "email_leader": payload.email_leader
+            },
+        )
+        return BaseResponse(success=True, message=f"Đã gửi yêu cầu thêm member (Status: {status_code})")
+    except Exception as exc:
+        return BaseResponse(success=False, message=str(exc))
+
+
+@router.post(
+    "/auth/verify-leader-code",
+    response_model=BaseResponse,
+    dependencies=[Depends(verify_api_key)],
+)
+def verify_leader_code(payload: VerifyLeaderCodeRequest) -> BaseResponse:
+    """Xác nhận mã code leader."""
+    if payload.code == settings.leader_code:
+        return BaseResponse(success=True, message="Mã code chính xác.")
+    return BaseResponse(success=False, message="Mã code không đúng.")
+@router.post("/linkedin/all-profiles")
+def get_all_profiles(
+    payload: GetProfilesRequest,
+    settings: Settings = Depends(get_settings),
+    api_key: str = Depends(verify_api_key),
+):
+    """Lấy danh sách toàn bộ profile slug từ sheet qua n8n."""
+    try:
+        status_code, rows, parsed, preview = fetch_sheet_rows_via_webhook(
+            webhook_url=settings.n8n_webhook_get_profile_slugs_url,
+            email=payload.email,
+            timeout_sec=settings.n8n_webhook_get_profile_slugs_timeout_sec,
+        )
+        if status_code != 200:
+            return {"success": False, "message": f"N8N trả về lỗi: {status_code}", "data": None}
+        
+        return {"success": True, "message": "Lấy danh sách profile thành công", "data": rows}
+    except Exception as e:
+        return {"success": False, "message": str(e), "data": None}
+
+@router.post("/linkedin/me/profile-slug-update")
+def update_profile_slug_endpoint(
+    payload: UpdateProfileSlugRequest,
+    settings: Settings = Depends(get_settings),
+    api_key: str = Depends(verify_api_key),
+):
+    """Ghi đè/Thêm mới profile slug vào sheet kèm KPI và Role."""
+    try:
+        # Prepare body for n8n
+        webhook_body = {
+            "email": payload.email_crawl,
+            "Email_crawl": payload.email_crawl,
+            "profile_slug": payload.profile_slug,
+            "profile_url": payload.profile_url,
+            "role": payload.role,
+            "kpi": payload.kpi,
+            "email_leader": payload.email_leader or "",
+        }
+
+        resp = httpx.post(
+            settings.n8n_webhook_add_profile_slug_url,
+            json=webhook_body,
+            timeout=settings.n8n_webhook_add_profile_slug_timeout_sec,
+        )
+        
+        if resp.status_code != 200:
+            return {"success": False, "message": f"N8N trả về lỗi: {resp.status_code}"}
+        return {"success": True, "message": "Cập nhật profile slug thành công."}
+    except Exception as e:
+        return {"success": False, "message": str(e)}

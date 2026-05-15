@@ -3,7 +3,10 @@
 import { useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
-import { normalizeN8nGroupsList, type ManagedGroupRow } from "@/lib/n8n-groups-normalize";
+import {
+  normalizeN8nGroupsList,
+  type ManagedGroupRow,
+} from "@/lib/LinkedIn-n8n-groups-normalize";
 import { getAllN8nGroups } from "@/services/linkedinCrawlerService";
 
 import { useDashboard } from "./dashboard-context";
@@ -37,14 +40,17 @@ export function CrawlerConfigCard() {
     setPickerError(null);
     try {
       const res = await getAllN8nGroups({ email });
-      if (!res.success) throw new Error(res.message || "Không tải được danh sách nhóm.");
+      if (!res.success)
+        throw new Error(res.message || "Không tải được danh sách nhóm.");
       const rows = normalizeN8nGroupsList(res.data?.groups ?? res.data?.parsed);
       setPickerRows(rows);
       const pre = new Set(selectedPreview);
       setPickedUrls(pre);
     } catch (e) {
       setPickerRows([]);
-      setPickerError(e instanceof Error ? e.message : "Lỗi tải danh sách nhóm.");
+      setPickerError(
+        e instanceof Error ? e.message : "Lỗi tải danh sách nhóm.",
+      );
     } finally {
       setPickerBusy(false);
     }
@@ -60,14 +66,18 @@ export function CrawlerConfigCard() {
   };
 
   const applyPickedGroups = () => {
-    const urls = pickerRows.map((r) => r.url_group).filter((u) => pickedUrls.has(u));
+    const urls = pickerRows
+      .map((r) => r.url_group)
+      .filter((u) => pickedUrls.has(u));
     d.setGroupUrls(urls.join("\n"));
     setPickerOpen(false);
   };
 
   const togglePickAll = () => {
     if (pickerRows.length === 0) return;
-    const allSelected = pickerRows.every((row) => pickedUrls.has(row.url_group));
+    const allSelected = pickerRows.every((row) =>
+      pickedUrls.has(row.url_group),
+    );
     if (allSelected) {
       setPickedUrls(new Set());
       return;
@@ -87,13 +97,10 @@ export function CrawlerConfigCard() {
   );
 
   return (
-    <section className="flex flex-col gap-md">
+    <section className="flex w-full max-w-none flex-col gap-md">
       <div className="border-outline-variant bg-surface-container-lowest flex flex-col gap-md rounded-xl border p-lg shadow-sm">
         <div className="border-surface-variant mb-sm flex items-center gap-2 border-b pb-md">
-          <MaterialIcon
-            name="info"
-            className="shrink-0 text-primary"
-          />
+          <MaterialIcon name="info" className="shrink-0 text-primary" />
           <h2 className="text-h3 font-semibold">Thông tin crawler</h2>
         </div>
         <div className="grid grid-cols-1 gap-md">
@@ -230,7 +237,11 @@ export function CrawlerConfigCard() {
             />
             <div className="flex items-center justify-between gap-md">
               <p className="text-body-sm text-on-surface-variant">
-                Đã chọn <span className="font-semibold text-on-surface">{selectedPreview.length}</span> nhóm.
+                Đã chọn{" "}
+                <span className="font-semibold text-on-surface">
+                  {selectedPreview.length}
+                </span>{" "}
+                nhóm.
               </p>
               <button
                 type="button"
@@ -284,7 +295,10 @@ export function CrawlerConfigCard() {
       </div>
 
       {pickerOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center p-md sm:items-center" role="presentation">
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center p-md sm:items-center"
+          role="presentation"
+        >
           <button
             type="button"
             className="absolute inset-0 bg-black/45 backdrop-blur-[1px]"
@@ -297,12 +311,13 @@ export function CrawlerConfigCard() {
             aria-modal="true"
             aria-labelledby="group-picker-title"
           >
-            <h3 id="group-picker-title" className="text-h3 text-on-surface font-semibold">
-              Chọn nhóm LinkedIn cho /start
+            <h3
+              id="group-picker-title"
+              className="text-h3 text-on-surface font-semibold"
+            >
+             Lựa chọn nhóm cào
             </h3>
-            <p className="text-body-sm text-on-surface-variant mt-xs">
-              Dữ liệu lấy từ API get-group theo email hiện tại. Tick nhóm nào thì gửi nhóm đó trong `group_urls`.
-            </p>
+        
             <div className="mt-sm">
               <button
                 type="button"
@@ -335,7 +350,10 @@ export function CrawlerConfigCard() {
                 </thead>
                 <tbody className="divide-outline-variant divide-y">
                   {pickerPageRows.map((row, idx) => (
-                    <tr key={`${row.url_group}-${idx}`} className="hover:bg-surface-container/40">
+                    <tr
+                      key={`${row.url_group}-${idx}`}
+                      className="hover:bg-surface-container/40"
+                    >
                       <td className="px-md py-sm">
                         <input
                           type="checkbox"
@@ -346,12 +364,17 @@ export function CrawlerConfigCard() {
                       </td>
                       <td className="px-md py-sm break-all">{row.url_group}</td>
                       <td className="px-md py-sm">{row.name_group || "—"}</td>
-                      <td className="px-md py-sm text-right tabular-nums">{row.member.toLocaleString("vi-VN")}</td>
+                      <td className="px-md py-sm text-right tabular-nums">
+                        {row.member.toLocaleString("vi-VN")}
+                      </td>
                     </tr>
                   ))}
                   {!pickerBusy && pickerRows.length === 0 ? (
                     <tr>
-                      <td className="text-on-surface-variant px-md py-lg text-center" colSpan={4}>
+                      <td
+                        className="text-on-surface-variant px-md py-lg text-center"
+                        colSpan={4}
+                      >
                         Không có nhóm nào từ API get-group.
                       </td>
                     </tr>
@@ -364,8 +387,11 @@ export function CrawlerConfigCard() {
               <div className="text-body-sm text-on-surface-variant mt-md flex items-center justify-between gap-md">
                 <span>
                   Hiển thị {pickerPageStart + 1}–
-                  {Math.min(pickerPageStart + PICKER_PAGE_SIZE, pickerRows.length)} /{" "}
-                  {pickerRows.length} nhóm
+                  {Math.min(
+                    pickerPageStart + PICKER_PAGE_SIZE,
+                    pickerRows.length,
+                  )}{" "}
+                  / {pickerRows.length} nhóm
                 </span>
                 <div className="flex items-center gap-sm">
                   <button

@@ -1,3 +1,7 @@
+/**
+ * @deprecated Use @/lib/LinkedIn-parse-group-urls-bulk instead
+ */
+
 /** Trích mọi URL nhóm LinkedIn từ text (dòng mới, phẩy, dính liền…). */
 
 const GROUP_URL_RE = /https:\/\/(www\.)?linkedin\.com\/groups\/\d+\/?/gi;
