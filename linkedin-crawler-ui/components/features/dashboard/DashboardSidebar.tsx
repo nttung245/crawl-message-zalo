@@ -25,6 +25,7 @@ export function DashboardSidebar() {
   const isHome = pathname === "/";
   const isGroupMgmt = pathname === "/quan-ly-nhom";
   const isCrawlFb = pathname === "/crawl-data";
+  const isInteraction = pathname === "/Interaction";
   const [accountOpen, setAccountOpen] = useState(false);
   const [draftEmail, setDraftEmail] = useState("");
   const [draftPassword, setDraftPassword] = useState("");
@@ -172,7 +173,7 @@ export function DashboardSidebar() {
         </Link>
         <Link
           href="/Interaction"
-          className={cn(isCrawlFb ? sideActive : sideIdle)}
+          className={cn(isInteraction ? sideActive : sideIdle)}
         >
           <AiOutlineInteraction className="shrink-0 text-2xl" />
           <span className="min-w-0 leading-snug">Interaction</span>
