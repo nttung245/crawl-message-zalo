@@ -28,7 +28,7 @@ def _parse_csv(value: str | None, default: tuple[str, ...]) -> list[str]:
     return [item for item in items if item]
 
 
-DEFAULT_WEBHOOK_TIMEOUT_SEC = 30
+DEFAULT_WEBHOOK_TIMEOUT_SEC = 300
 DEFAULT_START_WEBHOOK_TIMEOUT_SEC = 3600
 
 
@@ -114,6 +114,84 @@ def _n8n_webhook_add_list_group_timeout_sec_from_env() -> float:
         return 300.0
 
 
+def _n8n_webhook_get_profile_slugs_from_env() -> str:
+    """Webhook trả JSON có ``total`` + ``data`` (mảng dòng sheet chứa email/slug)."""
+
+    return (os.getenv("N8N_WEBHOOK_GET_PROFILE_SLUGS") or "").strip()
+
+
+def _n8n_webhook_get_profile_slugs_timeout_sec_from_env() -> float:
+    raw = os.getenv("N8N_WEBHOOK_GET_PROFILE_SLUGS_TIMEOUT_SEC") or "300"
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 300.0
+
+
+def _n8n_webhook_add_profile_slug_from_env() -> str:
+    """Webhook ghi slug mới khi email chưa có trong sheet."""
+
+    return (os.getenv("N8N_WEBHOOK_ADD_PROFILE_SLUG") or "").strip()
+
+
+def _n8n_webhook_reaction_url_from_env() -> str:
+    """Webhook sau reaction Playwright — ưu tiên ``N8N_WEBHOOK_REACTION``, fallback ``N8N_WEBHOOK_POST_REACTION``."""
+
+    return (
+        (os.getenv("N8N_WEBHOOK_REACTION") or "").strip()
+        or (os.getenv("N8N_WEBHOOK_POST_REACTION") or "").strip()
+    )
+
+
+def _n8n_webhook_comment_url_from_env() -> str:
+    """Webhook sau comment Playwright — ``N8N_WEBHOOK_COMMENT`` hoặc ``N8N_WEBHOOK_POST_COMMENT``."""
+
+    return (
+        (os.getenv("N8N_WEBHOOK_COMMENT") or "").strip()
+        or (os.getenv("N8N_WEBHOOK_POST_COMMENT") or "").strip()
+    )
+
+
+def _n8n_webhook_assign_kpi_from_env() -> str:
+    """Webhook gán KPI cho member — leader gọi endpoint /kpi/assign."""
+
+    return (os.getenv("N8N_WEBHOOK_ASSIGN_KPI") or "").strip()
+
+
+def _n8n_webhook_check_permission_from_env() -> str:
+    """Webhook kiểm tra quyền leader/member — /auth/check-permission."""
+
+    return (os.getenv("N8N_CHECK_PERMISSION") or "").strip()
+
+
+def _n8n_webhook_get_all_kpi_from_env() -> str:
+    """Webhook lấy toàn bộ KPI cho leader — /kpi/get-all."""
+    return (os.getenv("N8N_WEBHOOK_GET_ALL_KPI") or "").strip()
+
+
+def _n8n_webhook_get_kpi_by_email_from_env() -> str:
+    """Webhook lấy KPI cho member — /kpi/get-by-email."""
+    return (os.getenv("N8N_WEBHOOK_GET_KPI_BY_EMAIL") or "").strip()
+
+
+def _n8n_webhook_add_member_from_env() -> str:
+    """Webhook thêm member — /team/add-member."""
+    return (os.getenv("N8N_WEBHOOK_ADD_MEMBER") or "").strip()
+
+
+def _leader_code_from_env() -> str:
+    """Mã code để xác nhận vai trò Leader."""
+    return (os.getenv("LEADER_CODE") or "8888").strip()
+
+
+def _n8n_webhook_add_profile_slug_timeout_sec_from_env() -> float:
+    raw = os.getenv("N8N_WEBHOOK_ADD_PROFILE_SLUG_TIMEOUT_SEC") or "300"
+    try:
+        return float(raw)
+    except (TypeError, ValueError):
+        return 300.0
+
+
 def _google_service_account_json_from_env() -> Path:
     """Đường dẫn file JSON service account (tương đối BASE_DIR hoặc absolute)."""
 
@@ -189,6 +267,42 @@ class Settings:
     n8n_webhook_add_list_group_url: str = field(default_factory=_n8n_webhook_add_list_group_from_env)
     n8n_webhook_add_list_group_timeout_sec: float = field(
         default_factory=_n8n_webhook_add_list_group_timeout_sec_from_env,
+    )
+    n8n_webhook_get_profile_slugs_url: str = field(
+        default_factory=_n8n_webhook_get_profile_slugs_from_env,
+    )
+    n8n_webhook_get_profile_slugs_timeout_sec: float = field(
+        default_factory=_n8n_webhook_get_profile_slugs_timeout_sec_from_env,
+    )
+    n8n_webhook_add_profile_slug_url: str = field(
+        default_factory=_n8n_webhook_add_profile_slug_from_env,
+    )
+    n8n_webhook_add_profile_slug_timeout_sec: float = field(
+        default_factory=_n8n_webhook_add_profile_slug_timeout_sec_from_env,
+    )
+    n8n_webhook_post_reaction_url: str = field(
+        default_factory=_n8n_webhook_reaction_url_from_env,
+    )
+    n8n_webhook_post_comment_url: str = field(
+        default_factory=_n8n_webhook_comment_url_from_env,
+    )
+    n8n_webhook_assign_kpi_url: str = field(
+        default_factory=_n8n_webhook_assign_kpi_from_env,
+    )
+    n8n_webhook_check_permission_url: str = field(
+        default_factory=_n8n_webhook_check_permission_from_env,
+    )
+    n8n_webhook_get_all_kpi_url: str = field(
+        default_factory=_n8n_webhook_get_all_kpi_from_env,
+    )
+    n8n_webhook_get_kpi_by_email_url: str = field(
+        default_factory=_n8n_webhook_get_kpi_by_email_from_env,
+    )
+    n8n_webhook_add_member_url: str = field(
+        default_factory=_n8n_webhook_add_member_from_env,
+    )
+    leader_code: str = field(
+        default_factory=_leader_code_from_env,
     )
     google_service_account_json_path: Path = field(
         default_factory=_google_service_account_json_from_env,

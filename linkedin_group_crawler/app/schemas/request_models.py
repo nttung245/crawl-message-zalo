@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 import re
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -152,6 +152,84 @@ class ProfileCommentsRequest(BaseModel):
     @field_validator("target_post_id")
     @classmethod
     def strip_target_post(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+
+class GetMyProfileSlugRequest(BaseModel):
+    """POST ``/linkedin/me/profile-slug`` — lấy slug ``/in/<slug>`` của tài khoản đã login."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session Playwright (ưu tiên).",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email đã login — resolve file session nếu không truyền session_id.",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_profile_slug_session(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_profile_slug_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @model_validator(mode="after")
+    def require_session_or_email(self) -> GetMyProfileSlugRequest:
+        if not self.session_id and not self.email:
+            raise ValueError("Cần session_id hoặc email để resolve session LinkedIn đã lưu.")
+        return self
+
+
+class ProfileSlugSheetCheckRequest(BaseModel):
+    """POST ``/linkedin/me/profile-slug-sheet-check`` — webhook lấy slug sheet, kiểm tra email."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email: str = Field(..., min_length=3, validation_alias=AliasChoices("email", "userEmail"))
+
+    @field_validator("email")
+    @classmethod
+    def strip_sheet_check_email(cls, value: str) -> str:
+        return value.strip()
+
+
+class EnsureProfileSlugRequest(BaseModel):
+    """POST ``/linkedin/me/ensure-profile-slug`` — kiểm tra sheet → nếu chưa có thì cào slug + gọi webhook add."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email: str = Field(..., min_length=3, validation_alias=AliasChoices("email", "userEmail"))
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session sau /login hoặc /verify — khuyến nghị khi gọi ngay sau đăng nhập.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+
+    @field_validator("email")
+    @classmethod
+    def strip_ensure_email(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_ensure_session(cls, value: Optional[str]) -> Optional[str]:
         if value is None:
             return None
         t = value.strip()
@@ -465,6 +543,23 @@ class LinkedinAppGetAllPostsSheetRequest(BaseModel):
         return value.strip()
 
 
+class LinkedinAppStatsRequest(BaseModel):
+    """Request for LinkedIn app statistics."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("email", "userEmail", "Email_crawl", "email_crawl"),
+    )
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip()
+
+
 class LinkedinAppFilterPostsSheetRequest(BaseModel):
     """Lọc tab ``top_posts`` theo email owner + khoảng ngày (cột ``Ngày``). Email bắt buộc."""
 
@@ -655,6 +750,11 @@ class AddListGroupRequest(BaseModel):
     )
     delay_min_sec: float = Field(default=2.0, ge=0.0, le=120.0)
     delay_max_sec: float = Field(default=5.0, ge=0.0, le=120.0)
+    type: str = Field(
+        default="",
+        description="Loại nhóm/Intent",
+        validation_alias=AliasChoices("type", "Loại nhóm", "loai_nhom", "intent"),
+    )
 
     @field_validator("post_to_webhook", mode="before")
     @classmethod
@@ -727,6 +827,11 @@ class N8nAddGroupRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices("email", "userEmail"),
     )
+    type: str = Field(
+        default="",
+        description="Loại nhóm/Intent",
+        validation_alias=AliasChoices("type", "Loại nhóm", "loai_nhom", "intent"),
+    )
 
     @field_validator("url_group", "name_group")
     @classmethod
@@ -747,6 +852,7 @@ class N8nAddGroupRequest(BaseModel):
             "name_group": self.name_group.strip(),
             "member": int(self.member),
             "email": email_resolved.strip(),
+            "type": self.type.strip(),
         }
 
 
@@ -815,6 +921,10 @@ class N8nUpdateGroupRequest(BaseModel):
         ge=0,
         validation_alias=AliasChoices("new_member", "newMember"),
     )
+    new_type: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("new_type", "newType"),
+    )
     email: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("email", "userEmail"),
@@ -854,4 +964,870 @@ class N8nUpdateGroupRequest(BaseModel):
             payload["new_name_group"] = self.new_name_group
         if self.new_member is not None:
             payload["new_member"] = int(self.new_member)
+        if self.new_type is not None:
+            payload["new_type"] = self.new_type.strip()
         return payload
+
+
+PostReactionKind = Literal["like", "love", "celebrate", "support", "insightful", "funny"]
+
+
+class PostReactionRequest(BaseModel):
+    """POST ``/linkedin/post/react`` — Playwright mở ``post_url``, click reaction, rồi (tuỳ chọn) webhook sheet."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    post_url: str = Field(
+        ...,
+        min_length=12,
+        description="URL bài LinkedIn (vd. permalink activity).",
+        validation_alias=AliasChoices("post_url", "postUrl", "URL_Bài_Viết"),
+    )
+    reaction: PostReactionKind = Field(
+        ...,
+        description="Loại reaction: like | love | celebrate | support | insightful | funny.",
+    )
+    Email_crawl: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("Email_crawl", "email_crawl"),
+    )
+    ID_session_crawl: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("ID_session_crawl", "id_session_crawl"),
+    )
+    row_number: int = Field(
+        ...,
+        ge=1,
+        validation_alias=AliasChoices("row_number", "rowNumber"),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session Playwright đã login — ưu tiên resolve file storage.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email đã login — dùng nếu không có session_id (hoặc kèm session_id).",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+    post_to_webhook: bool = Field(
+        default=True,
+        description="Sau khi reaction thành công, POST JSON tới N8N_WEBHOOK_REACTION (fallback N8N_WEBHOOK_POST_REACTION).",
+        validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
+    )
+    clear_reaction: bool = Field(
+        default=False,
+        description="true: gỡ reaction trên LinkedIn và ghi ô reaction trống (không null) trên sheet.",
+        validation_alias=AliasChoices("clear_reaction", "clearReaction"),
+    )
+    sheet_row: Optional[dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Toàn bộ key/value của dòng bài (như sheet/API) — webhook nhận merge object này "
+            "rồi ghi đè Email_crawl, ID_session_crawl, row_number, reaction, post_url."
+        ),
+        validation_alias=AliasChoices(
+            "sheet_row",
+            "sheetRow",
+            "full_row",
+            "fullRow",
+            "post_record",
+            "postRecord",
+            "fields",
+        ),
+    )
+
+    @field_validator("post_url")
+    @classmethod
+    def validate_post_url_li(cls, value: str) -> str:
+        u = value.strip()
+        if "linkedin.com" not in u.lower():
+            raise ValueError("post_url phải là URL LinkedIn.")
+        return u
+
+    @field_validator("Email_crawl")
+    @classmethod
+    def strip_email_crawl(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ID_session_crawl")
+    @classmethod
+    def strip_id_session(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_session_id(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("post_to_webhook", mode="before")
+    @classmethod
+    def coerce_post_to_webhook(cls, value: Union[bool, str, int, None]) -> Any:
+        if value is None or value == "":
+            return True
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @field_validator("clear_reaction", mode="before")
+    @classmethod
+    def coerce_clear_reaction(cls, value: Union[bool, str, int, None]) -> Any:
+        if value is None or value == "":
+            return False
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @model_validator(mode="after")
+    def require_playwright_session_hint(self) -> PostReactionRequest:
+        has_session = bool(self.session_id)
+        has_email_field = bool(self.email)
+        crawl_email = self.Email_crawl
+        crawl_as_login = "@" in crawl_email
+        if not has_session and not has_email_field and not crawl_as_login:
+            raise ValueError(
+                "Cần ít nhất một trong: session_id, email (Playwright), hoặc Email_crawl là địa chỉ email để resolve session.",
+            )
+        return self
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
+
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.Email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class AppCommentEntry(BaseModel):
+    """Một phần tử trong mảng ``comment`` trên sheet / webhook."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    comment_content: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("comment_content", "commentContent", "comment"),
+    )
+    ngay_comment: str = Field(
+        ...,
+        min_length=6,
+        max_length=32,
+        serialization_alias="ngày comment",
+        validation_alias=AliasChoices(
+            "ngày comment",
+            "ngay_comment",
+            "day_comment",
+            "dayComment",
+        ),
+        description="Ngày gửi comment (ISO YYYY-MM-DD).",
+    )
+
+    @field_validator("comment_content", "ngay_comment")
+    @classmethod
+    def strip_comment_fields(cls, value: str) -> str:
+        return value.strip()
+
+
+class PostCommentRequest(BaseModel):
+    """POST ``/linkedin/post/comment`` — Playwright nhập và đăng comment; webhook Giống reaction."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    post_url: str = Field(
+        ...,
+        min_length=12,
+        validation_alias=AliasChoices("post_url", "postUrl", "URL_Bài_Viết"),
+    )
+    comment_text: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("comment_text", "commentText"),
+    )
+    Email_crawl: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("Email_crawl", "email_crawl"),
+    )
+    ID_session_crawl: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("ID_session_crawl", "id_session_crawl"),
+    )
+    row_number: int = Field(
+        ...,
+        ge=1,
+        validation_alias=AliasChoices("row_number", "rowNumber"),
+    )
+    existing_app_comments: list[AppCommentEntry] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices(
+            "existing_app_comments",
+            "existingAppComments",
+            "app_comments_existing",
+        ),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+    post_to_webhook: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
+    )
+    sheet_row: Optional[dict[str, Any]] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "sheet_row",
+            "sheetRow",
+            "full_row",
+            "fullRow",
+            "post_record",
+            "postRecord",
+            "fields",
+        ),
+    )
+    typing_delay_ms: int = Field(
+        default=30,
+        ge=0,
+        le=500,
+        validation_alias=AliasChoices("typing_delay_ms", "typingDelayMs"),
+    )
+    timeout_ms: int = Field(
+        default=300000,
+        ge=5000,
+        le=600000,
+        validation_alias=AliasChoices("timeout_ms", "timeoutMs"),
+    )
+
+    @field_validator("post_url")
+    @classmethod
+    def validate_post_url_li_comment(cls, value: str) -> str:
+        u = value.strip()
+        if "linkedin.com" not in u.lower():
+            raise ValueError("post_url phải là URL LinkedIn.")
+        return u
+
+    @field_validator("comment_text")
+    @classmethod
+    def strip_comment_text(cls, value: str) -> str:
+        t = value.strip()
+        if not t:
+            raise ValueError("comment_text không được rỗng.")
+        return t
+
+    @field_validator("Email_crawl")
+    @classmethod
+    def strip_email_crawl_comment(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ID_session_crawl")
+    @classmethod
+    def strip_id_session_comment(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_session_id_comment(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_email_comment(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("post_to_webhook", mode="before")
+    @classmethod
+    def coerce_post_to_webhook_comment(cls, value: Union[bool, str, int, None]) -> Any:
+        if value is None or value == "":
+            return True
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @model_validator(mode="after")
+    def require_playwright_session_hint_comment(self) -> PostCommentRequest:
+        has_session = bool(self.session_id)
+        has_email_field = bool(self.email)
+        crawl_email = self.Email_crawl
+        crawl_as_login = "@" in crawl_email
+        if not has_session and not has_email_field and not crawl_as_login:
+            raise ValueError(
+                "Cần ít nhất một trong: session_id, email (Playwright), hoặc Email_crawl là địa chỉ email để resolve session.",
+            )
+        return self
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.Email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class PostCommentDeleteRequest(BaseModel):
+    """POST ``/linkedin/post/comment/delete`` — Xóa comment từ LinkedIn (optimized direct post URL route).
+    
+    Workflow:
+    1. Vào trực tiếp URL bài viết (post_url) — không cần qua recent-activity page
+    2. Tìm commentText + You/Bạn trong comment blocks
+    3. Mở menu tùy chọn → Delete → confirm
+    
+    Lợi ích: Nhanh hơn vì skip timeline scan, không cần max_scroll.
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    profile_slug: str = Field(
+        ...,
+        min_length=1,
+        description="LinkedIn profile slug (e.g. 'nmhoang-dev').",
+        validation_alias=AliasChoices("profile_slug", "profileSlug"),
+    )
+    post_url: str = Field(
+        ...,
+        min_length=12,
+        description="URL bài LinkedIn (vd. permalink activity).",
+        validation_alias=AliasChoices("post_url", "postUrl", "URL_Bài_Viết"),
+    )
+    comment_text: str = Field(
+        ...,
+        min_length=1,
+        description="Nội dung comment cần xóa (exact match).",
+        validation_alias=AliasChoices("comment_text", "commentText"),
+    )
+    Email_crawl: str = Field(
+        ...,
+        min_length=1,
+        description="Email tài khoản crawl.",
+        validation_alias=AliasChoices("Email_crawl", "email_crawl"),
+    )
+    ID_session_crawl: str = Field(
+        ...,
+        min_length=1,
+        description="ID phiên crawl.",
+        validation_alias=AliasChoices("ID_session_crawl", "id_session_crawl"),
+    )
+    row_number: int = Field(
+        ...,
+        ge=1,
+        description="Số dòng trong bảng.",
+        validation_alias=AliasChoices("row_number", "rowNumber"),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session Playwright đã login — ưu tiên resolve file storage.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email đã login — dùng nếu không có session_id (hoặc kèm session_id).",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+    post_to_webhook: bool = Field(
+        default=True,
+        description="Sau khi xóa comment thành công, POST JSON tới N8N_WEBHOOK_REACTION để ghi đè Sheet.",
+        validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
+    )
+    sheet_row: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Toàn bộ key/value của dòng bài (như sheet/API) — webhook nhận merge object này.",
+        validation_alias=AliasChoices(
+            "sheet_row",
+            "sheetRow",
+            "full_row",
+            "fullRow",
+            "post_record",
+            "postRecord",
+            "fields",
+        ),
+    )
+    max_scroll: int = Field(
+        default=8,
+        ge=1,
+        le=20,
+        description="[Deprecated] Không dùng cho optimized route. Giữ lại vì backward compatible.",
+        validation_alias=AliasChoices("max_scroll", "maxScroll"),
+    )
+    timeout_ms: int = Field(
+        default=300000,
+        ge=30000,
+        le=600000,
+        description="Timeout chung (ms). Default 300s hỗ trợ mạng yếu.",
+        validation_alias=AliasChoices("timeout_ms", "timeoutMs"),
+    )
+
+    @field_validator("profile_slug")
+    @classmethod
+    def validate_profile_slug(cls, value: str) -> str:
+        s = value.strip()
+        if not s or len(s) < 1:
+            raise ValueError("profile_slug không được rỗng.")
+        return s
+
+    @field_validator("post_url")
+    @classmethod
+    def validate_post_url_delete(cls, value: str) -> str:
+        u = value.strip()
+        if "linkedin.com" not in u.lower():
+            raise ValueError("post_url phải là URL LinkedIn.")
+        return u
+
+    @field_validator("comment_text")
+    @classmethod
+    def strip_comment_text_delete(cls, value: str) -> str:
+        t = value.strip()
+        if not t:
+            raise ValueError("comment_text không được rỗng.")
+        return t
+
+    @field_validator("Email_crawl")
+    @classmethod
+    def strip_email_crawl_delete(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ID_session_crawl")
+    @classmethod
+    def strip_id_session_delete(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_session_id_delete(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_email_delete(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("post_to_webhook", mode="before")
+    @classmethod
+    def coerce_post_to_webhook_delete(cls, value: Union[bool, str, int, None]) -> Any:
+        if value is None or value == "":
+            return True
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @model_validator(mode="after")
+    def require_playwright_session_hint_delete(self) -> PostCommentDeleteRequest:
+        has_session = bool(self.session_id)
+        has_email_field = bool(self.email)
+        crawl_email = self.Email_crawl
+        crawl_as_login = "@" in crawl_email
+        if not has_session and not has_email_field and not crawl_as_login:
+            raise ValueError(
+                "Cần ít nhất một trong: session_id, email (Playwright), hoặc Email_crawl là địa chỉ email để resolve session.",
+            )
+        return self
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.Email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class PostCommentEditRequest(BaseModel):
+    """POST ``/linkedin/post/comment/edit`` — Chỉnh sửa comment từ LinkedIn post detail.
+    
+    Workflow:
+    1. Vào trực tiếp URL bài viết (post_url)
+    2. Tìm comment với nội dung = comment_text (cũ)
+    3. Mở menu tùy chọn → Click Edit
+    4. Hiển thị form edit với contenteditable text editor
+    5. Xóa text cũ, nhập text mới
+    6. Click Save changes
+    7. Gửi webhook để ghi đè Sheet (giống post comment)
+    """
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    profile_slug: str = Field(
+        ...,
+        min_length=1,
+        description="LinkedIn profile slug (e.g. 'nmhoang-dev').",
+        validation_alias=AliasChoices("profile_slug", "profileSlug"),
+    )
+    post_url: str = Field(
+        ...,
+        min_length=12,
+        description="URL bài LinkedIn.",
+        validation_alias=AliasChoices("post_url", "postUrl", "URL_Bài_Viết"),
+    )
+    comment_text: str = Field(
+        ...,
+        min_length=1,
+        description="Nội dung comment cũ (để tìm).",
+        validation_alias=AliasChoices("comment_text", "commentText"),
+    )
+    new_comment_text: str = Field(
+        ...,
+        min_length=1,
+        description="Nội dung comment mới (để replace).",
+        validation_alias=AliasChoices("new_comment_text", "newCommentText"),
+    )
+    Email_crawl: str = Field(
+        ...,
+        min_length=1,
+        description="Email tài khoản crawl.",
+        validation_alias=AliasChoices("Email_crawl", "email_crawl"),
+    )
+    ID_session_crawl: str = Field(
+        ...,
+        min_length=1,
+        description="ID phiên crawl.",
+        validation_alias=AliasChoices("ID_session_crawl", "id_session_crawl"),
+    )
+    row_number: int = Field(
+        ...,
+        ge=1,
+        description="Số dòng trong bảng.",
+        validation_alias=AliasChoices("row_number", "rowNumber"),
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="Session Playwright đã login — ưu tiên resolve file storage.",
+        validation_alias=AliasChoices("session_id", "sessionId"),
+    )
+    email: Optional[str] = Field(
+        default=None,
+        description="Email đã login — dùng nếu không có session_id.",
+        validation_alias=AliasChoices("email", "userEmail"),
+    )
+    post_to_webhook: bool = Field(
+        default=True,
+        description="Sau khi edit comment thành công, POST JSON tới N8N_WEBHOOK_REACTION để ghi đè Sheet.",
+        validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
+    )
+    sheet_row: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Toàn bộ key/value của dòng bài — webhook nhận merge object này.",
+        validation_alias=AliasChoices(
+            "sheet_row",
+            "sheetRow",
+            "full_row",
+            "fullRow",
+            "post_record",
+            "postRecord",
+            "fields",
+        ),
+    )
+    timeout_ms: int = Field(
+        default=300000,
+        ge=30000,
+        le=600000,
+        description="Timeout chung (ms).",
+        validation_alias=AliasChoices("timeout_ms", "timeoutMs"),
+    )
+
+    @field_validator("profile_slug")
+    @classmethod
+    def validate_profile_slug_edit(cls, value: str) -> str:
+        s = value.strip()
+        if not s or len(s) < 1:
+            raise ValueError("profile_slug không được rỗng.")
+        return s
+
+    @field_validator("post_url")
+    @classmethod
+    def validate_post_url_edit(cls, value: str) -> str:
+        u = value.strip()
+        if "linkedin.com" not in u.lower():
+            raise ValueError("post_url phải là URL LinkedIn.")
+        return u
+
+    @field_validator("comment_text")
+    @classmethod
+    def strip_comment_text_edit(cls, value: str) -> str:
+        t = value.strip()
+        if not t:
+            raise ValueError("comment_text không được rỗng.")
+        return t
+
+    @field_validator("new_comment_text")
+    @classmethod
+    def strip_new_comment_text(cls, value: str) -> str:
+        t = value.strip()
+        if not t:
+            raise ValueError("new_comment_text không được rỗng.")
+        return t
+
+    @field_validator("Email_crawl")
+    @classmethod
+    def strip_email_crawl_edit(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("ID_session_crawl")
+    @classmethod
+    def strip_id_session_edit(cls, value: str) -> str:
+        return value.strip()
+
+    @field_validator("session_id")
+    @classmethod
+    def strip_session_id_edit(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("email")
+    @classmethod
+    def strip_email_edit(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        t = value.strip()
+        return t or None
+
+    @field_validator("post_to_webhook", mode="before")
+    @classmethod
+    def coerce_post_to_webhook_edit(cls, value: Union[bool, str, int, None]) -> Any:
+        if value is None or value == "":
+            return True
+        if isinstance(value, str):
+            s = value.strip().lower()
+            if s in ("true", "1", "yes", "on", "y"):
+                return True
+            if s in ("false", "0", "no", "off", "n"):
+                return False
+        return value
+
+    @model_validator(mode="after")
+    def require_playwright_session_hint_edit(self) -> PostCommentEditRequest:
+        has_session = bool(self.session_id)
+        has_email_field = bool(self.email)
+        crawl_email = self.Email_crawl
+        crawl_as_login = "@" in crawl_email
+        if not has_session and not has_email_field and not crawl_as_login:
+            raise ValueError(
+                "Cần ít nhất một trong: session_id, email (Playwright), hoặc Email_crawl là địa chỉ email để resolve session.",
+            )
+        return self
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.Email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class SyncPostProgressRequest(BaseModel):
+    """POST ``/linkedin/post/sync-progress`` — Đọc lại reaction/comment của user trên 1 bài."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    post_url: str = Field(..., min_length=12, validation_alias=AliasChoices("post_url", "postUrl"))
+    profile_slug: str = Field(..., min_length=1, validation_alias=AliasChoices("profile_slug", "profileSlug"))
+    Email_crawl: str = Field(..., min_length=1, validation_alias=AliasChoices("Email_crawl", "email_crawl"))
+    ID_session_crawl: str = Field(..., min_length=1, validation_alias=AliasChoices("ID_session_crawl", "id_session_crawl"))
+    row_number: int = Field(..., ge=1, validation_alias=AliasChoices("row_number", "rowNumber"))
+    session_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("session_id", "sessionId"))
+    email: Optional[str] = Field(default=None, validation_alias=AliasChoices("email", "userEmail"))
+    post_to_webhook: bool = Field(default=True, validation_alias=AliasChoices("post_to_webhook", "postToWebhook"))
+    sheet_row: Optional[dict[str, Any]] = Field(default=None, validation_alias=AliasChoices("sheet_row", "sheetRow"))
+    timeout_ms: int = Field(default=300000, ge=30000, le=600000)
+
+    @model_validator(mode="after")
+    def require_playwright_session_hint_sync(self) -> SyncPostProgressRequest:
+        has_session = bool(self.session_id)
+        has_email_field = bool(self.email)
+        crawl_email = self.Email_crawl
+        crawl_as_login = "@" in crawl_email
+        if not has_session and not has_email_field and not crawl_as_login:
+            raise ValueError("Cần session_id hoặc email để resolve session.")
+        return self
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.Email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class SyncAllProgressRequest(BaseModel):
+    """POST ``/linkedin/sync-all-progress`` — Đọc lại toàn bộ bài của user (danh sách lấy từ Sheet)."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email_crawl: str = Field(..., min_length=1, validation_alias=AliasChoices("email_crawl", "Email_crawl"))
+    profile_slug: str = Field(..., min_length=1, validation_alias=AliasChoices("profile_slug", "profileSlug"))
+    session_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("session_id", "sessionId"))
+    email: Optional[str] = Field(default=None, validation_alias=AliasChoices("email", "userEmail"))
+    timeout_ms_per_post: int = Field(default=120000, ge=30000, le=300000)
+    limit_posts: Optional[int] = Field(default=None, ge=1, le=100)
+
+    def playwright_resolve_email(self) -> Optional[str]:
+        """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
+        if self.email and self.email.strip():
+            return self.email.strip()
+        crawl = self.email_crawl.strip()
+        if "@" in crawl:
+            return crawl
+        return None
+
+
+class KpiItem(BaseModel):
+    """Một mục KPI trong mảng ``kpi``."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    start_day: str = Field(..., validation_alias=AliasChoices("start_day", "startDay"))
+    end_day: str = Field(..., validation_alias=AliasChoices("end_day", "endDay"))
+    total_reaction: Union[int, str] = Field(
+        ...,
+        validation_alias=AliasChoices("total_reaction", "totalReaction", "reactions"),
+    )
+    total_comment: Union[int, str] = Field(
+        ...,
+        validation_alias=AliasChoices("total_comment", "totalComment", "comments"),
+    )
+    total_post_crawl: Union[int, str] = Field(
+        ...,
+        validation_alias=AliasChoices("total_post_crawl", "totalPostCrawl", "posts"),
+    )
+    total_session_crawl: Union[int, str] = Field(
+        ...,
+        validation_alias=AliasChoices("total_session_crawl", "totalSessionCrawl", "sessions"),
+    )
+
+
+class AssignKpiRequest(BaseModel):
+    """POST ``/kpi/assign`` — Leader gán KPI cho member."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    leader_role: str = Field(
+        ...,
+        description="Vai trò người gọi (phải là 'leader').",
+        validation_alias=AliasChoices("leader_role", "leaderRole"),
+    )
+    email: str = Field(..., min_length=1, description="Email của member được gán.")
+    profile_slug: str = Field(
+        ...,
+        min_length=1,
+        validation_alias=AliasChoices("profile_slug", "profileSlug"),
+    )
+    email_leader: str = Field(
+        ...,
+        min_length=1,
+        description="Email leader (n8n/sheet dùng để ghi đúng nhóm / cột email_leader).",
+        validation_alias=AliasChoices("email_leader", "emailLeader", "leaderEmail"),
+    )
+    member_role: str = Field(
+        default="member",
+        description="Vai trò của member (JSON gửi n8n dùng key ``role``).",
+        serialization_alias="role",
+        validation_alias=AliasChoices("member_role", "role", "memberRole"),
+    )
+    kpi: list[KpiItem] = Field(default_factory=list)
+
+    @field_validator("leader_role", "email", "profile_slug", "member_role", "email_leader")
+    @classmethod
+    def strip_kpi_fields(cls, value: str) -> str:
+        return value.strip()
+
+
+class CheckPermissionRequest(BaseModel):
+    """POST ``/auth/check-permission`` — Kiểm tra quyền leader/member."""
+
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+
+    email: str = Field(..., min_length=1, validation_alias=AliasChoices("email", "userEmail"))
+
+    @field_validator("email")
+    @classmethod
+    def strip_email(cls, value: str) -> str:
+        return value.strip()
+
+
+class GetAllKpiRequest(BaseModel):
+    """POST /kpi/get-all — Lấy toàn bộ KPI cho leader."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    email_leader: str = Field(..., validation_alias=AliasChoices("email_leader", "emailLeader", "email"))
+
+class GetKpiByEmailRequest(BaseModel):
+    """POST /kpi/get-by-email — Lấy KPI cho member."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    email: str = Field(..., validation_alias=AliasChoices("email", "userEmail"))
+
+class AddMemberRequest(BaseModel):
+    """POST /team/add-member — Thêm member mới."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    email_member: str = Field(..., validation_alias=AliasChoices("email_member", "emailMember", "memberEmail"))
+    email_leader: str = Field(..., validation_alias=AliasChoices("email_leader", "emailLeader", "leaderEmail"))
+
+class VerifyLeaderCodeRequest(BaseModel):
+    """POST /auth/verify-leader-code — Kiểm tra mã leader."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    code: str
+
+class GetProfilesRequest(BaseModel):
+    """POST /linkedin/all-profiles — Lấy danh sách toàn bộ profile."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    email: str = Field(..., validation_alias=AliasChoices("email", "userEmail"))
+
+class UpdateProfileSlugRequest(BaseModel):
+    """POST /linkedin/me/profile-slug-update — Cập nhật profile slug kèm thông tin mở rộng."""
+    model_config = ConfigDict(populate_by_name=True, extra="ignore")
+    email_crawl: str = Field(..., validation_alias=AliasChoices("email_crawl", "Email_crawl", "email"))
+    profile_slug: str = Field(default="", validation_alias=AliasChoices("profile_slug", "profileSlug", "slug"))
+    profile_url: str = Field(default="", validation_alias=AliasChoices("profile_url", "profileUrl", "url"))
+    role: str = Field(default="member", validation_alias=AliasChoices("role", "member_role", "memberRole"))
+    kpi: list[dict[str, Any]] = Field(default_factory=list)
+    email_leader: Optional[str] = Field(default="", validation_alias=AliasChoices("email_leader", "emailLeader", "leaderEmail"))

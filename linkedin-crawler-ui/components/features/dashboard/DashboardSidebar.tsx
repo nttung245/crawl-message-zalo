@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { FaRobot } from "react-icons/fa";
 import { AiOutlineInteraction } from "react-icons/ai";
 import { MaterialIcon } from "@/components/ui";
@@ -22,10 +22,14 @@ export function DashboardSidebar() {
   const d = useDashboard();
   const { platform } = useAppPlatform();
   const pathname = usePathname();
+  const router = useRouter();
   const isHome = pathname === "/";
   const isGroupMgmt = pathname === "/quan-ly-nhom";
+  const isTeamAdmin = pathname === "/admin/team";
   const isCrawlFb = pathname === "/crawl-data";
   const isInteraction = pathname === "/Interaction";
+  /** Leader LinkedIn: chỉ dùng màn quản lý đội, không dùng Post Feed / Groups. */
+  const isLeaderLinkedInWorkspace = platform === "linkedin" && d.role === "leader";
   const [accountOpen, setAccountOpen] = useState(false);
   const [draftEmail, setDraftEmail] = useState("");
   const [draftPassword, setDraftPassword] = useState("");
@@ -39,6 +43,9 @@ export function DashboardSidebar() {
   const [pendingCheckpointUrl, setPendingCheckpointUrl] = useState<string | null>(
     null,
   );
+  const [isSwitchingAccount, setIsSwitchingAccount] = useState(false);
+  const [switchingRole, setSwitchingRole] = useState<"leader" | "member">("member");
+  const [switchingCode, setSwitchingCode] = useState("");
 
   const openAccountModal = () => {
     setDraftEmail(d.email);
@@ -48,6 +55,7 @@ export function DashboardSidebar() {
     setOtpCode("");
     setPendingOtpSessionId(null);
     setPendingCheckpointUrl(null);
+    setIsSwitchingAccount(false);
     setAccountOpen(true);
   };
 
@@ -61,6 +69,19 @@ export function DashboardSidebar() {
     setAccountBusy(true);
     setAccountError(null);
     try {
+      if (isSwitchingAccount) {
+        await d.handleSwitchAccount(email, password, switchingRole, switchingCode);
+        if (platform === "linkedin") {
+          if (switchingRole === "leader") {
+            router.replace("/admin/team");
+          } else {
+            router.replace("/");
+          }
+        }
+        setAccountOpen(false);
+        return;
+      }
+
       const loginResponse = await loginLinkedIn({
         email,
         password,
@@ -151,34 +172,59 @@ export function DashboardSidebar() {
       </div>
       <DashboardPlatformSwitcher />
       <nav className="flex-1 space-y-1 overflow-y-auto px-2">
-        <Link href="/" className={cn(isHome ? sideActive : sideIdle)}>
-          <MaterialIcon name="radar" className="shrink-0" />
-          <span className="min-w-0 leading-snug">Post Feed</span>
-        </Link>
-       
-       
-        <Link
-          href="/quan-ly-nhom"
-          className={cn(isGroupMgmt ? sideActive : sideIdle)}
-        >
-          <MaterialIcon name="group" className="shrink-0" />
-          <span className="min-w-0 leading-snug">Groups</span>
-        </Link>
-        <Link
-          href="/crawl-data"
-          className={cn(isCrawlFb ? sideActive : sideIdle)}
-        >
-          <FaRobot className="shrink-0 text-2xl" />
-          <span className="min-w-0 leading-snug">Crawl data</span>
-        </Link>
-        <Link
-          href="/Interaction"
-          className={cn(isInteraction ? sideActive : sideIdle)}
-        >
-          <AiOutlineInteraction className="shrink-0 text-2xl" />
-          <span className="min-w-0 leading-snug">Interaction</span>
-        </Link>
-        
+        {isLeaderLinkedInWorkspace ? (
+          <Link
+            href="/admin/team"
+            className={cn(isTeamAdmin ? sideActive : sideIdle)}
+          >
+            <MaterialIcon name="group_add" className="shrink-0" />
+            <span className="min-w-0 leading-snug">Quản lý đội ngũ</span>
+          </Link>
+        ) : (
+          <>
+            <Link href="/" className={cn(isHome ? sideActive : sideIdle)}>
+              <MaterialIcon name="radar" className="shrink-0" />
+              <span className="min-w-0 leading-snug">Post Feed</span>
+            </Link>
+            <Link
+              href="/quan-ly-nhom"
+              className={cn(isGroupMgmt ? sideActive : sideIdle)}
+            >
+              <MaterialIcon name="group" className="shrink-0" />
+              <span className="min-w-0 leading-snug">Groups</span>
+            </Link>
+
+            {/* Các menu bổ sung cho Facebook workspace */}
+            {platform === "facebook" && (
+              <>
+                <Link
+                  href="/crawl-data"
+                  className={cn(isCrawlFb ? sideActive : sideIdle)}
+                >
+                  <FaRobot className="shrink-0 text-2xl" />
+                  <span className="min-w-0 leading-snug">Crawl data</span>
+                </Link>
+                <Link
+                  href="/Interaction"
+                  className={cn(isInteraction ? sideActive : sideIdle)}
+                >
+                  <AiOutlineInteraction className="shrink-0 text-2xl" />
+                  <span className="min-w-0 leading-snug">Interaction</span>
+                </Link>
+              </>
+            )}
+
+            {d.role === "leader" && platform === "linkedin" && (
+              <Link
+                href="/admin/team"
+                className={cn(isTeamAdmin ? sideActive : sideIdle)}
+              >
+                <MaterialIcon name="group_add" className="shrink-0" />
+                <span className="min-w-0 leading-snug">Quản lý đội ngũ</span>
+              </Link>
+            )}
+          </>
+        )}
       </nav>
       
       <div className="space-y-1 p-2">
@@ -218,9 +264,77 @@ export function DashboardSidebar() {
             <h3 id="account-modal-title" className="text-h3 text-on-surface font-semibold">
               Cập nhật tài khoản
             </h3>
-            <p className="text-body-sm text-on-surface-variant mt-xs">
-              Sau khi xác nhận, hệ thống sẽ làm mới dữ liệu từ get-all-posts và danh sách nhóm.
-            </p>
+            <div className="flex items-center justify-between mt-xs">
+              <p className="text-body-sm text-on-surface-variant">
+                Sau khi xác nhận, hệ thống sẽ làm mới dữ liệu từ get-all-posts và danh sách nhóm.
+              </p>
+              {!isSwitchingAccount && (
+                <button 
+                  type="button"
+                  className="text-primary text-xs font-bold uppercase hover:underline"
+                  onClick={() => {
+                    setIsSwitchingAccount(true);
+                    setDraftEmail("");
+                    setDraftPassword("");
+                    setAccountError(null);
+                  }}
+                >
+                  Chuyển đổi tài khoản
+                </button>
+              )}
+            </div>
+
+            {isSwitchingAccount && (
+              <div className="mt-md p-md rounded-lg bg-primary/5 border border-primary/20 space-y-md animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-label-md font-bold uppercase text-primary">Chế độ chuyển đổi</h4>
+                  <button 
+                    onClick={() => setIsSwitchingAccount(false)}
+                    className="text-on-surface-variant hover:text-error transition-colors"
+                  >
+                    <MaterialIcon name="close" className="text-lg" />
+                  </button>
+                </div>
+                
+                <div className="flex items-center gap-lg">
+                  <label className="flex items-center gap-xs cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="role" 
+                      className="accent-primary"
+                      checked={switchingRole === "member"}
+                      onChange={() => setSwitchingRole("member")}
+                    />
+                    <span className="text-body-sm font-bold">Thành viên</span>
+                  </label>
+                  <label className="flex items-center gap-xs cursor-pointer">
+                    <input 
+                      type="radio" 
+                      name="role" 
+                      className="accent-primary"
+                      checked={switchingRole === "leader"}
+                      onChange={() => setSwitchingRole("leader")}
+                    />
+                    <span className="text-body-sm font-bold">Leader</span>
+                  </label>
+                </div>
+
+                {switchingRole === "leader" && (
+                  <div className="flex flex-col gap-base">
+                    <label className="text-label-md text-on-surface-variant font-semibold tracking-wide uppercase">
+                      Mã xác nhận Leader
+                    </label>
+                    <input
+                      className="border-outline-variant bg-surface focus:border-primary focus:ring-primary rounded-lg border px-md py-sm transition-all outline-none focus:ring-1"
+                      type="password"
+                      placeholder="Nhập mã leader"
+                      value={switchingCode}
+                      onChange={(e) => setSwitchingCode(e.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="mt-md flex flex-col gap-md">
               <div className="flex flex-col gap-base">

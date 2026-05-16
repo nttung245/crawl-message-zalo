@@ -13,6 +13,9 @@ export type MaterialSymbolName =
   | "add"
   | "help"
   | "account_circle"
+  | "person"
+  | "shield_person"
+  | "error"
   | "settings_input_component"
   | "monitoring"
   | "file_download"
@@ -22,6 +25,9 @@ export type MaterialSymbolName =
   | "chevron_left"
   | "chevron_right"
   | "group_add"
+  | "person_add"
+  | "calendar_month"
+  | "assignment"
   | "speed"
   | "database"
   | "analytics"
@@ -43,9 +49,16 @@ export type MaterialSymbolName =
   | "tune"
   | "close"
   | "lock"
+  | "block"
+  | "verified_user"
   | "filter_alt_off"
   | "edit"
-  | "delete";
+  | "delete"
+  | "sync"
+  | "article"
+  | "more_vert"
+  | "chat_bubble"
+  | "history";
 
 export interface MaterialIconProps {
   name: MaterialSymbolName;

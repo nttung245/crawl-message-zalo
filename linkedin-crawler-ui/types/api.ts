@@ -47,7 +47,8 @@ export interface StartWorkflowResponseData {
   id_session_crawl?: string;
 }
 
-export type StartWorkflowResponse = ApiResponse<StartWorkflowResponseData | null>;
+export type StartWorkflowResponse =
+  ApiResponse<StartWorkflowResponseData | null>;
 
 export interface CrawlGroupRequest {
   sessionId?: string;
@@ -124,7 +125,8 @@ export interface N8nGroupWebhookResultData {
   groups?: N8nManagedGroup[];
 }
 
-export type N8nGroupOperationResponse = ApiResponse<N8nGroupWebhookResultData | null>;
+export type N8nGroupOperationResponse =
+  ApiResponse<N8nGroupWebhookResultData | null>;
 
 export interface N8nManagedGroup {
   row_number: number | null;
@@ -132,6 +134,7 @@ export interface N8nManagedGroup {
   name_group: string;
   email: string;
   member: number;
+  type: string;
 }
 
 export interface GetAllN8nGroupsRequest {
@@ -143,12 +146,14 @@ export interface AddN8nGroupRequest {
   name_group: string;
   member: number;
   email?: string;
+  type?: string;
 }
 
 /** POST /groups/add-list-group */
 export interface AddListGroupRequest {
   group_urls: string[];
   email?: string;
+  type?: string;
   post_to_webhook?: boolean;
   delay_min_sec?: number;
   delay_max_sec?: number;
@@ -182,7 +187,8 @@ export interface ProfileSlugSheetCheckData {
   matched_profile_slug?: string | null;
 }
 
-export type ProfileSlugSheetCheckResponse = ApiResponse<ProfileSlugSheetCheckData | null>;
+export type ProfileSlugSheetCheckResponse =
+  ApiResponse<ProfileSlugSheetCheckData | null>;
 
 /** POST /linkedin/me/ensure-profile-slug */
 export interface EnsureProfileSlugData {
@@ -196,7 +202,17 @@ export interface EnsureProfileSlugData {
   register_webhook_http_status?: number | null;
 }
 
-export type EnsureProfileSlugResponse = ApiResponse<EnsureProfileSlugData | null>;
+export type EnsureProfileSlugResponse =
+  ApiResponse<EnsureProfileSlugData | null>;
+
+/** POST /linkedin/me/profile-slug — slug public ``/in/<slug>`` của tài khoản đang đăng nhập (Playwright). */
+export interface GetMyProfileSlugData {
+  profile_slug: string;
+  profile_url: string;
+  session_id: string;
+}
+
+export type GetMyProfileSlugResponse = ApiResponse<GetMyProfileSlugData | null>;
 
 export interface RemoveN8nGroupRequest {
   url_group: string;
@@ -210,8 +226,21 @@ export interface UpdateN8nGroupRequest {
   new_url_group?: string | null;
   new_name_group?: string | null;
   new_member?: number | null;
+  new_type?: string | null;
   email?: string;
 }
+
+export interface LinkedinAppStatsRequest {
+  email: string;
+}
+
+export interface LinkedinAppStatsData {
+  total_comments: number;
+  total_interactions: number;
+  total_posts_crawled: number;
+}
+
+export type LinkedinAppStatsResponse = ApiResponse<LinkedinAppStatsData | null>;
 
 export interface StatusDataResponse {
   api_key_enabled: boolean;
@@ -237,6 +266,8 @@ export interface StatusDataResponse {
   n8n_webhook_add_profile_slug_configured?: boolean;
   n8n_webhook_post_reaction_configured?: boolean;
   n8n_webhook_post_comment_configured?: boolean;
+  n8n_webhook_assign_kpi_configured?: boolean;
+  n8n_webhook_check_permission_configured?: boolean;
 }
 
 export type StatusResponse = ApiResponse<StatusDataResponse>;
@@ -261,6 +292,8 @@ export interface PostLinkedInReactionRequest {
   session_id?: string | null;
   email?: string | null;
   post_to_webhook?: boolean;
+  /** Gỡ reaction trên LinkedIn và ghi ô reaction trống (không null) trên sheet. */
+  clear_reaction?: boolean;
 }
 
 export interface PostLinkedInReactionData {
@@ -274,15 +307,18 @@ export interface PostLinkedInReactionData {
   webhook_called: boolean;
   webhook_http_status?: number | null;
   webhook_response_preview?: string | null;
+  playwright_skipped?: boolean;
+  synced_row_count?: number;
+  webhook_sync_success_count?: number;
 }
 
 export type PostLinkedInReactionResponse =
   ApiResponse<PostLinkedInReactionData | null>;
 
-/** Một phần tử trong ``existing_app_comments`` — POST /linkedin/post/comment. */
+/** Một phần tử trong mảng ``comment`` — POST /linkedin/post/comment. */
 export interface LinkedInAppCommentEntry {
-  comment: string;
-  day_comment: string;
+  comment_content: string;
+  "ngày comment": string;
 }
 
 export interface PostLinkedInCommentRequest {
@@ -291,7 +327,7 @@ export interface PostLinkedInCommentRequest {
   Email_crawl: string;
   ID_session_crawl: string;
   row_number: number;
-  /** Lịch sử đã gửi trước đó (backend append bản ghi mới). */
+  /** Lịch sử comment đã gửi (backend append phần tử mới). */
   existing_app_comments: LinkedInAppCommentEntry[];
   sheet_row?: Record<string, unknown> | null;
   session_id?: string | null;
@@ -313,7 +349,166 @@ export interface PostLinkedInCommentData {
   webhook_called: boolean;
   webhook_http_status?: number | null;
   webhook_response_preview?: string | null;
+  synced_row_count?: number;
+  webhook_sync_success_count?: number;
 }
 
 export type PostLinkedInCommentResponse =
   ApiResponse<PostLinkedInCommentData | null>;
+
+export interface PostLinkedInCommentDeleteData {
+  comment_text: string;
+  row_number: number;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  post_url: string;
+  final_url: string;
+  resolved_playwright_session_id: string;
+  webhook_called: boolean;
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+  synced_row_count?: number;
+  webhook_sync_success_count?: number;
+}
+
+export type PostLinkedInCommentDeleteResponse =
+  ApiResponse<PostLinkedInCommentDeleteData | null>;
+
+export interface PostLinkedInCommentEditData {
+  old_comment_text: string;
+  new_comment_text: string;
+  row_number: number;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  post_url: string;
+  final_url: string;
+  resolved_playwright_session_id: string;
+  webhook_called: boolean;
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+  synced_row_count?: number;
+  webhook_sync_success_count?: number;
+}
+
+export type PostLinkedInCommentEditResponse =
+  ApiResponse<PostLinkedInCommentEditData | null>;
+
+/** POST /linkedin/post/sync-progress */
+export interface SyncPostProgressRequest {
+  post_url: string;
+  profile_slug: string;
+  Email_crawl: string;
+  ID_session_crawl: string;
+  row_number: number;
+  sheet_row?: Record<string, unknown> | null;
+  session_id?: string | null;
+  email?: string | null;
+  post_to_webhook?: boolean;
+  timeout_ms?: number;
+}
+
+export interface SyncPostProgressData {
+  post_url: string;
+  reaction: string | null;
+  comments: LinkedInAppCommentEntry[];
+  total_reactions?: number;
+  total_comments?: number;
+  row_number?: number;
+  webhook_called: boolean;
+  webhook_http_status?: number | null;
+  webhook_response_preview?: string | null;
+}
+
+export type SyncPostProgressResponse = ApiResponse<SyncPostProgressData | null>;
+
+/** POST /linkedin/sync-all-progress */
+export interface SyncAllProgressRequest {
+  email_crawl: string;
+  profile_slug: string;
+  session_id?: string | null;
+  email?: string | null;
+  timeout_ms_per_post?: number;
+  limit_posts?: number;
+}
+
+export interface SyncAllProgressData {
+  posts_attempted: number;
+  posts_succeeded: number;
+  details: SyncPostProgressData[];
+}
+
+export type SyncAllProgressResponse = ApiResponse<SyncAllProgressData | null>;
+
+export interface KpiItem {
+  start_day: string;
+  end_day: string;
+  total_reaction: string | number;
+  total_comment: string | number;
+  total_post_crawl: string | number;
+  total_session_crawl: string | number;
+}
+
+export interface AssignKpiRequest {
+  leader_role: string;
+  role: string;
+  email: string;
+  profile_slug: string;
+  email_leader: string;
+  kpi: KpiItem[];
+}
+
+export interface CheckPermissionRequest {
+  email: string;
+}
+
+export interface CheckPermissionData {
+  permission: boolean;
+}
+
+export type CheckPermissionResponse = ApiResponse<CheckPermissionData | null>;
+
+export interface GetAllKpiRequest {
+  email_leader: string;
+}
+
+export interface GetKpiByEmailRequest {
+  email: string;
+}
+
+export interface AddMemberRequest {
+  email_member: string;
+  email_leader: string;
+}
+
+export interface GetProfilesRequest {
+  email: string;
+}
+
+export interface UpdateProfileSlugRequest {
+  email_crawl: string;
+  profile_slug: string;
+  profile_url: string;
+  role: string;
+  kpi: any[];
+  email_leader?: string;
+}
+
+export interface VerifyLeaderCodeRequest {
+  code: string;
+}
+
+export interface KpiMemberData {
+  email: string;
+  role: string;
+  profile_slug?: string;
+  email_leader?: string;
+  kpi: any[];
+}
+
+export interface GetAllKpiResponse extends ApiResponse<KpiMemberData[]> {
+  total: number;
+}
+
+export interface GetKpiByEmailResponse extends ApiResponse<KpiMemberData[]> {
+  total: number;
+}

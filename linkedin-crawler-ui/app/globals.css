@@ -113,6 +113,71 @@
     background: #dfe3e8;
     border-radius: 10px;
   }
+
+  @keyframes rx-webhook-overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes rx-webhook-overlay-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  @keyframes rx-webhook-dialog-in {
+    from {
+      opacity: 0;
+      transform: translateY(14px) scale(0.97);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+
+  @keyframes rx-webhook-dialog-out {
+    from {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+    to {
+      opacity: 0;
+      transform: translateY(10px) scale(0.98);
+    }
+  }
+
+  .rx-webhook-overlay--in {
+    animation: rx-webhook-overlay-in 220ms ease-out both;
+  }
+
+  .rx-webhook-overlay--out {
+    animation: rx-webhook-overlay-out 180ms ease-in both;
+  }
+
+  .rx-webhook-dialog--in {
+    animation: rx-webhook-dialog-in 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .rx-webhook-dialog--out {
+    animation: rx-webhook-dialog-out 180ms ease-in both;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .rx-webhook-overlay--in,
+    .rx-webhook-overlay--out,
+    .rx-webhook-dialog--in,
+    .rx-webhook-dialog--out {
+      animation: none !important;
+    }
+  }
 }
 
 body {
