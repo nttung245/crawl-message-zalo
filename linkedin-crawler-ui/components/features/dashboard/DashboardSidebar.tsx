@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-
+import { FaRobot } from "react-icons/fa";
+import { AiOutlineInteraction } from "react-icons/ai";
 import { MaterialIcon } from "@/components/ui";
 import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,8 @@ export function DashboardSidebar() {
   const isHome = pathname === "/";
   const isGroupMgmt = pathname === "/quan-ly-nhom";
   const isTeamAdmin = pathname === "/admin/team";
+  const isCrawlFb = pathname === "/crawl-data";
+  const isInteraction = pathname === "/Interaction";
   /** Leader LinkedIn: chỉ dùng màn quản lý đội, không dùng Post Feed / Groups. */
   const isLeaderLinkedInWorkspace = platform === "linkedin" && d.role === "leader";
   const [accountOpen, setAccountOpen] = useState(false);
@@ -190,7 +193,28 @@ export function DashboardSidebar() {
               <MaterialIcon name="group" className="shrink-0" />
               <span className="min-w-0 leading-snug">Groups</span>
             </Link>
-            {d.role === "leader" && (
+
+            {/* Các menu bổ sung cho Facebook workspace */}
+            {platform === "facebook" && (
+              <>
+                <Link
+                  href="/crawl-data"
+                  className={cn(isCrawlFb ? sideActive : sideIdle)}
+                >
+                  <FaRobot className="shrink-0 text-2xl" />
+                  <span className="min-w-0 leading-snug">Crawl data</span>
+                </Link>
+                <Link
+                  href="/Interaction"
+                  className={cn(isInteraction ? sideActive : sideIdle)}
+                >
+                  <AiOutlineInteraction className="shrink-0 text-2xl" />
+                  <span className="min-w-0 leading-snug">Interaction</span>
+                </Link>
+              </>
+            )}
+
+            {d.role === "leader" && platform === "linkedin" && (
               <Link
                 href="/admin/team"
                 className={cn(isTeamAdmin ? sideActive : sideIdle)}

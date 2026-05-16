@@ -124,7 +124,7 @@ def _open_comment_composer(page: Page, post_root, *, timeout_ms: int):
         return editor
 
     raise RuntimeError(
-        "Không thấy hoặc không mở được ô comment. Kiểm tra URL bài và đăng nhập.",
+        "Bài viết này không cho phép bình luận, xin cảm ơn.",
     )
 
 
