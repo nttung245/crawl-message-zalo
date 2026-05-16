@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { email, z } from "zod";
 
 export const InteractionSchema = z.object({
     url: z.string().min(1, "Thiếu URL bài viết"),
@@ -6,6 +6,8 @@ export const InteractionSchema = z.object({
     reaction: z.string().min(1, "Vui lòng chọn cảm xúc"),
     comment: z.string().optional(),
     name: z.string().optional(),
+    email: z.string().email("Email không hợp lệ").optional(),
+    password: z.string().optional(),
 });
 
 export type InteractionPayload = z.infer<typeof InteractionSchema>;
@@ -16,4 +18,6 @@ export const initialInteractionData: InteractionPayload = {
     reaction: "LIKE",
     comment: "",
     name: "",
+    email: "",
+    password: "",
 };

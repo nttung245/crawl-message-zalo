@@ -5,7 +5,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { FaUser, FaPaperPlane } from "react-icons/fa";
 import { InteractionSchema, InteractionPayload } from "../schemas/Interaction_schemas";
 import { useInteractPost } from "../hooks/useInteractPost";
-
+import { useAuthContext } from "@/components/nguyen/shared/components/contexts/AuthContext";
 interface InteractionFormProps {
     url: string;
 }
@@ -24,6 +24,7 @@ const REACTIONS = [
 ];
 
 export function InteractionForm({ url }: InteractionFormProps) {
+    const { user } = useAuthContext();
      const { interactions, error, fetchInteractions } = useGetInteractions();
     
         useEffect(() => {
@@ -46,6 +47,8 @@ export function InteractionForm({ url }: InteractionFormProps) {
             reaction: "LIKE",
             comment: "",
             name: "",
+            email: user?.email || "",
+            password: user?.password || "",
         },
     });
 
