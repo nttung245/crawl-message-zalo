@@ -13,6 +13,7 @@ import { DataFBResponse } from "../types/dataFb.type";
 import { useGetIntents } from "../hooks/useGetIntents";
 import {CrawlIntentOption} from "../types/dataFb.type";
 import { useEffect } from "react";
+import {InteractionForm} from "./Interaction_form";
 interface PostCardProps {
     item: DataFBResponse;
     onLinkClick?: (url: string) => void;
@@ -175,6 +176,7 @@ export function PostCard({ item, onLinkClick }: PostCardProps) {
 
                 </div>
             </div>
+            <InteractionForm url={item.url} />
 
         </div>
     );

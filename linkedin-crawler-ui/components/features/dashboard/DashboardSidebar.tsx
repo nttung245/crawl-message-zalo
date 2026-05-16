@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { FaRobot } from "react-icons/fa";
+import { AiOutlineInteraction } from "react-icons/ai";
 import { MaterialIcon } from "@/components/ui";
 import { useAppPlatform } from "@/components/providers/AppPlatformProvider";
 import { cn } from "@/lib/utils";
@@ -168,6 +169,13 @@ export function DashboardSidebar() {
         >
           <FaRobot className="shrink-0 text-2xl" />
           <span className="min-w-0 leading-snug">Crawl data</span>
+        </Link>
+        <Link
+          href="/Interaction"
+          className={cn(isCrawlFb ? sideActive : sideIdle)}
+        >
+          <AiOutlineInteraction className="shrink-0 text-2xl" />
+          <span className="min-w-0 leading-snug">Interaction</span>
         </Link>
         
       </nav>
