@@ -1147,11 +1147,9 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     if (!em || !allPostsResult) {
       return { sessions: 0, posts: 0, comments: 0, interactions: 0 };
     }
-    const k = memberKpiTargetsForToday;
-    const startYmd = k ? k.start_day : getMonthWeekWindowContaining(new Date()).startYmd;
-    const endYmd = k ? k.end_day : getMonthWeekWindowContaining(new Date()).endYmd;
-    return computeMemberActualsInYmdRange(em, allPostsResult, startYmd, endYmd);
-  }, [email, allPostsResult, memberKpiTargetsForToday]);
+    const win = getMonthWeekWindowContaining(new Date());
+    return computeMemberActualsInYmdRange(em, allPostsResult, win.startYmd, win.endYmd);
+  }, [email, allPostsResult]);
 
   return {
     emailId,
