@@ -130,6 +130,46 @@ def merge_comment_entries(
     return merged
 
 
+def update_comment_entry(
+    existing: list[dict[str, Any]],
+    *,
+    old_comment_text: str,
+    new_comment_text: str,
+) -> list[dict[str, str]]:
+    """Tìm entry có nội dung cũ và thay thế bằng nội dung mới."""
+    target = old_comment_text.strip().lower()
+    merged: list[dict[str, str]] = []
+    for raw in existing:
+        normalized = normalize_comment_entry(raw)
+        if not normalized:
+            continue
+        content = normalized.get(COMMENT_CONTENT_FIELD, "").strip().lower()
+        if content == target:
+            # Cập nhật nội dung mới, giữ nguyên ngày
+            normalized[COMMENT_CONTENT_FIELD] = new_comment_text.strip()
+        merged.append(normalized)
+    return merged
+
+
+def filter_comment_entries(
+    existing: list[dict[str, Any]],
+    *,
+    comment_text_to_remove: str,
+) -> list[dict[str, str]]:
+    """Loại bỏ các entry có nội dung trùng khớp với comment_text_to_remove."""
+    target = comment_text_to_remove.strip().lower()
+    merged: list[dict[str, str]] = []
+    for raw in existing:
+        normalized = normalize_comment_entry(raw)
+        if not normalized:
+            continue
+        content = normalized.get(COMMENT_CONTENT_FIELD, "").strip().lower()
+        if content == target:
+            continue
+        merged.append(normalized)
+    return merged
+
+
 def build_comment_action_record(
     *,
     owner_email: str,
@@ -299,7 +339,9 @@ __all__ = [
     "build_comment_action_record",
     "build_comment_cell_entry",
     "fetch_posts_for_email_via_n8n",
+    "filter_comment_entries",
     "merge_comment_entries",
     "parse_comments_from_record",
     "send_sheet_rows_overwrite_webhook",
+    "update_comment_entry",
 ]

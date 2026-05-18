@@ -159,10 +159,34 @@ def _time_text_from_container(root: Locator) -> str:
 
 def _comment_text_from_root(root: Locator) -> str:
     try:
+        # Tìm thẻ chứa nội dung bình luận (ưu tiên thẻ p hoặc span có data-testid)
         box = root.locator('[data-testid="expandable-text-box"]').first
         if box.count() == 0:
+            # Fallback nếu không thấy data-testid
             return ""
-        return box.inner_text(timeout=3000).strip()
+            
+        # Lấy text và xử lý từng dòng
+        raw_text = box.inner_text(timeout=2000).strip()
+        if not raw_text:
+            return ""
+
+        lines = [line.strip() for line in raw_text.split("\n")]
+        cleaned_lines = []
+        
+        for line in lines:
+            if not line:
+                continue
+            # Bỏ qua các ký tự phân cách UI của LinkedIn
+            if line in ("---", "•", "·"):
+                continue
+            # Bỏ qua các dòng số liệu meta đứng một mình (ví dụ: "0", "6", "6 impressions")
+            # Regex này khớp với số đơn lẻ hoặc số đi kèm chữ "impressions"
+            if re.match(r"^\d+$", line) or re.match(r"^\d+\s+impressions$", line, re.IGNORECASE):
+                continue
+            
+            cleaned_lines.append(line)
+            
+        return "\n".join(cleaned_lines).strip()
     except Error:
         return ""
 

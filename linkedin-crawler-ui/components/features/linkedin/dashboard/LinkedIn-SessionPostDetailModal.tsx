@@ -392,7 +392,7 @@ export function SessionPostDetailModal({
         sheet_row: buildReactionWebhookSheetRow(post, session),
         email: (dashboardEmail || "").trim() || undefined,
         session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-        post_to_webhook: true,
+        post_to_webhook: false,
       });
       if (!res.success) {
         throw new Error(res.message || "Gửi comment thất bại.");
@@ -407,9 +407,9 @@ export function SessionPostDetailModal({
       const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
       onReactionSucceeded?.(rowNumber, patch);
       setCommentDraft("");
-      if (res.data?.webhook_called) {
-        setWebhookSuccessKind("comment");
-      }
+      
+      // Always show success popup to trigger sync on OK
+      setWebhookSuccessKind("comment");
     } catch (e) {
       setCmErr(e instanceof Error ? e.message : "Lỗi không xác định.");
     } finally {
@@ -501,7 +501,7 @@ export function SessionPostDetailModal({
           sheet_row: buildReactionWebhookSheetRow(post, session),
           email: (dashboardEmail || "").trim() || undefined,
           session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-          post_to_webhook: true,
+          post_to_webhook: false,
           max_scroll: 8,
           timeout_ms: 120000,
         });
@@ -510,13 +510,12 @@ export function SessionPostDetailModal({
           throw new Error(res.message || "Xóa comment thất bại.");
         }
 
-        // Clear comments on sheet
-        const patch: Record<string, unknown> = buildSheetCommentPatch([]);
+        // Update comments on sheet by filtering out the deleted one
+        const updatedComments = existingComments.filter((_, i) => i !== commentIndex);
+        const patch: Record<string, unknown> = buildSheetCommentPatch(updatedComments);
         onReactionSucceeded?.(rowNumber, patch);
 
-        if (res.data?.webhook_called) {
-          setWebhookSuccessKind("delete_comment");
-        }
+        setWebhookSuccessKind("delete_comment");
       } catch (e) {
         setDeleteCommentErr(
           e instanceof Error ? e.message : "Lỗi không xác định.",
@@ -733,7 +732,7 @@ const runSyncProgress = useCallback(
           sheet_row: buildReactionWebhookSheetRow(post, session),
           email: (dashboardEmail || "").trim() || undefined,
           session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-          post_to_webhook: true,
+          post_to_webhook: false,
           timeout_ms: 120000,
         });
 
@@ -741,9 +740,7 @@ const runSyncProgress = useCallback(
           throw new Error(res.message || "Chỉnh sửa comment thất bại.");
         }
 
-        if (res.data?.webhook_called) {
-          setWebhookSuccessKind("edit_comment");
-        }
+        setWebhookSuccessKind("edit_comment");
 
         setEditingCommentIndex(null);
         setEditCommentNewText("");

@@ -132,8 +132,11 @@ from app.services.post_reaction_service import (
 from app.services.post_comment_sync_service import (
     build_comment_action_record,
     fetch_posts_for_email_via_n8n as fetch_posts_for_comment_sync,
+    filter_comment_entries,
     merge_comment_entries,
+    parse_comments_from_record,
     send_sheet_rows_overwrite_webhook as send_comment_rows_overwrite_webhook,
+    update_comment_entry,
     apply_comments_to_sheet_rows,
 )
 from app.services.post_reaction_sync_service import (
@@ -846,14 +849,20 @@ def linkedin_post_comment_delete(payload: PostCommentDeleteRequest) -> PostComme
         logger.exception("linkedin/post/comment/delete failed")
         return PostCommentDeleteResponse(success=False, message=str(exc), data=None)
 
-    # Build action record for comment deletion
+    # Build action record for comment deletion - filter out the deleted one
+    existing_entries = parse_comments_from_record(fallback_row or {})
+    filtered_entries = filter_comment_entries(
+        existing_entries, 
+        comment_text_to_remove=payload.comment_text
+    )
+    
     delete_action = build_comment_action_record(
         owner_email=owner_email,
         post_url=payload.post_url,
         id_session_crawl=payload.ID_session_crawl,
         row_number=payload.row_number,
         sheet_row=fallback_row,
-        comments_cell=[],  # Empty array to clear comments on sheet
+        comments_cell=filtered_entries,
     )
 
     # Get all posts to refresh data
@@ -978,7 +987,36 @@ def linkedin_post_comment_edit(payload: PostCommentEditRequest) -> PostCommentEd
         logger.exception("linkedin/post/comment/edit failed")
         return PostCommentEditResponse(success=False, message=str(exc), data=None)
 
-    # Build base data
+    # Build action record for comment edit - update the specific entry
+    existing_entries = parse_comments_from_record(fallback_row or {})
+    updated_entries = update_comment_entry(
+        existing_entries,
+        old_comment_text=payload.comment_text,
+        new_comment_text=payload.new_comment_text
+    )
+    
+    edit_action = build_comment_action_record(
+        owner_email=owner_email,
+        post_url=payload.post_url,
+        id_session_crawl=payload.ID_session_crawl,
+        row_number=payload.row_number,
+        sheet_row=fallback_row,
+        comments_cell=updated_entries,
+    )
+
+    # Get all posts and apply edit
+    all_posts = fetch_posts_for_comment_sync(owner_email)
+    if not all_posts and fallback_row:
+        all_posts = [fallback_row]
+
+    final_posts, matched_row_count = apply_comments_to_sheet_rows(
+        all_posts,
+        action=edit_action,
+        final_url=final_url,
+        resolved_playwright_session_id=resolved_sid,
+        playwright_executed=True,
+    )
+
     base_data = PostCommentEditData(
         old_comment_text=payload.comment_text.strip(),
         new_comment_text=payload.new_comment_text.strip(),
@@ -988,6 +1026,7 @@ def linkedin_post_comment_edit(payload: PostCommentEditRequest) -> PostCommentEd
         post_url=payload.post_url,
         final_url=final_url,
         resolved_playwright_session_id=resolved_sid,
+        webhook_called=False,
     )
 
     if not payload.post_to_webhook:
@@ -1002,41 +1041,30 @@ def linkedin_post_comment_edit(payload: PostCommentEditRequest) -> PostCommentEd
 
     # Post to webhook
     try:
-        webhook_payload = {
-            "Email_crawl": owner_email,
-            "ID_session_crawl": payload.ID_session_crawl,
-            "row_number": payload.row_number,
-            **fallback_row,
-        }
-        http_status = None
-        response_preview = None
-        resp = _post_with_retry(url=webhook_url, json_body=webhook_payload, timeout=30.0)
-        http_status = resp.status_code
-        try:
-            resp_text = resp.text[:500]
-            response_preview = resp_text if resp_text else f"HTTP {http_status}"
-        except Exception:
-            response_preview = f"HTTP {http_status}"
+        synced_count, success_count, http_status, preview = send_comment_rows_overwrite_webhook(
+            webhook_url=webhook_url,
+            rows=final_posts,
+            matched_row_count=matched_row_count,
+        )
         
         base_data.webhook_called = True
         base_data.webhook_http_status = http_status
-        base_data.webhook_response_preview = response_preview
+        base_data.webhook_response_preview = preview
         
-        webhook_ok = 200 <= http_status < 300 if http_status else False
+        webhook_ok = success_count > 0 and success_count == synced_count
         if webhook_ok:
-            ack_msg = "Đã chỉnh sửa comment trên LinkedIn và gửi 1 dòng lên n8n."
+            ack_msg = f"Đã chỉnh sửa comment trên LinkedIn và gửi {len(final_posts)} dòng lên n8n."
         else:
             ack_msg = f"Đã chỉnh sửa comment nhưng webhook ghi đè Sheet trả HTTP {http_status}."
+            
+        return PostCommentEditResponse(success=True, message=ack_msg, data=base_data)
     except Exception as exc:
         logger.exception("Webhook post during edit comment failed")
-        base_data.webhook_called = False
         return PostCommentEditResponse(
             success=False, 
             message=f"Comment chỉnh sửa thành công nhưng webhook lỗi: {str(exc)}",
             data=base_data
         )
-
-    return PostCommentEditResponse(success=True, message=ack_msg, data=base_data)
 
 
 @router.post(

@@ -281,39 +281,13 @@ def get_my_comment_blocks_by_you(page: Page) -> list[Locator]:
     return blocks
 
 def extract_comment_text(comment_block: Locator) -> str | None:
-    """Extracts text from a comment block, falling back to regex cleanup if needed."""
+    """Extracts cleaned text from a comment block using standardized logic."""
     try:
-        # 1. Primary selector based on LinkedIn's internal componentkey
-        commentary = comment_block.locator('[componentkey^="comment-commentary_"]').first
-        if commentary.is_visible():
-            text = commentary.inner_text().strip()
-            if text: return text
-            
-        # 2. Fallback using typical text direction attributes
-        possible_texts = comment_block.locator('[dir="ltr"], [data-test-id*="comment"], span[dir="ltr"], div[dir="ltr"]')
-        count = possible_texts.count()
-        if count > 0:
-            last_text = possible_texts.nth(count - 1)
-            if last_text.is_visible():
-                text = last_text.inner_text().strip()
-                if text and not re.search(r"•\s*(You|Bạn)", text, re.I):
-                    return text
-                    
-        # 3. Last fallback: grab full text and remove known metadata chunks
-        raw = comment_block.inner_text().strip()
-        if not raw: return None
-        
-        cleaned = re.sub(r".*?•\s*(You|Bạn)", "", raw, flags=re.IGNORECASE | re.DOTALL)
-        cleaned = re.sub(r"\b(now|\d+\s*(s|sec|secs|min|mins|m|h|hr|hrs|d|w|mo|yr|yrs|y))\b", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\b(Like|Reply|Translate|Thích|Phản hồi|Dịch|edited|đã chỉnh sửa)\b", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"\d+\s*(reaction|reactions|reply|replies|bình luận|lượt thích)", "", cleaned, flags=re.IGNORECASE)
-        cleaned = re.sub(r"[^\w\s\.,!\?'\"()\-]", " ", cleaned) # Remove weird icons/newlines
-        cleaned = re.sub(r"\s+", " ", cleaned).strip()
-        
-        return cleaned if cleaned else None
+        # Sử dụng chung hàm chuẩn đã được fix logic lọc rác (---, impressions, etc.)
+        text = _comment_text_from_root(comment_block)
+        return text if text else None
     except Exception:
-        pass
-    return None
+        return None
 
 def collect_user_comments(page: Page, profile_slug: str) -> list[dict[str, str]]:
     """Collects all comments made by the user on the current post page."""
