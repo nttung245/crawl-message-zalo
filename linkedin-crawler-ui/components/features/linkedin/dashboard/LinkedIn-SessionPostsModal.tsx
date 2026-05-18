@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
+import { useLinkedInEngagementQueue } from "@/components/features/linkedin/dashboard/linkedin-engagement-queue-context";
 import type { CrawlSessionGroup } from "@/types/api";
 
 import {} from "@/components/features/linkedin/dashboard/LinkedIn-post-sheet-engagement";
@@ -28,17 +29,21 @@ export interface SessionPostsModalProps {
   onClose: () => void;
   dashboardEmail?: string | null;
   linkedinPlaywrightSessionId?: string | null;
-  /** Sau reaction + webhook OK — dialog OK gọi (get-all-posts). */
+  /** @deprecated Refresh qua LinkedInEngagementQueueProvider. */
   onRefreshSessions?: () => Promise<void>;
   refreshSessionsBusy?: boolean;
 }
 
-function ExternalLink({ href, children }: { href: string; children: string }) {
+function ExternalLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: string;
+}) {
   const ok = /^https?:\/\//i.test(href);
   if (!ok)
-    return (
-      <span className="text-on-surface-variant break-all">{children}</span>
-    );
+    return <span className="text-on-surface-variant break-all">{children}</span>;
   return (
     <a
       href={href}
@@ -61,6 +66,7 @@ export function SessionPostsModal({
   refreshSessionsBusy = false,
 }: SessionPostsModalProps) {
   const PAGE_SIZE = 8;
+  const { pendingCount } = useLinkedInEngagementQueue();
   const [page, setPage] = useState(1);
   const [detailPost, setDetailPost] = useState<{
     raw: Record<string, unknown>;
@@ -73,6 +79,8 @@ export function SessionPostsModal({
 
   useEffect(() => {
     setPostPatches({});
+    setDetailPost(null);
+    setPage(1);
   }, [session?.id_session_crawl]);
 
   const mergedPost = useCallback(
@@ -125,18 +133,32 @@ export function SessionPostsModal({
       >
         <div className="border-outline-variant flex shrink-0 items-start justify-between gap-md border-b px-lg py-md">
           <div className="min-w-0">
-            <h3
-              id="session-modal-title"
-              className="text-h3 text-on-surface font-semibold"
-            >
-              Chi tiết phiên cào
-              {titleSuffix ? (
-                <span className="text-on-surface-variant font-normal">
-                  {" "}
-                  {titleSuffix}
+            <div className="flex flex-wrap items-center gap-sm">
+              <h3
+                id="session-modal-title"
+                className="text-h3 text-on-surface font-semibold"
+              >
+                Chi tiết phiên cào
+                {titleSuffix ? (
+                  <span className="text-on-surface-variant font-normal">
+                    {" "}
+                    {titleSuffix}
+                  </span>
+                ) : null}
+              </h3>
+              {pendingCount > 0 ? (
+                <span
+                  className="bg-surface-container-high text-on-surface-variant inline-flex items-center gap-1 rounded-full px-sm py-0.5 text-[10px] font-semibold"
+                  title="Playwright và webhook đang xử lý tuần tự ở chế độ nền (vẫn chạy khi đóng modal)"
+                >
+                  <MaterialIcon
+                    name="sync"
+                    className="text-[14px] animate-spin"
+                  />
+                  Nền: {pendingCount} tác vụ
                 </span>
               ) : null}
-            </h3>
+            </div>
             <p className="text-body-sm text-on-surface-variant mt-1 break-all font-mono">
               {session.id_session_crawl}
             </p>
@@ -202,10 +224,7 @@ export function SessionPostsModal({
               <tbody className="divide-outline-variant divide-y">
                 {paginatedPosts.map((raw, idx) => {
                   const rowNum = pageStart + idx + 1;
-                  const post = mergedPost(
-                    raw as Record<string, unknown>,
-                    rowNum,
-                  );
+                  const post = mergedPost(raw as Record<string, unknown>, rowNum);
                   const groupName = pickStr(post, [
                     "Tên nhóm",
                     "group_name",
@@ -345,8 +364,8 @@ export function SessionPostsModal({
           titleSuffix={titleSuffix}
           dashboardEmail={dashboardEmail}
           linkedinPlaywrightSessionId={linkedinPlaywrightSessionId}
-          onRefreshSessions={onRefreshSessions}
           refreshSessionsBusy={refreshSessionsBusy}
+          onRefreshSessions={onRefreshSessions}
           onReactionSucceeded={(rowNum, patch, postUrlForSync) => {
             const sid = session.id_session_crawl;
             const targetUrl = (postUrlForSync || "").trim();
@@ -354,7 +373,8 @@ export function SessionPostsModal({
               const next = { ...prev };
               posts.forEach((raw, idx) => {
                 const ordinal = idx + 1;
-                const row = pickPositiveRowNumberFromPost(raw) ?? ordinal;
+                const row =
+                  pickPositiveRowNumberFromPost(raw) ?? ordinal;
                 const url = pickPostUrlFromRecord(raw);
                 const matchesRow = row === rowNum;
                 const matchesUrl =

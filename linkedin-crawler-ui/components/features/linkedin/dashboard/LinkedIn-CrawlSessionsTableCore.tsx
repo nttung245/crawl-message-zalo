@@ -204,7 +204,6 @@ export function CrawlSessionsTableCore({
       ) : null}
 
       <SessionPostsModal
-        key={open?.id_session_crawl ?? "__closed__"}
         session={open}
         titleSuffix={modalTitleSuffix}
         dashboardEmail={dashboardEmail}
