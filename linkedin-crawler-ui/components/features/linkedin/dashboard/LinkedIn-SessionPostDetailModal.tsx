@@ -10,6 +10,8 @@ import {
 } from "react";
 
 import { MaterialIcon } from "@/components/ui";
+import { useLinkedInEngagementQueue } from "@/components/features/linkedin/dashboard/linkedin-engagement-queue-context";
+import type { EngagementFeedbackKind } from "@/lib/linkedin-engagement-feedback";
 import {
   APP_COMMENT_DAY_KEY,
   appCommentContent,
@@ -132,6 +134,13 @@ function formatDayVi(day: string): string {
   return `${dayNum}/${m}/${y}`;
 }
 
+function buildReactionRollbackPatch(
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const reaction = pickStr(source, ["reaction", "Reaction"]);
+  return { reaction, Reaction: reaction };
+}
+
 export function SessionPostDetailModal({
   session,
   post,
@@ -144,79 +153,46 @@ export function SessionPostDetailModal({
   onRefreshSessions,
   refreshSessionsBusy = false,
 }: SessionPostDetailModalProps) {
+  const {
+    enqueueEngagement,
+    onEngagementSuccess,
+    enqueuePostEngagementSync,
+    showEngagementFailure,
+    registerBackgroundSync,
+  } = useLinkedInEngagementQueue();
+
   const [rxMenuOpen, setRxMenuOpen] = useState(false);
-  const [rxBusy, setRxBusy] = useState(false);
   const [rxErr, setRxErr] = useState<string | null>(null);
-  const [webhookSuccessKind, setWebhookSuccessKind] = useState<
-    null | "reaction" | "clear_reaction" | "comment" | "delete_comment" | "edit_comment" | "sync"
-  >(null);
-  const [webhookSuccessClosing, setWebhookSuccessClosing] = useState(false);
-  const [rxWebhookOkBusy, setRxWebhookOkBusy] = useState(false);
+  const [optimisticPatch, setOptimisticPatch] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const [commentComposerOpen, setCommentComposerOpen] = useState(false);
   const [commentDraft, setCommentDraft] = useState("");
-  const [cmBusy, setCmBusy] = useState(false);
   const [cmErr, setCmErr] = useState<string | null>(null);
-  const [deletingCommentIndex, setDeletingCommentIndex] = useState<
-    number | null
-  >(null);
   const [syncBusy, setSyncBusy] = useState(false);
   const [syncErr, setSyncErr] = useState<string | null>(null);
 
-  const [deleteCommentBusy, setDeleteCommentBusy] = useState(false);
   const [deleteCommentErr, setDeleteCommentErr] = useState<string | null>(null);
   const [editingCommentIndex, setEditingCommentIndex] = useState<number | null>(
     null,
   );
-  const [editCommentBusy, setEditCommentBusy] = useState(false);
   const [editCommentErr, setEditCommentErr] = useState<string | null>(null);
   const [editCommentNewText, setEditCommentNewText] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
-  const webhookSuccessCloseTimerRef = useRef<number | null>(null);
-
-  const scheduleWebhookSuccessClose = useCallback(() => {
-    if (webhookSuccessCloseTimerRef.current !== null) return;
-    setWebhookSuccessClosing(true);
-    webhookSuccessCloseTimerRef.current = window.setTimeout(() => {
-      webhookSuccessCloseTimerRef.current = null;
-      setWebhookSuccessKind(null);
-      setWebhookSuccessClosing(false);
-    }, 180);
-  }, []);
 
   useEffect(() => {
-    return () => {
-      if (webhookSuccessCloseTimerRef.current !== null) {
-        window.clearTimeout(webhookSuccessCloseTimerRef.current);
-        webhookSuccessCloseTimerRef.current = null;
-      }
-    };
-  }, []);
-
-  useEffect(() => {
-    if (webhookSuccessKind) {
-      setWebhookSuccessClosing(false);
-    }
-  }, [webhookSuccessKind]);
+    setOptimisticPatch(null);
+  }, [post]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
-      if (webhookSuccessKind) {
-        if (!rxWebhookOkBusy && !refreshSessionsBusy)
-          scheduleWebhookSuccessClose();
-        return;
-      }
       onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [
-    onClose,
-    refreshSessionsBusy,
-    rxWebhookOkBusy,
-    scheduleWebhookSuccessClose,
-    webhookSuccessKind,
-  ]);
+  }, [onClose]);
 
   useEffect(() => {
     if (!rxMenuOpen) return;
@@ -256,7 +232,12 @@ export function SessionPostDetailModal({
       : `Bài ${rowNumber}`;
   const canOpenPost = Boolean(postUrl && /^https?:\/\//i.test(postUrl));
 
-  const { kind: parsedInteractionKind } = parseSheetReaction(post);
+  const engagementPost = useMemo(() => {
+    if (!optimisticPatch) return post;
+    return { ...post, ...optimisticPatch };
+  }, [post, optimisticPatch]);
+
+  const { kind: parsedInteractionKind } = parseSheetReaction(engagementPost);
 
   const extraEntries = sortedRecordEntries(post).filter(
     ([k]) =>
@@ -267,98 +248,108 @@ export function SessionPostDetailModal({
     (session.email_crawl || "").trim() || (dashboardEmail || "").trim();
 
   const existingComments = useMemo(
-    () => parseAppCommentsFromPost(post),
-    [post],
+    () => parseAppCommentsFromPost(engagementPost),
+    [engagementPost],
   );
 
- const runReaction = useCallback(
-  async (kind: PostLinkedInReactionKind) => {
-    setRxErr(null);
+  const runReaction = useCallback(
+    (kind: PostLinkedInReactionKind) => {
+      setRxErr(null);
 
-    if (!canOpenPost) {
-      setRxErr("Chưa có link bài để mở LinkedIn.");
-      return;
-    }
-
-    if (!emailCrawl) {
-      setRxErr("Thiếu Email_crawl — không gọi được API reaction.");
-      return;
-    }
-
-    const sid = (session.id_session_crawl || "").trim();
-
-    if (!sid) {
-      setRxErr("Thiếu ID_session_crawl.");
-      return;
-    }
-
-    const clearingReaction = parsedInteractionKind === kind;
-
-    setRxBusy(true);
-    setRxMenuOpen(false);
-
-    try {
-      /** Webhook/API: đúng ``row_number`` từ bản ghi GET (sheet/STT); chỉ khi thiếu mới dùng ordinal cột «#». */
-      const webhookRowNumber =
-        pickPositiveRowNumberFromPost(post) ?? rowNumber;
-
-      const res = await postLinkedInReaction({
-        post_url: postUrl,
-        reaction: kind,
-        Email_crawl: emailCrawl,
-        ID_session_crawl: sid,
-        row_number: webhookRowNumber,
-        sheet_row: buildReactionWebhookSheetRow(post, session),
-        email: (dashboardEmail || "").trim() || undefined,
-        session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-        post_to_webhook: true,
-        clear_reaction: clearingReaction,
-      });
-
-      if (!res.success) {
-        throw new Error(
-          res.message ||
-            (clearingReaction
-              ? "Gỡ reaction thất bại."
-              : "Reaction thất bại."),
-        );
+      if (!canOpenPost) {
+        setRxErr("Chưa có link bài để mở LinkedIn.");
+        return;
       }
 
+      if (!emailCrawl) {
+        setRxErr("Thiếu Email_crawl — không gọi được API reaction.");
+        return;
+      }
+
+      const sid = (session.id_session_crawl || "").trim();
+
+      if (!sid) {
+        setRxErr("Thiếu ID_session_crawl.");
+        return;
+      }
+
+      const clearingReaction = parsedInteractionKind === kind;
+      const rollbackPatch = buildReactionRollbackPatch(post);
       const patch: Record<string, unknown> = clearingReaction
         ? buildSheetReactionClearPatch()
         : {
             reaction: buildSheetReactionCell(kind),
             Reaction: buildSheetReactionCell(kind),
           };
+      const feedbackKind: EngagementFeedbackKind = clearingReaction
+        ? "clear_reaction"
+        : "reaction";
 
+      setOptimisticPatch(patch);
       onReactionSucceeded?.(rowNumber, patch, postUrl);
+      onEngagementSuccess(feedbackKind);
+      setRxMenuOpen(false);
 
-      if (res.data?.webhook_called) {
-        setWebhookSuccessKind(
-          clearingReaction ? "clear_reaction" : "reaction",
-        );
-      }
-    } catch (e) {
-      setRxErr(e instanceof Error ? e.message : "Lỗi không xác định.");
-    } finally {
-      setRxBusy(false);
-    }
-  },
-  [
-    canOpenPost,
-    dashboardEmail,
-    emailCrawl,
-    linkedinPlaywrightSessionId,
-    onReactionSucceeded,
-    post,
-    parsedInteractionKind,
-    postUrl,
-    rowNumber,
-    session,
-  ],
-);
+      const webhookRowNumber =
+        pickPositiveRowNumberFromPost(post) ?? rowNumber;
 
-  const runPostComment = useCallback(async () => {
+      enqueueEngagement({
+        label: feedbackKind,
+        run: async () => {
+          const res = await postLinkedInReaction({
+            post_url: postUrl,
+            reaction: kind,
+            Email_crawl: emailCrawl,
+            ID_session_crawl: sid,
+            row_number: webhookRowNumber,
+            sheet_row: buildReactionWebhookSheetRow(post, session),
+            email: (dashboardEmail || "").trim() || undefined,
+            session_id:
+              (linkedinPlaywrightSessionId || "").trim() || undefined,
+            post_to_webhook: true,
+            clear_reaction: clearingReaction,
+          });
+
+          if (!res.success) {
+            throw new Error(
+              res.message ||
+                (clearingReaction
+                  ? "Gỡ reaction thất bại."
+                  : "Reaction thất bại."),
+            );
+          }
+
+          setOptimisticPatch(null);
+        },
+        onSuccess: () => {
+          enqueuePostEngagementSync();
+        },
+        onFailure: (error) => {
+          setOptimisticPatch(null);
+          onReactionSucceeded?.(rowNumber, rollbackPatch, postUrl);
+          showEngagementFailure(feedbackKind, error.message);
+        },
+      });
+    },
+    [
+      canOpenPost,
+      dashboardEmail,
+      emailCrawl,
+      enqueueEngagement,
+      enqueuePostEngagementSync,
+      linkedinPlaywrightSessionId,
+      onEngagementSuccess,
+      onReactionSucceeded,
+      post,
+      parsedInteractionKind,
+      postUrl,
+      rowNumber,
+      session,
+      showEngagementFailure,
+    ],
+  );
+
+  const runPostComment = useCallback(() => {
     setCmErr(null);
     const text = commentDraft.trim();
     if (!text) {
@@ -379,60 +370,79 @@ export function SessionPostDetailModal({
       return;
     }
 
-    setCmBusy(true);
-    try {
-      const webhookRowNumber = pickPositiveRowNumberFromPost(post) ?? rowNumber;
-      const res = await postLinkedInComment({
-        post_url: postUrl,
-        comment_text: text,
-        Email_crawl: emailCrawl,
-        ID_session_crawl: sid,
-        row_number: webhookRowNumber,
-        existing_app_comments: existingComments,
-        sheet_row: buildReactionWebhookSheetRow(post, session),
-        email: (dashboardEmail || "").trim() || undefined,
-        session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-        post_to_webhook: false,
-      });
-      if (!res.success) {
-        throw new Error(res.message || "Gửi comment thất bại.");
-      }
-      const fallbackEntry: AppCommentEntry = {
-        comment_content: text,
-        [APP_COMMENT_DAY_KEY]: isoDayLocal(),
-      };
-      const merged: AppCommentEntry[] = (res.data?.app_comments as
-        | AppCommentEntry[]
-        | undefined) ?? [...existingComments, fallbackEntry];
-      const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
-      onReactionSucceeded?.(rowNumber, patch);
-      setCommentDraft("");
-      
-      // Always show success popup to trigger sync on OK
-      setWebhookSuccessKind("comment");
-    } catch (e) {
-      setCmErr(e instanceof Error ? e.message : "Lỗi không xác định.");
-    } finally {
-      setCmBusy(false);
-    }
+    const commentsBeforeSend = parseAppCommentsFromPost(post);
+    const optimisticEntry: AppCommentEntry = {
+      comment_content: text,
+      [APP_COMMENT_DAY_KEY]: isoDayLocal(),
+    };
+    const optimisticMerged = [...commentsBeforeSend, optimisticEntry];
+    const optimisticCommentPatch = buildSheetCommentPatch(optimisticMerged);
+    const rollbackPatch = buildSheetCommentPatch(commentsBeforeSend);
+
+    setOptimisticPatch(optimisticCommentPatch);
+    onReactionSucceeded?.(rowNumber, optimisticCommentPatch);
+    onEngagementSuccess("comment");
+    setCommentDraft("");
+
+    const webhookRowNumber = pickPositiveRowNumberFromPost(post) ?? rowNumber;
+
+    enqueueEngagement({
+      label: "comment",
+      run: async () => {
+        const res = await postLinkedInComment({
+          post_url: postUrl,
+          comment_text: text,
+          Email_crawl: emailCrawl,
+          ID_session_crawl: sid,
+          row_number: webhookRowNumber,
+          existing_app_comments: commentsBeforeSend,
+          sheet_row: buildReactionWebhookSheetRow(post, session),
+          email: (dashboardEmail || "").trim() || undefined,
+          session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
+          post_to_webhook: true,
+        });
+        if (!res.success) {
+          throw new Error(res.message || "Gửi comment thất bại.");
+        }
+        const merged: AppCommentEntry[] = (res.data?.app_comments as
+          | AppCommentEntry[]
+          | undefined) ?? optimisticMerged;
+        const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
+        setOptimisticPatch(null);
+        onReactionSucceeded?.(rowNumber, patch);
+      },
+      onSuccess: () => {
+        enqueuePostEngagementSync();
+      },
+      onFailure: (error) => {
+        setOptimisticPatch(null);
+        onReactionSucceeded?.(rowNumber, rollbackPatch);
+        setCommentDraft(text);
+        showEngagementFailure("comment", error.message);
+      },
+    });
   }, [
     commentDraft,
     canOpenPost,
     dashboardEmail,
     emailCrawl,
-    existingComments,
+    enqueueEngagement,
+    enqueuePostEngagementSync,
     linkedinPlaywrightSessionId,
+    onEngagementSuccess,
     onReactionSucceeded,
     post,
     postUrl,
     rowNumber,
     session,
+    showEngagementFailure,
   ]);
 
   const runDeleteComment = useCallback(
-    async (commentIndex: number) => {
+    (commentIndex: number) => {
       setDeleteCommentErr(null);
-      if (commentIndex < 0 || commentIndex >= existingComments.length) {
+      const commentsBeforeDelete = parseAppCommentsFromPost(post);
+      if (commentIndex < 0 || commentIndex >= commentsBeforeDelete.length) {
         setDeleteCommentErr("Comment không hợp lệ.");
         return;
       }
@@ -450,7 +460,7 @@ export function SessionPostDetailModal({
         return;
       }
 
-      const commentToDelete = existingComments[commentIndex];
+      const commentToDelete = commentsBeforeDelete[commentIndex];
       if (!commentToDelete) {
         setDeleteCommentErr("Comment không tìm thấy.");
         return;
@@ -473,69 +483,74 @@ export function SessionPostDetailModal({
         return;
       }
 
-      setDeletingCommentIndex(commentIndex);
-      setDeleteCommentBusy(true);
+      const rollbackPatch = buildSheetCommentPatch(commentsBeforeDelete);
+      const optimisticPatchDelete = buildSheetCommentPatch([]);
+      setOptimisticPatch(optimisticPatchDelete);
+      onReactionSucceeded?.(rowNumber, optimisticPatchDelete);
+      onEngagementSuccess("delete_comment");
 
-      try {
-        const slugRes = await getMyProfileSlug({
-          sessionId: pwSession || null,
-          email: pwEmail || null,
-        });
-        if (!slugRes.success || !slugRes.data?.profile_slug?.trim()) {
-          throw new Error(
-            slugRes.message ||
-              "Không lấy được profile slug từ LinkedIn. Kiểm tra session đăng nhập.",
-          );
-        }
-        const profileSlug = slugRes.data.profile_slug.trim();
+      enqueueEngagement({
+        label: "delete_comment",
+        run: async () => {
+          const slugRes = await getMyProfileSlug({
+            sessionId: pwSession || null,
+            email: pwEmail || null,
+          });
+          if (!slugRes.success || !slugRes.data?.profile_slug?.trim()) {
+            throw new Error(
+              slugRes.message ||
+                "Không lấy được profile slug từ LinkedIn. Kiểm tra session đăng nhập.",
+            );
+          }
+          const profileSlug = slugRes.data.profile_slug.trim();
+          const webhookRowNumber =
+            pickPositiveRowNumberFromPost(post) ?? rowNumber;
+          const res = await deleteLinkedInComment({
+            profile_slug: profileSlug,
+            post_url: postUrl,
+            comment_text: commentText,
+            Email_crawl: emailCrawl,
+            ID_session_crawl: sid,
+            row_number: webhookRowNumber,
+            sheet_row: buildReactionWebhookSheetRow(post, session),
+            email: (dashboardEmail || "").trim() || undefined,
+            session_id:
+              (linkedinPlaywrightSessionId || "").trim() || undefined,
+            post_to_webhook: true,
+            max_scroll: 8,
+            timeout_ms: 120000,
+          });
 
-        const webhookRowNumber =
-          pickPositiveRowNumberFromPost(post) ?? rowNumber;
-        const res = await deleteLinkedInComment({
-          profile_slug: profileSlug,
-          post_url: postUrl,
-          comment_text: commentText,
-          Email_crawl: emailCrawl,
-          ID_session_crawl: sid,
-          row_number: webhookRowNumber,
-          sheet_row: buildReactionWebhookSheetRow(post, session),
-          email: (dashboardEmail || "").trim() || undefined,
-          session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-          post_to_webhook: false,
-          max_scroll: 8,
-          timeout_ms: 120000,
-        });
+          if (!res.success) {
+            throw new Error(res.message || "Xóa comment thất bại.");
+          }
 
-        if (!res.success) {
-          throw new Error(res.message || "Xóa comment thất bại.");
-        }
-
-        // Update comments on sheet by filtering out the deleted one
-        const updatedComments = existingComments.filter((_, i) => i !== commentIndex);
-        const patch: Record<string, unknown> = buildSheetCommentPatch(updatedComments);
-        onReactionSucceeded?.(rowNumber, patch);
-
-        setWebhookSuccessKind("delete_comment");
-      } catch (e) {
-        setDeleteCommentErr(
-          e instanceof Error ? e.message : "Lỗi không xác định.",
-        );
-      } finally {
-        setDeleteCommentBusy(false);
-        setDeletingCommentIndex(null);
-      }
+          setOptimisticPatch(null);
+        },
+        onSuccess: () => {
+          enqueuePostEngagementSync();
+        },
+        onFailure: (error) => {
+          setOptimisticPatch(null);
+          onReactionSucceeded?.(rowNumber, rollbackPatch);
+          showEngagementFailure("delete_comment", error.message);
+        },
+      });
     },
     [
-      existingComments,
       canOpenPost,
+      dashboardEmail,
       emailCrawl,
+      enqueueEngagement,
+      enqueuePostEngagementSync,
+      linkedinPlaywrightSessionId,
+      onEngagementSuccess,
+      onReactionSucceeded,
       post,
       postUrl,
       rowNumber,
       session,
-      dashboardEmail,
-      linkedinPlaywrightSessionId,
-      onReactionSucceeded,
+      showEngagementFailure,
     ],
   );
 
@@ -622,8 +637,8 @@ const runSyncProgress = useCallback(
 
       onReactionSucceeded?.(rowNumber, patch, postUrl);
 
-      if (!options?.silent && res.data?.webhook_called) {
-        setWebhookSuccessKind("sync");
+      if (!options?.silent) {
+        onEngagementSuccess("sync");
       }
     } catch (e) {
       setSyncErr(e instanceof Error ? e.message : "Lỗi không xác định.");
@@ -640,6 +655,7 @@ const runSyncProgress = useCallback(
     dashboardEmail,
     emailCrawl,
     linkedinPlaywrightSessionId,
+    onEngagementSuccess,
     onReactionSucceeded,
     post,
     postUrl,
@@ -648,10 +664,18 @@ const runSyncProgress = useCallback(
   ],
 );
 
+  useEffect(() => {
+    registerBackgroundSync(() =>
+      runSyncProgress({ silent: true, throwOnError: true }),
+    );
+    return () => registerBackgroundSync(null);
+  }, [registerBackgroundSync, runSyncProgress]);
+
   const runEditComment = useCallback(
-    async (commentIndex: number) => {
+    (commentIndex: number) => {
       setEditCommentErr(null);
-      if (commentIndex < 0 || commentIndex >= existingComments.length) {
+      const commentsBeforeEdit = parseAppCommentsFromPost(post);
+      if (commentIndex < 0 || commentIndex >= commentsBeforeEdit.length) {
         setEditCommentErr("Comment không hợp lệ.");
         return;
       }
@@ -669,7 +693,7 @@ const runSyncProgress = useCallback(
         return;
       }
 
-      const commentToEdit = existingComments[commentIndex];
+      const commentToEdit = commentsBeforeEdit[commentIndex];
       if (!commentToEdit) {
         setEditCommentErr("Comment không tìm thấy.");
         return;
@@ -703,102 +727,90 @@ const runSyncProgress = useCallback(
         return;
       }
 
-      setEditingCommentIndex(commentIndex);
-      setEditCommentBusy(true);
+      const rollbackPatch = buildSheetCommentPatch(commentsBeforeEdit);
+      const editedComments = commentsBeforeEdit.map((entry, idx) =>
+        idx === commentIndex
+          ? { ...entry, comment_content: newCommentText }
+          : entry,
+      );
+      const optimisticEditPatch = buildSheetCommentPatch(editedComments);
 
-      try {
-        const slugRes = await getMyProfileSlug({
-          sessionId: pwSession || null,
-          email: pwEmail || null,
-        });
-        if (!slugRes.success || !slugRes.data?.profile_slug?.trim()) {
-          throw new Error(
-            slugRes.message ||
-              "Không lấy được profile slug từ LinkedIn. Kiểm tra session đăng nhập.",
-          );
-        }
-        const profileSlug = slugRes.data.profile_slug.trim();
+      setOptimisticPatch(optimisticEditPatch);
+      onReactionSucceeded?.(rowNumber, optimisticEditPatch);
+      onEngagementSuccess("edit_comment");
+      setEditingCommentIndex(null);
+      setEditCommentNewText("");
 
-        const webhookRowNumber =
-          pickPositiveRowNumberFromPost(post) ?? rowNumber;
-        const res = await editLinkedInComment({
-          profile_slug: profileSlug,
-          post_url: postUrl,
-          comment_text: oldCommentText,
-          new_comment_text: newCommentText,
-          Email_crawl: emailCrawl,
-          ID_session_crawl: sid,
-          row_number: webhookRowNumber,
-          sheet_row: buildReactionWebhookSheetRow(post, session),
-          email: (dashboardEmail || "").trim() || undefined,
-          session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
-          post_to_webhook: false,
-          timeout_ms: 120000,
-        });
+      enqueueEngagement({
+        label: "edit_comment",
+        run: async () => {
+          const slugRes = await getMyProfileSlug({
+            sessionId: pwSession || null,
+            email: pwEmail || null,
+          });
+          if (!slugRes.success || !slugRes.data?.profile_slug?.trim()) {
+            throw new Error(
+              slugRes.message ||
+                "Không lấy được profile slug từ LinkedIn. Kiểm tra session đăng nhập.",
+            );
+          }
+          const profileSlug = slugRes.data.profile_slug.trim();
+          const webhookRowNumber =
+            pickPositiveRowNumberFromPost(post) ?? rowNumber;
+          const res = await editLinkedInComment({
+            profile_slug: profileSlug,
+            post_url: postUrl,
+            comment_text: oldCommentText,
+            new_comment_text: newCommentText,
+            Email_crawl: emailCrawl,
+            ID_session_crawl: sid,
+            row_number: webhookRowNumber,
+            sheet_row: buildReactionWebhookSheetRow(post, session),
+            email: (dashboardEmail || "").trim() || undefined,
+            session_id:
+              (linkedinPlaywrightSessionId || "").trim() || undefined,
+            post_to_webhook: true,
+            timeout_ms: 120000,
+          });
 
-        if (!res.success) {
-          throw new Error(res.message || "Chỉnh sửa comment thất bại.");
-        }
+          if (!res.success) {
+            throw new Error(res.message || "Chỉnh sửa comment thất bại.");
+          }
 
-        setWebhookSuccessKind("edit_comment");
-
-        setEditingCommentIndex(null);
-        setEditCommentNewText("");
-      } catch (e) {
-        setEditCommentErr(
-          e instanceof Error ? e.message : "Lỗi không xác định.",
-        );
-      } finally {
-        setEditCommentBusy(false);
-        setEditingCommentIndex(null);
-      }
+          setOptimisticPatch(null);
+        },
+        onSuccess: () => {
+          enqueuePostEngagementSync();
+        },
+        onFailure: (error) => {
+          setOptimisticPatch(null);
+          onReactionSucceeded?.(rowNumber, rollbackPatch);
+          setEditingCommentIndex(commentIndex);
+          setEditCommentNewText(newCommentText);
+          showEngagementFailure("edit_comment", error.message);
+        },
+      });
     },
     [
-      existingComments,
       editCommentNewText,
       canOpenPost,
+      dashboardEmail,
       emailCrawl,
+      enqueueEngagement,
+      enqueuePostEngagementSync,
+      linkedinPlaywrightSessionId,
+      onEngagementSuccess,
+      onReactionSucceeded,
       post,
       postUrl,
       rowNumber,
       session,
-      dashboardEmail,
-      linkedinPlaywrightSessionId,
+      showEngagementFailure,
     ],
   );
 
- const handleWebhookOkConfirm = useCallback(async () => {
-  setRxWebhookOkBusy(true);
-
-  try {
-    if (webhookSuccessKind !== "sync") {
-      await runSyncProgress({
-        silent: true,
-        throwOnError: true,
-      });
-    }
-
-    await onRefreshSessions?.();
-
-    scheduleWebhookSuccessClose();
-  } catch (e) {
-    setSyncErr(
-      e instanceof Error ? e.message : "Đồng bộ tiến độ thất bại.",
-    );
-  } finally {
-    setRxWebhookOkBusy(false);
-  }
-}, [
-  webhookSuccessKind,
-  runSyncProgress,
-  onRefreshSessions,
-  scheduleWebhookSuccessClose,
-]);
-
   const reactionAlreadyMatchesKind = (kind: PostLinkedInReactionKind) =>
     parsedInteractionKind === kind;
-
-  const refreshBusy = refreshSessionsBusy || rxWebhookOkBusy;
 
   return (
     <Fragment>
@@ -846,13 +858,13 @@ const runSyncProgress = useCallback(
                     className="border-outline-variant bg-surface-container-low text-on-surface inline-flex min-h-[28px] items-center gap-2 rounded-full border px-md py-1 text-xs font-semibold"
                     title="Theo cột reaction trên sheet / webhook"
                   >
-                    <SheetInteractionStatus post={post} variant="chip" />
+                    <SheetInteractionStatus post={engagementPost} variant="chip" />
                   </span>
                   <span
                     className="border-outline-variant bg-surface-container-low text-on-surface inline-flex min-h-[28px] items-start rounded-full border px-md py-1 text-xs font-semibold"
                     title="Theo cột comment (automation), không phải số CMT LinkedIn"
                   >
-                    <SheetCommentStatus post={post} variant="chip" />
+                    <SheetCommentStatus post={engagementPost} variant="chip" />
                   </span>
                 </div>
               </div>
@@ -860,7 +872,7 @@ const runSyncProgress = useCallback(
                 <div className="relative" ref={menuRef}>
                   <button
                     type="button"
-                    disabled={rxBusy || cmBusy || !canOpenPost || !emailCrawl}
+                    disabled={!canOpenPost || !emailCrawl}
                     onClick={() => setRxMenuOpen((o) => !o)}
                     className={`border-outline-variant bg-surface-container-low hover:bg-surface-container-high inline-flex items-center gap-1 rounded-lg border px-md py-sm text-xs font-bold uppercase tracking-wide transition-colors ${
                       canOpenPost && emailCrawl
@@ -883,7 +895,7 @@ const runSyncProgress = useCallback(
                       emphasis={Boolean(parsedInteractionKind)}
                       className="shrink-0 text-[20px] leading-none"
                     />
-                    {rxBusy ? "Đang xử lý…" : "Tương tác"}
+                    Tương tác
                     <MaterialIcon
                       name="chevron_right"
                       className="text-[18px] rotate-90"
@@ -901,7 +913,7 @@ const runSyncProgress = useCallback(
                             key={kind}
                             type="button"
                             role="menuitem"
-                            disabled={rxBusy || cmBusy}
+                            disabled={!canOpenPost || !emailCrawl}
                             title={
                               selected
                                 ? `${reactionToolbarLabelVi(kind)} — bấm lại để gỡ`
@@ -935,7 +947,7 @@ const runSyncProgress = useCallback(
                 <div className="flex flex-wrap items-center gap-1">
                   <button
                     type="button"
-                    disabled={rxBusy || cmBusy || !canOpenPost || !emailCrawl}
+                    disabled={!canOpenPost || !emailCrawl}
                     onClick={() => {
                       setCommentComposerOpen((o) => !o);
                       setCmErr(null);
@@ -995,7 +1007,6 @@ const runSyncProgress = useCallback(
                   value={commentDraft}
                   onChange={(e) => setCommentDraft(e.target.value)}
                   rows={4}
-                  disabled={cmBusy}
                   placeholder="Nhập nội dung bình luận…"
                   className="border-outline-variant bg-surface text-body-sm text-on-surface focus:ring-primary min-h-[96px] w-full resize-y rounded-lg border px-md py-sm outline-none focus:ring-2 disabled:opacity-50"
                 />
@@ -1027,7 +1038,6 @@ const runSyncProgress = useCallback(
                 <div className="mt-md flex justify-end gap-sm">
                   <button
                     type="button"
-                    disabled={cmBusy}
                     className="border-outline-variant text-on-surface hover:bg-surface-container-high rounded-lg border px-md py-sm text-xs font-bold uppercase"
                     onClick={() => {
                       setCommentComposerOpen(false);
@@ -1039,15 +1049,14 @@ const runSyncProgress = useCallback(
                   <button
                     type="button"
                     disabled={
-                      cmBusy ||
                       !canOpenPost ||
                       !emailCrawl ||
                       !commentDraft.trim()
                     }
                     className="bg-primary text-on-primary hover:bg-primary-container rounded-lg px-md py-sm text-xs font-bold uppercase disabled:opacity-45"
-                    onClick={() => void runPostComment()}
+                    onClick={() => runPostComment()}
                   >
-                    {cmBusy ? "Đang gửi…" : "Gửi comment"}
+                    Gửi comment
                   </button>
                 </div>
               </div>
@@ -1180,11 +1189,7 @@ const runSyncProgress = useCallback(
                               setEditCommentNewText(appCommentContent(c));
                               setEditCommentErr(null);
                             }}
-                            disabled={
-                              editCommentBusy ||
-                              deleteCommentBusy ||
-                              editingCommentIndex === i
-                            }
+                            disabled={editingCommentIndex === i}
                             title="Chỉnh sửa comment này trên LinkedIn"
                           >
                             <MaterialIcon
@@ -1196,21 +1201,12 @@ const runSyncProgress = useCallback(
                             type="button"
                             className="text-on-surface-variant hover:text-error disabled:opacity-30 rounded px-1 py-0.5 text-xs transition-colors"
                             onClick={() => runDeleteComment(i)}
-                            disabled={
-                              deleteCommentBusy ||
-                              deletingCommentIndex === i ||
-                              editCommentBusy
-                            }
                             title="Xóa comment này từ LinkedIn"
                           >
-                            {deletingCommentIndex === i && deleteCommentBusy ? (
-                              "⟳"
-                            ) : (
-                              <MaterialIcon
-                                name="delete"
-                                className="inline text-[14px]"
-                              />
-                            )}
+                            <MaterialIcon
+                              name="delete"
+                              className="inline text-[14px]"
+                            />
                           </button>
                         </div>
                       </div>
@@ -1252,11 +1248,9 @@ const runSyncProgress = useCallback(
                   type="button"
                   className="absolute inset-0 bg-black/55 backdrop-blur-md"
                   onClick={() => {
-                    if (!editCommentBusy) {
-                      setEditingCommentIndex(null);
-                      setEditCommentNewText("");
-                      setEditCommentErr(null);
-                    }
+                    setEditingCommentIndex(null);
+                    setEditCommentNewText("");
+                    setEditCommentErr(null);
                   }}
                 />
                 <div className="bg-surface border-outline-variant relative z-10 w-full min-w-[320px] sm:min-w-[420px] max-w-md max-h-[80vh] rounded-2xl border shadow-lg flex flex-col overflow-hidden">
@@ -1271,8 +1265,7 @@ const runSyncProgress = useCallback(
                       onChange={(e) =>
                         setEditCommentNewText(e.currentTarget.value)
                       }
-                      disabled={editCommentBusy}
-                      className="text-on-surface bg-surface-container-high border-outline-variant w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-primary focus:border-2 disabled:opacity-50 resize-none"
+                      className="text-on-surface bg-surface-container-high border-outline-variant w-full rounded-lg border px-3 py-2 text-sm outline-none focus:border-primary focus:border-2 resize-none"
                       rows={6}
                       placeholder="Nhập comment mới..."
                       autoFocus
@@ -1283,13 +1276,10 @@ const runSyncProgress = useCallback(
                       type="button"
                       className="text-on-surface-variant hover:bg-surface-container px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                       onClick={() => {
-                        if (!editCommentBusy) {
-                          setEditingCommentIndex(null);
-                          setEditCommentNewText("");
-                          setEditCommentErr(null);
-                        }
+                        setEditingCommentIndex(null);
+                        setEditCommentNewText("");
+                        setEditCommentErr(null);
                       }}
-                      disabled={editCommentBusy}
                     >
                       Hủy
                     </button>
@@ -1297,16 +1287,8 @@ const runSyncProgress = useCallback(
                       type="button"
                       className="bg-primary text-on-primary hover:bg-primary/90 px-4 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
                       onClick={() => runEditComment(editingCommentIndex)}
-                      disabled={editCommentBusy}
                     >
-                      {editCommentBusy ? (
-                        <>
-                          <span className="inline mr-2 animate-spin">⟳</span>
-                          Đang chỉnh sửa...
-                        </>
-                      ) : (
-                        "Lưu thay đổi"
-                      )}
+                      Lưu thay đổi
                     </button>
                   </div>
                 </div>
@@ -1374,107 +1356,6 @@ const runSyncProgress = useCallback(
         </div>
       </div>
 
-      {webhookSuccessKind ? (
-        <div
-          className="fixed inset-0 z-[75] flex items-end justify-center p-md sm:items-center"
-          role="presentation"
-        >
-          <button
-            type="button"
-            className={`absolute inset-0 bg-black/55 backdrop-blur-md ${
-              webhookSuccessClosing
-                ? "rx-webhook-overlay--out"
-                : "rx-webhook-overlay--in"
-            }`}
-            aria-label="Đóng thông báo"
-            onClick={() => !refreshBusy && scheduleWebhookSuccessClose()}
-          />
-          <div
-            className={`border-outline-variant/70 bg-surface-container-lowest relative z-10 w-[min(92vw,500px)] overflow-hidden rounded-2xl border shadow-[0_24px_60px_rgb(0_0_0_/_.18)] ring-1 ring-primary/10 ${
-              webhookSuccessClosing
-                ? "rx-webhook-dialog--out"
-                : "rx-webhook-dialog--in"
-            }`}
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="rx-webhook-ok-title"
-          >
-            <div className="from-primary/20 via-primary/5 h-1 bg-gradient-to-r to-transparent" />
-            <div className="p-lg sm:p-xl">
-              <div className="flex items-start gap-md">
-                <span className="bg-primary/10 text-primary inline-flex size-11 shrink-0 items-center justify-center rounded-full">
-                  <MaterialIcon
-                    name={
-                      webhookSuccessKind === "reaction" || webhookSuccessKind === "clear_reaction"
-                        ? "favorite"
-                        : webhookSuccessKind === "delete_comment"
-                          ? "delete"
-                          : webhookSuccessKind === "edit_comment"
-                          ? "edit"
-                          : webhookSuccessKind === "sync"
-                            ? "sync"
-                            : "comment"
-                    }
-                    className="text-[24px]"
-                  />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <span className="bg-primary/10 text-primary inline-flex rounded-full px-sm py-0.5 text-[10px] font-bold tracking-[0.12em] uppercase">
-                    Thành công
-                  </span>
-                  <h3
-                    id="rx-webhook-ok-title"
-                    className="text-h2 text-on-surface mt-2 font-semibold tracking-tight"
-                  >
-                    {webhookSuccessKind === "reaction"
-                      ? "Tương tác thành công"
-                      : webhookSuccessKind === "clear_reaction"
-                        ? "Gỡ tương tác thành công"
-                      : webhookSuccessKind === "delete_comment"
-                        ? "Xóa bình luận thành công"
-                        : webhookSuccessKind === "edit_comment"
-                          ? "Chỉnh sửa bình luận thành công"
-                          : webhookSuccessKind === "sync"
-                            ? "Làm mới tiến độ thành công"
-                            : "Bình luận thành công"}
-                  </h3>
-                  <p className="text-body-md text-on-surface-variant mt-sm leading-relaxed whitespace-pre-line">
-                    {webhookSuccessKind === "reaction"
-                      ? "Bạn đã tương tác với bài viết thành công"
-                      : webhookSuccessKind === "clear_reaction"
-                        ? "Bạn đã gỡ tương tác thành công"
-                      : webhookSuccessKind === "delete_comment"
-                        ? "Bạn đã xóa bình luận trên bài viết thành công"
-                      : webhookSuccessKind === "edit_comment"
-                        ? "Bạn đã chỉnh sửa bình luận trên bài viết thành công"
-                      : webhookSuccessKind === "sync"
-                          ? "Hệ thống đã đọc xong trạng thái thực tế từ LinkedIn và cập nhật vào Sheet."
-                          : "Bạn đã bình luận trên bài viết thành công"}
-                  </p>
-                </div>
-              </div>
-              <div className="mt-lg flex flex-col-reverse gap-sm sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  className="border-outline-variant text-on-surface hover:bg-surface-container-high rounded-xl border px-lg py-sm text-sm font-bold uppercase transition-colors disabled:opacity-50"
-                  onClick={() => !refreshBusy && scheduleWebhookSuccessClose()}
-                  disabled={refreshBusy}
-                >
-                  Đóng
-                </button>
-                <button
-                  type="button"
-                  className="bg-primary text-on-primary hover:bg-primary-container min-w-28 rounded-xl px-lg py-sm text-sm font-bold uppercase shadow-[0_10px_24px_rgb(0_93_143_/_.22)] transition-[transform,background-color,box-shadow] duration-200 ease-out hover:shadow-[0_12px_28px_rgb(0_93_143_/_.28)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60"
-                  onClick={() => void handleWebhookOkConfirm()}
-                  disabled={refreshBusy}
-                >
-                {refreshBusy ? "Đang đồng bộ…" : "OK"}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </Fragment>
   );
 }
