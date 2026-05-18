@@ -4,7 +4,7 @@ const nextConfig: NextConfig = {
   basePath: "/minhhoang-scraper",
   assetPrefix: "/minhhoang-scraper",
   reactStrictMode: true,
-  output: "export",
+  output: "standalone",
   images: {
     remotePatterns: [
       {
