@@ -30,6 +30,7 @@ import {
   syncPostProgress,
 } from "@/services/linkedinCrawlerService";
 import { resolveProfileSlugFromSheetForEmail } from "@/lib/LinkedIn-resolve-profile-slug-from-sheet";
+import { useDashboard } from "@/components/features/dashboard/dashboard-context";
 import type { CrawlSessionGroup, PostLinkedInReactionKind } from "@/types/api";
 
 import {
@@ -149,10 +150,25 @@ export function SessionPostDetailModal({
   onClose,
   dashboardEmail = null,
   linkedinPlaywrightSessionId = null,
-  onReactionSucceeded,
+  onReactionSucceeded: onReactionSucceededProp,
   onRefreshSessions,
   refreshSessionsBusy = false,
 }: SessionPostDetailModalProps) {
+  const { updatePostInSessions } = useDashboard();
+
+  const onReactionSucceeded = useCallback(
+    (rowNum: number, patch: Record<string, unknown>, postUrlForSync?: string) => {
+      onReactionSucceededProp?.(rowNum, patch, postUrlForSync);
+      updatePostInSessions?.(
+        session.id_session_crawl,
+        rowNum,
+        patch,
+        postUrlForSync,
+      );
+    },
+    [onReactionSucceededProp, updatePostInSessions, session.id_session_crawl],
+  );
+
   const {
     enqueueEngagement,
     onEngagementSuccess,
@@ -327,7 +343,7 @@ export function SessionPostDetailModal({
         onFailure: (error) => {
           setOptimisticPatch(null);
           onReactionSucceeded?.(rowNumber, rollbackPatch, postUrl);
-          showEngagementFailure(feedbackKind, error.message);
+          showEngagementFailure(feedbackKind, error.message, post, rowNumber, session);
         },
       });
     },
@@ -380,7 +396,7 @@ export function SessionPostDetailModal({
     const rollbackPatch = buildSheetCommentPatch(commentsBeforeSend);
 
     setOptimisticPatch(optimisticCommentPatch);
-    onReactionSucceeded?.(rowNumber, optimisticCommentPatch);
+    onReactionSucceeded?.(rowNumber, optimisticCommentPatch, postUrl);
     onEngagementSuccess("comment");
     setCommentDraft("");
 
@@ -409,16 +425,16 @@ export function SessionPostDetailModal({
           | undefined) ?? optimisticMerged;
         const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
         setOptimisticPatch(null);
-        onReactionSucceeded?.(rowNumber, patch);
+        onReactionSucceeded?.(rowNumber, patch, postUrl);
       },
       onSuccess: () => {
         enqueuePostEngagementSync();
       },
       onFailure: (error) => {
         setOptimisticPatch(null);
-        onReactionSucceeded?.(rowNumber, rollbackPatch);
+        onReactionSucceeded?.(rowNumber, rollbackPatch, postUrl);
         setCommentDraft(text);
-        showEngagementFailure("comment", error.message);
+        showEngagementFailure("comment", error.message, post, rowNumber, session);
       },
     });
   }, [
@@ -486,7 +502,7 @@ export function SessionPostDetailModal({
       const rollbackPatch = buildSheetCommentPatch(commentsBeforeDelete);
       const optimisticPatchDelete = buildSheetCommentPatch([]);
       setOptimisticPatch(optimisticPatchDelete);
-      onReactionSucceeded?.(rowNumber, optimisticPatchDelete);
+      onReactionSucceeded?.(rowNumber, optimisticPatchDelete, postUrl);
       onEngagementSuccess("delete_comment");
 
       enqueueEngagement({
@@ -532,8 +548,8 @@ export function SessionPostDetailModal({
         },
         onFailure: (error) => {
           setOptimisticPatch(null);
-          onReactionSucceeded?.(rowNumber, rollbackPatch);
-          showEngagementFailure("delete_comment", error.message);
+          onReactionSucceeded?.(rowNumber, rollbackPatch, postUrl);
+          showEngagementFailure("delete_comment", error.message, post, rowNumber, session);
         },
       });
     },
@@ -736,7 +752,7 @@ const runSyncProgress = useCallback(
       const optimisticEditPatch = buildSheetCommentPatch(editedComments);
 
       setOptimisticPatch(optimisticEditPatch);
-      onReactionSucceeded?.(rowNumber, optimisticEditPatch);
+      onReactionSucceeded?.(rowNumber, optimisticEditPatch, postUrl);
       onEngagementSuccess("edit_comment");
       setEditingCommentIndex(null);
       setEditCommentNewText("");
@@ -784,10 +800,10 @@ const runSyncProgress = useCallback(
         },
         onFailure: (error) => {
           setOptimisticPatch(null);
-          onReactionSucceeded?.(rowNumber, rollbackPatch);
+          onReactionSucceeded?.(rowNumber, rollbackPatch, postUrl);
           setEditingCommentIndex(commentIndex);
           setEditCommentNewText(newCommentText);
-          showEngagementFailure("edit_comment", error.message);
+          showEngagementFailure("edit_comment", error.message, post, rowNumber, session);
         },
       });
     },

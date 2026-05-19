@@ -512,3 +512,8 @@ export interface GetAllKpiResponse extends ApiResponse<KpiMemberData[]> {
 export interface GetKpiByEmailResponse extends ApiResponse<KpiMemberData[]> {
   total: number;
 }
+
+export interface AddMemberResponse extends ApiResponse<any> {
+  allowAdd: boolean;
+  code: string;
+}

@@ -14,8 +14,19 @@ export interface EngagementFeedbackOverlaysProps {
   successClosing?: boolean;
   onSuccessClose: () => void;
   onSuccessOk: () => void;
-  error: { kind: EngagementFeedbackKind; message: string } | null;
+  error: {
+    kind: EngagementFeedbackKind;
+    message: string;
+    post?: Record<string, unknown> | null;
+    rowNumber?: number | null;
+    session?: any | null;
+  } | null;
   onErrorDismiss: () => void;
+  onViewPostDetails?: (
+    post: Record<string, unknown>,
+    rowNumber: number,
+    session: any,
+  ) => void;
   zIndexClass?: string;
 }
 
@@ -26,6 +37,7 @@ export function EngagementFeedbackOverlays({
   onSuccessOk,
   error,
   onErrorDismiss,
+  onViewPostDetails,
   zIndexClass = "z-[80]",
 }: EngagementFeedbackOverlaysProps) {
   return (
@@ -141,10 +153,26 @@ export function EngagementFeedbackOverlays({
                   </p>
                 </div>
               </div>
-              <div className="mt-lg flex justify-end">
+              <div className="mt-lg flex items-center justify-end gap-sm">
+                {onViewPostDetails && error.post && (
+                  <button
+                    type="button"
+                    className="border-outline-variant text-on-surface hover:bg-surface-container-high rounded-xl border px-lg py-sm text-sm font-bold uppercase transition-colors"
+                    onClick={() => {
+                      onErrorDismiss();
+                      onViewPostDetails(
+                        error.post!,
+                        error.rowNumber ?? 1,
+                        error.session,
+                      );
+                    }}
+                  >
+                    Xem bài viết
+                  </button>
+                )}
                 <button
                   type="button"
-                  className="bg-error text-on-error min-w-28 rounded-xl px-lg py-sm text-sm font-bold uppercase"
+                  className="bg-error text-on-error min-w-28 rounded-xl px-lg py-sm text-sm font-bold uppercase active:scale-[0.98]"
                   onClick={onErrorDismiss}
                 >
                   Đã hiểu

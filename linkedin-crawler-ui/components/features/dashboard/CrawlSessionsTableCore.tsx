@@ -44,7 +44,11 @@ export function CrawlSessionsTableCore({
   filterAppliedLabel = "",
 }: CrawlSessionsTableCoreProps) {
   const PAGE_SIZE = 8;
-  const [open, setOpen] = useState<CrawlSessionGroup | null>(null);
+  const [openSessionId, setOpenSessionId] = useState<string | null>(null);
+  const open = useMemo(() => {
+    if (!openSessionId || !sessions) return null;
+    return sessions.find((s) => s.id_session_crawl === openSessionId) ?? null;
+  }, [openSessionId, sessions]);
   const [page, setPage] = useState(1);
 
   const isFiltered = tableVariant === "filtered";
@@ -125,7 +129,7 @@ export function CrawlSessionsTableCore({
                   <td className="px-md py-md">
                     <button
                       type="button"
-                      onClick={() => setOpen(row)}
+                      onClick={() => setOpenSessionId(row.id_session_crawl)}
                       className="text-primary hover:underline text-left font-mono text-xs"
                       title={row.id_session_crawl}
                     >
@@ -149,7 +153,7 @@ export function CrawlSessionsTableCore({
                   <td className="px-md py-md text-right">
                     <button
                       type="button"
-                      onClick={() => setOpen(row)}
+                      onClick={() => setOpenSessionId(row.id_session_crawl)}
                       className="text-primary text-xs font-bold uppercase tracking-wide hover:underline"
                     >
                       Xem
@@ -211,7 +215,7 @@ export function CrawlSessionsTableCore({
         linkedinPlaywrightSessionId={linkedinPlaywrightSessionId}
         onRefreshSessions={refreshSessionsAfterReaction}
         refreshSessionsBusy={refreshSessionsBusy}
-        onClose={() => setOpen(null)}
+        onClose={() => setOpenSessionId(null)}
       />
     </>
   );

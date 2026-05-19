@@ -42,6 +42,11 @@ import type {
 import { writeLinkedInCredentials } from "@/lib/credentials";
 import { computeMemberActualsInYmdRange } from "@/lib/admin-team-kpi-metrics";
 import { mergeCrawlSessionGroups } from "@/lib/merge-crawl-session-groups";
+import {
+  pickPositiveRowNumberFromPost,
+  pickPostUrlFromRecord,
+  postsShareSameLinkedInUrl,
+} from "@/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers";
 
 const LINKEDIN_GROUP_URL_PATTERN =
   /^https:\/\/(www\.)?linkedin\.com\/groups\/\d+\/?/i;
@@ -188,6 +193,12 @@ export interface DashboardCrawlerValue {
   handleSwitchAccount: (email: string, password: string, role: "leader" | "member", code?: string) => Promise<boolean>;
   /** Xác thực mã leader và ghi role=leader lên sheet (dùng ở modal chào mừng). */
   confirmLeaderRoleWithSheet: (code: string) => Promise<void>;
+  updatePostInSessions?: (
+    sessionId: string,
+    rowNum: number,
+    patch: Record<string, unknown>,
+    postUrl?: string,
+  ) => void;
 }
 
 export function useDashboardCrawler(): DashboardCrawlerValue {
@@ -253,6 +264,13 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
   teamMembersRef.current = teamMembers;
   /** Tăng khi đổi role / huỷ chuỗi get-all-posts tuần tự đang chạy. */
   const leaderTeamPostsFetchSeqRef = useRef(0);
+
+  const allPostsResultRef = useRef<CrawlSessionGroup[] | null>(null);
+  allPostsResultRef.current = allPostsResult;
+  const teamMembersPostsResultRef = useRef<CrawlSessionGroup[] | null>(null);
+  teamMembersPostsResultRef.current = teamMembersPostsResult;
+  const filterResultRef = useRef<CrawlSessionGroup[] | null>(null);
+  filterResultRef.current = filterResult;
 
   const [results, setResults] = useState<CrawlResultRow[]>([]);
   const [page, setPage] = useState(1);
@@ -527,7 +545,8 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
       }
       setAllPostsMessage(null);
       setAllPostsError(null);
-      if (options.clear) {
+      // Stale-While-Revalidate: Only clear state if we have absolutely no cached data
+      if (options.clear && !allPostsResultRef.current) {
         setAllPostsResult(null);
       }
       setIsGettingAllPosts(true);
@@ -539,7 +558,11 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
         if (!response.success) {
           throw new Error(response.message || "Không thể lấy posts từ n8n.");
         }
-        setAllPostsResult(response.data ?? []);
+        const freshData = response.data ?? [];
+        setAllPostsResult(freshData);
+        try {
+          localStorage.setItem(`linkedin_cache_all_posts_${e}`, JSON.stringify(freshData));
+        } catch {}
         setCrawlTableViewMode("all");
         if (options.withSuccessMessage) {
           setAllPostsMessage("Danh sách phiên cào đã được cập nhật");
@@ -580,10 +603,18 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
           chunks.push(r.success ? (r.data ?? []) : []);
         }
         if (seq !== leaderTeamPostsFetchSeqRef.current) return;
-        setTeamMembersPostsResult(mergeCrawlSessionGroups(chunks));
+        const merged = mergeCrawlSessionGroups(chunks);
+        setTeamMembersPostsResult(merged);
+        const e = email.trim();
+        if (e) {
+          try {
+            localStorage.setItem(`linkedin_cache_team_posts_${e}`, JSON.stringify(merged));
+          } catch {}
+        }
       } catch {
         if (seq === leaderTeamPostsFetchSeqRef.current) {
-          setTeamMembersPostsResult([]);
+          // Keep old cached teamMembersPostsResult on failure (SWR)
+          setTeamMembersPostsResult((prev) => prev ?? []);
         }
       } finally {
         if (seq === leaderTeamPostsFetchSeqRef.current) {
@@ -591,7 +622,7 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
         }
       }
     },
-    [role],
+    [role, email],
   );
 
   /** Làm mới feed gộp khi đã có danh sách member trong state (không gọi lại get-all KPI). */
@@ -609,10 +640,63 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     }
   }, [role]);
 
+  // Synchronize stale cache from localStorage as initial state to avoid blank UI
+  useEffect(() => {
+    const e = email.trim();
+    if (!e) return;
+    try {
+      const cachedAll = localStorage.getItem(`linkedin_cache_all_posts_${e}`);
+      if (cachedAll) {
+        setAllPostsResult(JSON.parse(cachedAll));
+      } else {
+        setAllPostsResult(null);
+      }
+      
+      const cachedTeam = localStorage.getItem(`linkedin_cache_team_posts_${e}`);
+      if (cachedTeam) {
+        setTeamMembersPostsResult(JSON.parse(cachedTeam));
+      } else {
+        setTeamMembersPostsResult(null);
+      }
+      
+      const cachedFilter = localStorage.getItem(`linkedin_cache_filter_posts_${e}`);
+      if (cachedFilter) {
+        setFilterResult(JSON.parse(cachedFilter));
+      } else {
+        setFilterResult(null);
+      }
+    } catch (err) {
+      console.error("Failed to load cached posts from localStorage", err);
+    }
+  }, [email]);
+
+  const fetchMyKpi = useCallback(async () => {
+    const e = email.trim();
+    if (!e) {
+      setMemberKpi(null);
+      return;
+    }
+    try {
+      const res = await getKpiByEmail({ email: e });
+      if (!res.success || !res.data?.length) {
+        setMemberKpi(null);
+        return;
+      }
+      const norm = e.toLowerCase();
+      const row =
+        res.data.find((r) => (r.email || "").trim().toLowerCase() === norm) ??
+        res.data[0];
+      setMemberKpi(row);
+    } catch {
+      setMemberKpi(null);
+    }
+  }, [email]);
+
   useEffect(() => {
     if (!email.trim()) return;
     void loadN8nSessions();
-  }, [email, loadN8nSessions]);
+    void fetchMyKpi();
+  }, [email, loadN8nSessions, fetchMyKpi]);
 
   /** Ghi role lên sheet profile (cùng logic với chuyển tài khoản / xác nhận leader). */
   const upsertLinkedInSheetRole = useCallback(
@@ -781,7 +865,10 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     async (body: Omit<FilterDataRequest, "email">, summary: string) => {
       setFilterMessage(null);
       setFilterError(null);
-      setFilterResult(null);
+      // Stale-While-Revalidate: Only clear filterResult if there is no cached data
+      if (!filterResultRef.current) {
+        setFilterResult(null);
+      }
       setCrawlTableViewMode("filtered");
 
       const e = email.trim();
@@ -802,7 +889,12 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
           throw new Error(response.message || "Không thể filter dữ liệu.");
         }
 
-        setFilterResult(response.data ?? []);
+        const freshData = response.data ?? [];
+        setFilterResult(freshData);
+        try {
+          localStorage.setItem(`linkedin_cache_filter_posts_${e}`, JSON.stringify(freshData));
+        } catch {}
+        
         setFilterMessage("Đã nhận dữ liệu filter từ n8n.");
         setFilterAppliedLabel(summary);
       } catch (error) {
@@ -1151,6 +1243,74 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     return computeMemberActualsInYmdRange(em, allPostsResult, win.startYmd, win.endYmd);
   }, [email, allPostsResult]);
 
+  const updatePostInSessions = useCallback(
+    (
+      sessionId: string,
+      rowNum: number,
+      patch: Record<string, unknown>,
+      postUrl?: string,
+    ) => {
+      const targetUrl = (postUrl || "").trim();
+
+      const updateSessionList = (prev: CrawlSessionGroup[] | null) => {
+        if (!prev) return null;
+        return prev.map((s) => {
+          const isTargetSession = s.id_session_crawl === sessionId;
+          if (!targetUrl && !isTargetSession) return s;
+
+          let hasChanges = false;
+          const updatedPosts = s.posts.map((raw, idx) => {
+            const ordinal = idx + 1;
+            const row = pickPositiveRowNumberFromPost(raw) ?? ordinal;
+            const url = pickPostUrlFromRecord(raw);
+            
+            const matchesRow = isTargetSession && row === rowNum;
+            const matchesUrl =
+              targetUrl && url
+                ? postsShareSameLinkedInUrl(url, targetUrl)
+                : false;
+
+            if (!matchesRow && !matchesUrl) return raw;
+            hasChanges = true;
+            return { ...raw, ...patch };
+          });
+
+          return hasChanges ? { ...s, posts: updatedPosts } : s;
+        });
+      };
+
+      const e = email.trim();
+      setAllPostsResult((prev) => {
+        const next = updateSessionList(prev);
+        if (next && e) {
+          try {
+            localStorage.setItem(`linkedin_cache_all_posts_${e}`, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+      setFilterResult((prev) => {
+        const next = updateSessionList(prev);
+        if (next && e) {
+          try {
+            localStorage.setItem(`linkedin_cache_filter_posts_${e}`, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+      setTeamMembersPostsResult((prev) => {
+        const next = updateSessionList(prev);
+        if (next && e) {
+          try {
+            localStorage.setItem(`linkedin_cache_team_posts_${e}`, JSON.stringify(next));
+          } catch {}
+        }
+        return next;
+      });
+    },
+    [email],
+  );
+
   return {
     emailId,
     passwordId,
@@ -1249,27 +1409,7 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     memberKpi,
     memberKpiActiveWeek,
     memberKpiTargetsForToday,
-    fetchMyKpi: useCallback(async () => {
-      const e = email.trim();
-      if (!e) {
-        setMemberKpi(null);
-        return;
-      }
-      try {
-        const res = await getKpiByEmail({ email: e });
-        if (!res.success || !res.data?.length) {
-          setMemberKpi(null);
-          return;
-        }
-        const norm = e.toLowerCase();
-        const row =
-          res.data.find((r) => (r.email || "").trim().toLowerCase() === norm) ??
-          res.data[0];
-        setMemberKpi(row);
-      } catch {
-        setMemberKpi(null);
-      }
-    }, [email]),
+    fetchMyKpi,
     memberKpiStats,
     handleSwitchAccount: async (switchEmail, switchPassword, switchRole, code) => {
       if (switchRole === "leader") {
@@ -1303,6 +1443,7 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     },
     confirmLeaderRoleWithSheet,
     isTeamLoading,
+    updatePostInSessions,
   };
 }
 

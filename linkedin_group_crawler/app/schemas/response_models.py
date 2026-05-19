@@ -458,3 +458,8 @@ class GetAllKpiResponse(BaseResponse):
 class GetKpiByEmailResponse(BaseResponse):
     total: int = 0
     data: list[KpiMemberData] = []
+
+
+class AddMemberResponse(BaseResponse):
+    allowAdd: Optional[bool] = None
+    code: Optional[str] = None

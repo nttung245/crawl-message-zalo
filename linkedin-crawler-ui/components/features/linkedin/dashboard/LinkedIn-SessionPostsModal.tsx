@@ -16,6 +16,7 @@ import {
   pickPositiveRowNumberFromPost,
   pickStr,
   postsShareSameLinkedInUrl,
+  getPostCrawlError,
 } from "@/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers";
 import { SessionPostDetailModal } from "@/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal";
 
@@ -92,6 +93,21 @@ export function SessionPostsModal({
     },
     [postPatches, session?.id_session_crawl],
   );
+
+  const failedPosts = useMemo(() => {
+    return posts
+      .map((raw, idx) => {
+        const rowNum = idx + 1;
+        const post = mergedPost(raw as Record<string, unknown>, rowNum);
+        const err = getPostCrawlError(post);
+        return err ? { post, rowNum, error: err } : null;
+      })
+      .filter(Boolean) as Array<{
+      post: Record<string, unknown>;
+      rowNum: number;
+      error: string;
+    }>;
+  }, [posts, mergedPost]);
 
   useEffect(() => {
     if (!session) return;
@@ -185,6 +201,40 @@ export function SessionPostsModal({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-lg py-md">
+          {failedPosts.length > 0 ? (
+            <div className="mb-md flex flex-col gap-sm rounded-xl border border-red-500/20 bg-red-500/10 p-md text-red-700 dark:text-red-400">
+              <div className="flex items-start gap-md">
+                <MaterialIcon
+                  name="error"
+                  className="text-red-500 text-[20px] shrink-0 mt-0.5"
+                />
+                <div className="flex-1 min-w-0">
+                  <h4 className="font-semibold text-body-sm">
+                    Phát hiện bài viết bị lỗi trong phiên cào này
+                  </h4>
+                  <p className="text-xs mt-1 text-on-surface-variant leading-relaxed">
+                    Có {failedPosts.length} bài viết xảy ra lỗi trong quá trình
+                    thu thập thông tin. Bạn có thể xem trực tiếp chi tiết.
+                  </p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 mt-sm pl-[36px]">
+                {failedPosts.map((fp) => (
+                  <button
+                    key={fp.rowNum}
+                    type="button"
+                    onClick={() =>
+                      setDetailPost({ raw: fp.post, rowNum: fp.rowNum })
+                    }
+                    className="bg-red-500/15 hover:bg-red-500/25 border border-red-500/35 text-red-700 dark:text-red-300 font-bold py-1 px-md rounded-lg text-xs flex items-center gap-1 transition-all"
+                  >
+                    <MaterialIcon name="open_in_new" className="text-[14px]" />
+                    Xem bài {fp.rowNum} bị lỗi
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           <div className="overflow-x-auto rounded-lg border border-outline-variant">
             <table className="w-full min-w-[960px] border-collapse text-left text-sm">
               <thead className="bg-surface-container-low border-outline-variant border-b">
@@ -246,10 +296,30 @@ export function SessionPostsModal({
                   const comments = pickNum(post, ["Số comment", "comments"]);
                   const score = pickNum(post, ["Điểm", "score", "Score"]);
                   const day = pickStr(post, ["Ngày", "date"]).slice(0, 10);
+                  const err = getPostCrawlError(post);
+                  const isFailed = Boolean(err);
                   return (
-                    <tr key={idx} className="hover:bg-surface-container/60">
-                      <td className="text-on-surface-variant px-md py-sm">
+                    <tr
+                      key={idx}
+                      className={`hover:bg-surface-container/60 transition-colors ${
+                        isFailed
+                          ? "bg-red-500/5 hover:bg-red-500/10 text-red-900 dark:text-red-100"
+                          : ""
+                      }`}
+                    >
+                      <td className="text-on-surface-variant px-md py-sm flex items-center gap-1">
                         {rowNum}
+                        {isFailed ? (
+                          <span
+                            className="text-red-500 cursor-help shrink-0"
+                            title={`Lỗi cào: ${err}`}
+                          >
+                            <MaterialIcon
+                              name="error"
+                              className="text-[16px]"
+                            />
+                          </span>
+                        ) : null}
                       </td>
                       <td className="text-on-surface max-w-[140px] px-md py-sm">
                         <span className="line-clamp-2" title={groupName}>

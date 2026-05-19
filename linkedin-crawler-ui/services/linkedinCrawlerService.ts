@@ -2,6 +2,7 @@ import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
   AddListGroupRequest,
   AddMemberRequest,
+  AddMemberResponse,
   AddN8nGroupRequest,
   ApiResponse,
   AssignKpiRequest,
@@ -497,8 +498,8 @@ export function getKpiByEmail(
 /** Thêm thành viên mới vào đội ngũ. */
 export function addMember(
   payload: AddMemberRequest,
-): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/team/add-member", {
+): Promise<AddMemberResponse> {
+  return requestJson<AddMemberResponse>("/team/add-member", {
     method: "POST",
     body: JSON.stringify(payload),
   });

@@ -54,6 +54,7 @@ from app.schemas.request_models import (
 )
 from app.schemas.response_models import (
     BaseResponse,
+    AddMemberResponse,
     BulkGroupImportData,
     BulkGroupImportResponse,
     BulkGroupImportScrapedItem,
@@ -3130,26 +3131,72 @@ def get_kpi_by_email(payload: GetKpiByEmailRequest) -> GetKpiByEmailResponse:
 
 @router.post(
     "/team/add-member",
-    response_model=BaseResponse,
+    response_model=AddMemberResponse,
     dependencies=[Depends(verify_api_key)],
 )
-def add_member(payload: AddMemberRequest) -> BaseResponse:
+def add_member(payload: AddMemberRequest) -> AddMemberResponse:
     """Thêm member mới qua n8n."""
     webhook_url = settings.n8n_webhook_add_member_url
     if not webhook_url:
-        return BaseResponse(success=False, message="Webhook add-member chưa cấu hình.")
+        return AddMemberResponse(
+            success=False,
+            allowAdd=False,
+            code="CONFIG_ERROR",
+            message="Webhook add-member chưa cấu hình.",
+        )
 
     try:
         status_code, response_text = post_json_to_n8n_webhook(
             url=webhook_url,
             json_body={
-                "email_member": payload.email_member,
+                "email": payload.email_member,
                 "email_leader": payload.email_leader
             },
         )
-        return BaseResponse(success=True, message=f"Đã gửi yêu cầu thêm member (Status: {status_code})")
+        
+        # Parse the JSON response returned from the n8n webhook
+        res_json = {}
+        if response_text and response_text.strip():
+            try:
+                res_json = json.loads(response_text)
+            except Exception:
+                pass
+
+        if isinstance(res_json, dict):
+            # Parse structure matching the n8n webhook success/failed schema
+            success = res_json.get("success", status_code < 400)
+            allow_add = res_json.get("allowAdd", success)
+            code = res_json.get("code", "ADD_MEMBER_SUCCESS" if success else "ADD_MEMBER_FAILED")
+            message = res_json.get("message", "Thêm thành viên thành công." if success else "Thêm thành viên thất bại.")
+            data = res_json.get("data", None)
+
+            return AddMemberResponse(
+                success=success,
+                allowAdd=allow_add,
+                code=code,
+                message=message,
+                data=data
+            )
+        
+        # Fallback if webhook returned non-JSON payload
+        success_status = status_code < 400
+        return AddMemberResponse(
+            success=success_status,
+            allowAdd=success_status,
+            code="ADD_MEMBER_SUCCESS" if success_status else "ADD_MEMBER_FAILED",
+            message=f"Đã gửi yêu cầu thêm member (Status: {status_code}). Response: {response_text}",
+            data={
+                "email": payload.email_member,
+                "email_leader": payload.email_leader
+            }
+        )
     except Exception as exc:
-        return BaseResponse(success=False, message=str(exc))
+        return AddMemberResponse(
+            success=False,
+            allowAdd=False,
+            code="EXCEPTION_ERROR",
+            message=str(exc),
+        )
 
 
 @router.post(

@@ -24,6 +24,7 @@ import {
   postLinkedInReaction,
 } from "@/services/linkedinCrawlerService";
 import type { CrawlSessionGroup, PostLinkedInReactionKind } from "@/types/api";
+import { useDashboard } from "./dashboard-context";
 
 import {
   REACTION_TOOLBAR_ORDER,
@@ -142,10 +143,25 @@ export function SessionPostDetailModal({
   onClose,
   dashboardEmail = null,
   linkedinPlaywrightSessionId = null,
-  onReactionSucceeded,
+  onReactionSucceeded: onReactionSucceededProp,
   onRefreshSessions,
   refreshSessionsBusy = false,
 }: SessionPostDetailModalProps) {
+  const { updatePostInSessions } = useDashboard();
+
+  const onReactionSucceeded = useCallback(
+    (rowNum: number, patch: Record<string, unknown>, postUrlForSync?: string) => {
+      onReactionSucceededProp?.(rowNum, patch, postUrlForSync);
+      updatePostInSessions?.(
+        session.id_session_crawl,
+        rowNum,
+        patch,
+        postUrlForSync,
+      );
+    },
+    [onReactionSucceededProp, updatePostInSessions, session.id_session_crawl],
+  );
+
   const [rxMenuOpen, setRxMenuOpen] = useState(false);
   const [rxBusy, setRxBusy] = useState(false);
   const [rxErr, setRxErr] = useState<string | null>(null);
@@ -385,7 +401,7 @@ export function SessionPostDetailModal({
     const optimisticCommentPatch = buildSheetCommentPatch(optimisticMerged);
 
     setOptimisticPatch(optimisticCommentPatch);
-    onReactionSucceeded?.(rowNumber, optimisticCommentPatch);
+    onReactionSucceeded?.(rowNumber, optimisticCommentPatch, postUrl);
     setCommentDraft("");
     setCmBusy(true);
 
@@ -411,7 +427,7 @@ export function SessionPostDetailModal({
         | undefined) ?? optimisticMerged;
       const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
       setOptimisticPatch(null);
-      onReactionSucceeded?.(rowNumber, patch);
+      onReactionSucceeded?.(rowNumber, patch, postUrl);
       if (res.data?.webhook_called) {
         setWebhookSuccessKind("comment");
       }
@@ -420,6 +436,7 @@ export function SessionPostDetailModal({
       onReactionSucceeded?.(
         rowNumber,
         buildSheetCommentPatch(commentsBeforeSend),
+        postUrl,
       );
       setCommentDraft(text);
       setCmErr(e instanceof Error ? e.message : "Lỗi không xác định.");
@@ -933,8 +950,8 @@ export function SessionPostDetailModal({
                   </h3>
                   <p className="text-body-md text-on-surface-variant mt-sm leading-relaxed whitespace-pre-line">
                     {webhookSuccessKind === "reaction"
-                      ? "Bạn đã tương tác với bài viết thành công"
-                      : "Bạn đã bình luận trên bài viết thành công"}
+                      ? "Bạn đã tương tác với bài viết thành công trên Makee, sẽ cập nhật tiến độ thật trong vòng 30s"
+                      : "Bạn đã bình luận trên bài viết thành công trên Makee, sẽ cập nhật tiến độ thật trong vòng 30s"}
                   </p>
                 </div>
               </div>
