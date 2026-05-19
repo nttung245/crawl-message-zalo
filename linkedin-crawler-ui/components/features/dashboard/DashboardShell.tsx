@@ -4,6 +4,8 @@ import { useDashboardCrawler } from "@/hooks/useDashboardCrawler";
 
 import { AppPlatformProvider } from "@/components/providers/AppPlatformProvider";
 
+import { LinkedInEngagementQueueProvider } from "@/components/features/linkedin/dashboard/linkedin-engagement-queue-context";
+
 import { DashboardAuthGate } from "./DashboardAuthGate";
 import { DashboardProvider } from "./dashboard-context";
 import { DashboardSidebar } from "./DashboardSidebar";
@@ -13,8 +15,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 
   return (
     <DashboardProvider value={state}>
-      <AppPlatformProvider>
-        <DashboardAuthGate
+      <LinkedInEngagementQueueProvider>
+        <AppPlatformProvider>
+          <DashboardAuthGate
           email={state.email}
           password={state.password}
           setEmail={state.setEmail}
@@ -24,8 +27,9 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
             <DashboardSidebar />
             <main className="p-lg lg:ml-64">{children}</main>
           </div>
-        </DashboardAuthGate>
-      </AppPlatformProvider>
+          </DashboardAuthGate>
+        </AppPlatformProvider>
+      </LinkedInEngagementQueueProvider>
     </DashboardProvider>
   );
 }

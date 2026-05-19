@@ -127,6 +127,13 @@ function formatDayVi(day: string): string {
   return `${dayNum}/${m}/${y}`;
 }
 
+function buildReactionRollbackPatch(
+  source: Record<string, unknown>,
+): Record<string, unknown> {
+  const reaction = pickStr(source, ["reaction", "Reaction"]);
+  return { reaction, Reaction: reaction };
+}
+
 export function SessionPostDetailModal({
   session,
   post,
@@ -151,8 +158,16 @@ export function SessionPostDetailModal({
   const [commentDraft, setCommentDraft] = useState("");
   const [cmBusy, setCmBusy] = useState(false);
   const [cmErr, setCmErr] = useState<string | null>(null);
+  const [optimisticPatch, setOptimisticPatch] = useState<Record<
+    string,
+    unknown
+  > | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const webhookSuccessCloseTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    setOptimisticPatch(null);
+  }, [post]);
 
   const scheduleWebhookSuccessClose = useCallback(() => {
     if (webhookSuccessCloseTimerRef.current !== null) return;
@@ -237,7 +252,12 @@ export function SessionPostDetailModal({
       : `Bài ${rowNumber}`;
   const canOpenPost = Boolean(postUrl && /^https?:\/\//i.test(postUrl));
 
-  const { kind: parsedInteractionKind } = parseSheetReaction(post);
+  const engagementPost = useMemo(() => {
+    if (!optimisticPatch) return post;
+    return { ...post, ...optimisticPatch };
+  }, [post, optimisticPatch]);
+
+  const { kind: parsedInteractionKind } = parseSheetReaction(engagementPost);
 
   const extraEntries = sortedRecordEntries(post).filter(
     ([k]) =>
@@ -248,8 +268,8 @@ export function SessionPostDetailModal({
     (session.email_crawl || "").trim() || (dashboardEmail || "").trim();
 
   const existingComments = useMemo(
-    () => parseAppCommentsFromPost(post),
-    [post],
+    () => parseAppCommentsFromPost(engagementPost),
+    [engagementPost],
   );
 
   const runReaction = useCallback(
@@ -270,10 +290,19 @@ export function SessionPostDetailModal({
       }
       const clearingReaction = parsedInteractionKind === kind;
 
+      const patch: Record<string, unknown> = clearingReaction
+        ? buildSheetReactionClearPatch()
+        : {
+            reaction: buildSheetReactionCell(kind),
+            Reaction: buildSheetReactionCell(kind),
+          };
+
+      setOptimisticPatch(patch);
+      onReactionSucceeded?.(rowNumber, patch, postUrl);
       setRxBusy(true);
       setRxMenuOpen(false);
+
       try {
-        /** Webhook/API: đúng ``row_number`` từ bản ghi GET (sheet/STT); chỉ khi thiếu mới dùng ordinal cột «#». */
         const webhookRowNumber =
           pickPositiveRowNumberFromPost(post) ?? rowNumber;
         const res = await postLinkedInReaction({
@@ -296,17 +325,17 @@ export function SessionPostDetailModal({
                 : "Reaction thất bại."),
           );
         }
-        const patch: Record<string, unknown> = clearingReaction
-          ? buildSheetReactionClearPatch()
-          : {
-              reaction: buildSheetReactionCell(kind),
-              Reaction: buildSheetReactionCell(kind),
-            };
-        onReactionSucceeded?.(rowNumber, patch, postUrl);
+        setOptimisticPatch(null);
         if (res.data?.webhook_called) {
           setWebhookSuccessKind("reaction");
         }
       } catch (e) {
+        setOptimisticPatch(null);
+        onReactionSucceeded?.(
+          rowNumber,
+          buildReactionRollbackPatch(post),
+          postUrl,
+        );
         setRxErr(e instanceof Error ? e.message : "Lỗi không xác định.");
       } finally {
         setRxBusy(false);
@@ -347,7 +376,19 @@ export function SessionPostDetailModal({
       return;
     }
 
+    const commentsBeforeSend = parseAppCommentsFromPost(post);
+    const optimisticEntry: AppCommentEntry = {
+      comment_content: text,
+      [APP_COMMENT_DAY_KEY]: isoDayLocal(),
+    };
+    const optimisticMerged = [...commentsBeforeSend, optimisticEntry];
+    const optimisticCommentPatch = buildSheetCommentPatch(optimisticMerged);
+
+    setOptimisticPatch(optimisticCommentPatch);
+    onReactionSucceeded?.(rowNumber, optimisticCommentPatch);
+    setCommentDraft("");
     setCmBusy(true);
+
     try {
       const webhookRowNumber = pickPositiveRowNumberFromPost(post) ?? rowNumber;
       const res = await postLinkedInComment({
@@ -356,7 +397,7 @@ export function SessionPostDetailModal({
         Email_crawl: emailCrawl,
         ID_session_crawl: sid,
         row_number: webhookRowNumber,
-        existing_app_comments: existingComments,
+        existing_app_comments: commentsBeforeSend,
         sheet_row: buildReactionWebhookSheetRow(post, session),
         email: (dashboardEmail || "").trim() || undefined,
         session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
@@ -365,20 +406,22 @@ export function SessionPostDetailModal({
       if (!res.success) {
         throw new Error(res.message || "Gửi comment thất bại.");
       }
-      const fallbackEntry: AppCommentEntry = {
-        comment_content: text,
-        [APP_COMMENT_DAY_KEY]: isoDayLocal(),
-      };
       const merged: AppCommentEntry[] = (res.data?.app_comments as
         | AppCommentEntry[]
-        | undefined) ?? [...existingComments, fallbackEntry];
+        | undefined) ?? optimisticMerged;
       const patch: Record<string, unknown> = buildSheetCommentPatch(merged);
+      setOptimisticPatch(null);
       onReactionSucceeded?.(rowNumber, patch);
-      setCommentDraft("");
       if (res.data?.webhook_called) {
         setWebhookSuccessKind("comment");
       }
     } catch (e) {
+      setOptimisticPatch(null);
+      onReactionSucceeded?.(
+        rowNumber,
+        buildSheetCommentPatch(commentsBeforeSend),
+      );
+      setCommentDraft(text);
       setCmErr(e instanceof Error ? e.message : "Lỗi không xác định.");
     } finally {
       setCmBusy(false);
@@ -388,7 +431,6 @@ export function SessionPostDetailModal({
     canOpenPost,
     dashboardEmail,
     emailCrawl,
-    existingComments,
     linkedinPlaywrightSessionId,
     onReactionSucceeded,
     post,
@@ -458,13 +500,13 @@ export function SessionPostDetailModal({
                     className="border-outline-variant bg-surface-container-low text-on-surface inline-flex min-h-[28px] items-center gap-2 rounded-full border px-md py-1 text-xs font-semibold"
                     title="Theo cột reaction trên sheet / webhook"
                   >
-                    <SheetInteractionStatus post={post} variant="chip" />
+                    <SheetInteractionStatus post={engagementPost} variant="chip" />
                   </span>
                   <span
                     className="border-outline-variant bg-surface-container-low text-on-surface inline-flex min-h-[28px] items-start rounded-full border px-md py-1 text-xs font-semibold"
                     title="Theo cột comment (automation), không phải số CMT LinkedIn"
                   >
-                    <SheetCommentStatus post={post} variant="chip" />
+                    <SheetCommentStatus post={engagementPost} variant="chip" />
                   </span>
                 </div>
               </div>
@@ -495,7 +537,7 @@ export function SessionPostDetailModal({
                       emphasis={Boolean(parsedInteractionKind)}
                       className="shrink-0 text-[20px] leading-none"
                     />
-                    {rxBusy ? "Đang xử lý…" : "Tương tác"}
+                    {rxBusy ? "Đang đồng bộ…" : "Tương tác"}
                     <MaterialIcon
                       name="chevron_right"
                       className="text-[18px] rotate-90"

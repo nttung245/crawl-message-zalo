@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import Final, Literal
 from urllib.parse import urlparse
 
-from playwright.sync_api import Error, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
+from playwright.sync_api import Error, Page, TimeoutError as PlaywrightTimeoutError
 
-from app.config import settings
 from app.services.auth_service import build_session_state_path
+from app.services.playwright_browser_pool import run_with_linkedin_session_page
 from app.utils.logger import get_logger
 
 
@@ -212,57 +212,37 @@ def _run_linkedin_post_reaction_playwright(
     if reaction not in REACTION_SELECTORS:
         raise ValueError(f"reaction không hỗ trợ: {reaction}")
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(
-            headless=settings.headless,
-            args=[
-                "--disable-gpu",
-                "--disable-dev-shm-usage",
-                "--no-sandbox",
-                "--disable-setuid-sandbox",
-                "--disable-infobars",
-                "--disable-crash-reporter",
-                "--disable-web-resources",
-            ],
-        )
-        context = browser.new_context(storage_state=str(state_path))
-        page = context.new_page()
-
+    def _playwright_action(page: Page) -> tuple[str, str]:
         try:
-            try:
-                page.goto(url, wait_until="domcontentloaded", timeout=300000)
-            except Error as exc:
-                current = page.url or ""
-                if _is_login_url(current):
-                    raise RuntimeError(
-                        "LinkedIn chuyển sang trang đăng nhập/checkpoint — session có thể đã hết hạn.",
-                    ) from exc
-                raise RuntimeError(f"Lỗi khi mở URL bài: {exc}") from exc
-
-            page.wait_for_timeout(2500)
-
-            if _is_login_url(page.url):
+            page.goto(url, wait_until="domcontentloaded", timeout=300000)
+        except Error as exc:
+            current = page.url or ""
+            if _is_login_url(current):
                 raise RuntimeError(
-                    "LinkedIn session không hợp lệ hoặc đã hết hạn (đang ở login/checkpoint).",
-                )
+                    "LinkedIn chuyển sang trang đăng nhập/checkpoint — session có thể đã hết hạn.",
+                ) from exc
+            raise RuntimeError(f"Lỗi khi mở URL bài: {exc}") from exc
 
-            if clear_reaction:
-                _remove_reaction_on_page(page, reaction, timeout_ms=300000)
-            else:
-                _click_reaction_on_page(page, reaction, timeout_ms=300000)
+        page.wait_for_timeout(2500)
 
-            page.wait_for_timeout(1200)
-            final_url = page.url or url
+        if _is_login_url(page.url):
+            raise RuntimeError(
+                "LinkedIn session không hợp lệ hoặc đã hết hạn (đang ở login/checkpoint).",
+            )
 
-            try:
-                context.storage_state(path=str(state_path))
-            except Error:
-                logger.warning("Could not persist storage_state after reaction", exc_info=True)
+        if clear_reaction:
+            _remove_reaction_on_page(page, reaction, timeout_ms=300000)
+        else:
+            _click_reaction_on_page(page, reaction, timeout_ms=300000)
 
-            return normalized_session_id, final_url
-        finally:
-            context.close()
-            browser.close()
+        page.wait_for_timeout(1200)
+        final_url = page.url or url
+        return normalized_session_id, final_url
+
+    return run_with_linkedin_session_page(
+        state_path=state_path,
+        action=_playwright_action,
+    )
 
 
 def react_to_linkedin_post(

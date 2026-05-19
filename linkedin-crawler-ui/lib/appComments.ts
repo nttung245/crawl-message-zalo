@@ -87,6 +87,7 @@ export function buildSheetCommentPatch(
   comments: AppCommentEntry[],
 ): Record<string, AppCommentEntry[]> {
   return {
+    comments,
     comment: comments,
     Comment: comments,
   };

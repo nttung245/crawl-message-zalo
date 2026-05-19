@@ -216,6 +216,32 @@ Gia tri pass:
 - Hard refresh trinh duyet: `Ctrl + F5`.
 - Rebuild frontend theo muc 7.
 
+5. `minhhoang-frontend` errored — `Cannot find module .../.next/standalone/server.js`
+
+- `next.config.ts` phai co `output: "standalone"` (khong dung `output: "export"`).
+- Chay lai muc 7 (build), roi `pm2 delete minhhoang-frontend` va start lai theo muc 5.
+- Kiem tra file ton tai: `test -f linkedin-crawler-ui/.next/standalone/server.js && echo OK`.
+
+6. `page=200` nhung `api=504` — backend treo / crash loop (↺ tang, CPU 100%)
+
+- Test truc tiep (bo proxy):
+  ```bash
+  curl -s -o /dev/null -w "backend_direct=%{http_code}\n" http://127.0.0.1:8101/health
+  pm2 logs minhhoang-backend --lines 80 --nostream
+  ```
+- Thuong do Playwright Chromium khoi dong loi tren VM. Trong `.env`:
+  ```env
+  PLAYWRIGHT_WARMUP_ON_STARTUP=false
+  ```
+  Sau do `pm2 restart minhhoang-backend --update-env` — `/health` phai `200` ngay.
+- Cai browser Playwright (neu thieu):
+  ```bash
+  cd /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler
+  source .venv/bin/activate
+  playwright install chromium
+  ```
+- Pull ban moi: warmup Playwright chay **nen** sau khi API listen (khong chan `/health`).
+
 ## 10) Vi tri file quan trong
 
 - Backend env: `/opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler/.env`
