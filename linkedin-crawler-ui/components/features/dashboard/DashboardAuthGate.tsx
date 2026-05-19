@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
 import { MaterialIcon } from "@/components/ui";
 import {
@@ -23,6 +24,7 @@ export function DashboardAuthGate({
   setPassword,
   children,
 }: DashboardAuthGateProps) {
+  const pathname = usePathname();
   const [isReady, setIsReady] = useState(false);
   const [localEmail, setLocalEmail] = useState(email);
   const [localPassword, setLocalPassword] = useState(password);
@@ -32,6 +34,7 @@ export function DashboardAuthGate({
     () => Boolean(email.trim() && password.trim()),
     [email, password],
   );
+  const bypassLinkedInAuth = pathname.startsWith("/zalo-crawl");
 
   useEffect(() => {
     if (hasCredentials) {
@@ -65,7 +68,7 @@ export function DashboardAuthGate({
     setIsReady(true);
   };
 
-  if (isReady) {
+  if (bypassLinkedInAuth || isReady) {
     return <>{children}</>;
   }
 

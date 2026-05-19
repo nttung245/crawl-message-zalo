@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useContext, type ReactNode } from "react";
+import { usePathname } from "next/navigation";
 
 import type { DashboardCrawlerValue } from "@/hooks/useDashboardCrawler";
 import { WelcomeRoleModal } from "@/components/features/auth/WelcomeRoleModal";
@@ -21,14 +22,19 @@ interface DashboardProviderProps {
 }
 
 export function DashboardProvider({ value, children }: DashboardProviderProps) {
+  const pathname = usePathname();
+  const skipRoleModal = pathname.startsWith("/zalo-crawl");
+
   return (
     <DashboardContext.Provider value={value}>
       {children}
-      <WelcomeRoleModal
-        isOpen={value.role === null}
-        onSelect={(role) => value.setRole(role)}
-        confirmLeaderRoleWithSheet={value.confirmLeaderRoleWithSheet}
-      />
+      {skipRoleModal ? null : (
+        <WelcomeRoleModal
+          isOpen={value.role === null}
+          onSelect={(role) => value.setRole(role)}
+          confirmLeaderRoleWithSheet={value.confirmLeaderRoleWithSheet}
+        />
+      )}
     </DashboardContext.Provider>
   );
 }

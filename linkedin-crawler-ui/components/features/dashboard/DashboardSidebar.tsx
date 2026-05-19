@@ -28,6 +28,7 @@ export function DashboardSidebar() {
   const isTeamAdmin = pathname === "/admin/team";
   const isCrawlFb = pathname === "/crawl-data";
   const isInteraction = pathname === "/Interaction";
+  const isZaloCrawl = pathname === "/zalo-crawl";
   /** Leader LinkedIn: chỉ dùng màn quản lý đội, không dùng Post Feed / Groups. */
   const isLeaderLinkedInWorkspace = platform === "linkedin" && d.role === "leader";
   const [accountOpen, setAccountOpen] = useState(false);
@@ -192,6 +193,13 @@ export function DashboardSidebar() {
             >
               <MaterialIcon name="group" className="shrink-0" />
               <span className="min-w-0 leading-snug">Groups</span>
+            </Link>
+            <Link
+              href="/zalo-crawl"
+              className={cn(isZaloCrawl ? sideActive : sideIdle)}
+            >
+              <MaterialIcon name="chat_bubble" className="shrink-0" />
+              <span className="min-w-0 leading-snug">Zalo Crawl</span>
             </Link>
 
             {/* Các menu bổ sung cho Facebook workspace */}
