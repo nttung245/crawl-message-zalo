@@ -23,12 +23,6 @@ import type {
   GetKpiByEmailResponse,
   LoginRequest,
   LoginResponse,
-  PostLinkedInCommentRequest,
-  PostLinkedInCommentResponse,
-  PostLinkedInCommentDeleteResponse,
-  PostLinkedInCommentEditResponse,
-  PostLinkedInReactionRequest,
-  PostLinkedInReactionResponse,
   N8nGroupOperationResponse,
   RemoveN8nGroupRequest,
   StartWorkflowRequest,
@@ -210,143 +204,6 @@ export function getAllLinkedInPosts(
   });
 }
 
-/** Playwright reaction trên URL bài + webhook ``N8N_WEBHOOK_POST_REACTION`` (ghi sheet). */
-export function postLinkedInReaction(
-  payload: PostLinkedInReactionRequest,
-): Promise<PostLinkedInReactionResponse> {
-  const body: Record<string, unknown> = {
-    post_url: payload.post_url.trim(),
-    reaction: payload.reaction,
-    Email_crawl: payload.Email_crawl.trim(),
-    ID_session_crawl: payload.ID_session_crawl.trim(),
-    row_number: payload.row_number,
-    post_to_webhook: payload.post_to_webhook ?? true,
-    clear_reaction: payload.clear_reaction ?? false,
-  };
-  if (payload.sheet_row && typeof payload.sheet_row === "object") {
-    body.sheet_row = payload.sheet_row;
-  }
-  const sid = payload.session_id?.trim();
-  if (sid) body.session_id = sid;
-  if (payload.email?.trim()) body.email = payload.email.trim();
-  return requestJson<PostLinkedInReactionResponse>("/linkedin/post/react", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-/** Playwright đăng comment + webhook reaction (mảng dòng khớp url+email). */
-export function postLinkedInComment(
-  payload: PostLinkedInCommentRequest,
-): Promise<PostLinkedInCommentResponse> {
-  const body: Record<string, unknown> = {
-    post_url: payload.post_url.trim(),
-    comment_text: payload.comment_text.trim(),
-    Email_crawl: payload.Email_crawl.trim(),
-    ID_session_crawl: payload.ID_session_crawl.trim(),
-    row_number: payload.row_number,
-    existing_app_comments: payload.existing_app_comments.map((e) => ({
-      comment_content: e.comment_content.trim(),
-      "ngày comment": e["ngày comment"].trim(),
-    })),
-    post_to_webhook: payload.post_to_webhook ?? true,
-    typing_delay_ms: payload.typing_delay_ms ?? 30,
-    timeout_ms: payload.timeout_ms ?? 120000,
-  };
-  if (payload.sheet_row && typeof payload.sheet_row === "object") {
-    body.sheet_row = payload.sheet_row;
-  }
-  const sid = payload.session_id?.trim();
-  if (sid) body.session_id = sid;
-  if (payload.email?.trim()) body.email = payload.email.trim();
-  return requestJson<PostLinkedInCommentResponse>("/linkedin/post/comment", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
-export function deleteLinkedInComment(payload: {
-  profile_slug: string;
-  post_url: string;
-  comment_text: string;
-  Email_crawl: string;
-  ID_session_crawl: string;
-  row_number: number;
-  session_id?: string;
-  email?: string;
-  post_to_webhook?: boolean;
-  sheet_row?: Record<string, unknown>;
-  max_scroll?: number;
-  timeout_ms?: number;
-}): Promise<PostLinkedInCommentDeleteResponse> {
-  const body: Record<string, unknown> = {
-    profile_slug: payload.profile_slug.trim(),
-    post_url: payload.post_url.trim(),
-    comment_text: payload.comment_text.trim(),
-    Email_crawl: payload.Email_crawl.trim(),
-    ID_session_crawl: payload.ID_session_crawl.trim(),
-    row_number: payload.row_number,
-    post_to_webhook: payload.post_to_webhook ?? true,
-    max_scroll: payload.max_scroll ?? 8,
-    timeout_ms: payload.timeout_ms ?? 120000,
-  };
-  if (payload.sheet_row && typeof payload.sheet_row === "object") {
-    body.sheet_row = payload.sheet_row;
-  }
-  const sid = payload.session_id?.trim();
-  if (sid) body.session_id = sid;
-  if (payload.email?.trim()) body.email = payload.email.trim();
-
-  return requestJson<PostLinkedInCommentDeleteResponse>(
-    "/linkedin/post/comment/delete",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-}
-
-export function editLinkedInComment(payload: {
-  profile_slug: string;
-  post_url: string;
-  comment_text: string;
-  new_comment_text: string;
-  Email_crawl: string;
-  ID_session_crawl: string;
-  row_number: number;
-  session_id?: string;
-  email?: string;
-  post_to_webhook?: boolean;
-  sheet_row?: Record<string, unknown>;
-  timeout_ms?: number;
-}): Promise<PostLinkedInCommentEditResponse> {
-  const body: Record<string, unknown> = {
-    profile_slug: payload.profile_slug.trim(),
-    post_url: payload.post_url.trim(),
-    comment_text: payload.comment_text.trim(),
-    new_comment_text: payload.new_comment_text.trim(),
-    Email_crawl: payload.Email_crawl.trim(),
-    ID_session_crawl: payload.ID_session_crawl.trim(),
-    row_number: payload.row_number,
-    post_to_webhook: payload.post_to_webhook ?? true,
-    timeout_ms: payload.timeout_ms ?? 120000,
-  };
-  if (payload.sheet_row && typeof payload.sheet_row === "object") {
-    body.sheet_row = payload.sheet_row;
-  }
-  const sid = payload.session_id?.trim();
-  if (sid) body.session_id = sid;
-  if (payload.email?.trim()) body.email = payload.email.trim();
-
-  return requestJson<PostLinkedInCommentEditResponse>(
-    "/linkedin/post/comment/edit",
-    {
-      method: "POST",
-      body: JSON.stringify(body),
-    },
-  );
-}
-
 export function getAllN8nGroups(
   payload: GetAllN8nGroupsRequest,
 ): Promise<N8nGroupOperationResponse> {
@@ -432,6 +289,8 @@ export function syncPostProgress(payload: {
   sheet_row?: Record<string, unknown> | null;
   session_id?: string | null;
   email?: string | null;
+  password?: string | null;
+  auto_login?: boolean;
   post_to_webhook?: boolean;
   timeout_ms?: number;
 }): Promise<import("@/types/api").SyncPostProgressResponse> {
@@ -450,6 +309,8 @@ export function syncAllProgress(payload: {
   profile_slug: string;
   session_id?: string | null;
   email?: string | null;
+  password?: string | null;
+  auto_login?: boolean;
   timeout_ms_per_post?: number;
   limit_posts?: number;
 }): Promise<import("@/types/api").SyncAllProgressResponse> {

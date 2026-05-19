@@ -24,7 +24,6 @@ export type LinkedInEngagementQueueValue = {
   enqueueEngagement: <T>(task: EngagementQueueTask<T>) => void;
   pendingCount: number;
   onEngagementSuccess: (kind: EngagementFeedbackKind) => void;
-  enqueuePostEngagementSync: () => void;
   showEngagementFailure: (
     kind: EngagementFeedbackKind,
     message: string,
@@ -61,7 +60,6 @@ export function LinkedInEngagementQueueProvider({
   const { refreshDashboardData, updatePostInSessions, email } = useDashboard();
   const { enqueue: enqueueEngagement, pendingCount } = useEngagementTaskQueue();
 
-  const backgroundSyncRef = useRef<(() => Promise<void>) | null>(null);
   const engagementSuccessCloseTimerRef = useRef<number | null>(null);
 
   const [engagementSuccessKind, setEngagementSuccessKind] =
@@ -82,12 +80,9 @@ export function LinkedInEngagementQueueProvider({
     session: any;
   } | null>(null);
 
-  const registerBackgroundSync = useCallback(
-    (runner: (() => Promise<void>) | null) => {
-      backgroundSyncRef.current = runner;
-    },
-    [],
-  );
+  const registerBackgroundSync = useCallback((_runner: (() => Promise<void>) | null) => {
+    /* Giữ API tương thích modal; không còn sync nền sau reaction/comment. */
+  }, []);
 
   const scheduleEngagementSuccessClose = useCallback(() => {
     if (engagementSuccessCloseTimerRef.current !== null) return;
@@ -139,18 +134,6 @@ export function LinkedInEngagementQueueProvider({
     }
   }, [enqueueEngagement, refreshDashboardData]);
 
-  /** Gọi sau khi Playwright thành công — đồng bộ sheet + refresh dashboard ở nền. */
-  const enqueuePostEngagementSync = useCallback(() => {
-    const runner = backgroundSyncRef.current;
-    enqueueEngagement({
-      label: "background_sync",
-      run: async () => {
-        if (runner) await runner();
-        await refreshDashboardData();
-      },
-    });
-  }, [enqueueEngagement, refreshDashboardData]);
-
   const showEngagementFailure = useCallback(
     (
       kind: EngagementFeedbackKind,
@@ -172,7 +155,6 @@ export function LinkedInEngagementQueueProvider({
     enqueueEngagement,
     pendingCount,
     onEngagementSuccess,
-    enqueuePostEngagementSync,
     showEngagementFailure,
     registerBackgroundSync,
   };

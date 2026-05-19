@@ -47,6 +47,7 @@ import {
   pickPostUrlFromRecord,
   postsShareSameLinkedInUrl,
 } from "@/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers";
+import { resolveProfileSlugFromSheetForEmail } from "@/lib/LinkedIn-resolve-profile-slug-from-sheet";
 
 const LINKEDIN_GROUP_URL_PATTERN =
   /^https:\/\/(www\.)?linkedin\.com\/groups\/\d+\/?/i;
@@ -1191,16 +1192,14 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     setAllPostsMessage(null);
     
     try {
-      const slugRes = await getMyProfileSlug({ email: e });
-      if (!slugRes.success || !slugRes.data?.profile_slug) {
-        throw new Error(slugRes.message || "Không lấy được profile slug để đồng bộ.");
-      }
-      const profileSlug = slugRes.data.profile_slug;
+      const profileSlug = await resolveProfileSlugFromSheetForEmail(e);
       
       const res = await syncAllProgress({
         email_crawl: e,
         profile_slug: profileSlug,
         email: e,
+        password: password || undefined,
+        auto_login: true,
       });
       
       if (!res.success) {
@@ -1215,7 +1214,7 @@ export function useDashboardCrawler(): DashboardCrawlerValue {
     } finally {
       setIsSyncingAllProgress(false);
     }
-  }, [email, loadN8nSessions, refreshLeaderTeamPostsFromStoredMembers, role]);
+  }, [email, password, loadN8nSessions, refreshLeaderTeamPostsFromStoredMembers, role]);
 
   const memberKpiActiveWeek = useMemo((): NormalizedKpiEntry | null => {
     const raw = coerceMemberKpiList(memberKpi);
