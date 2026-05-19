@@ -35,6 +35,19 @@ export interface ZaloStartCrawlResponse {
   sheet_url: string;
 }
 
+export interface ZaloCrawledGroupItem {
+  group_name: string;
+  sheet_tab: string;
+  message_count: number;
+}
+
+export interface ZaloCrawledGroupsResponse {
+  sheet_id: string;
+  sheet_url: string;
+  total_groups: number;
+  groups: ZaloCrawledGroupItem[];
+}
+
 export interface ZaloJobProgress {
   messages_collected: number;
   images_found: number;

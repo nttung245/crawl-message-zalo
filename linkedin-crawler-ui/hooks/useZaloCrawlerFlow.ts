@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   deleteZaloSession,
   getZaloAuthStatus,
+  getZaloCrawledGroups,
   getZaloJobs,
   initZaloAuthSession,
   refreshZaloQr,
@@ -12,6 +13,8 @@ import {
 } from "@/services/zaloCrawlerService";
 import type {
   ZaloAuthStatus,
+  ZaloCrawledGroupItem,
+  ZaloCrawledGroupsResponse,
   ZaloJobData,
   ZaloJobProgress,
   ZaloJobStatus,
@@ -71,6 +74,11 @@ export interface ZaloCrawlerFlowValue {
   feedbackMessage: string | null;
   errorMessage: string | null;
   warningMessage: string | null;
+  crawledGroups: ZaloCrawledGroupItem[];
+  crawledGroupsSheetUrl: string | null;
+  crawledGroupsTotal: number;
+  isLoadingCrawledGroups: boolean;
+  crawledGroupsError: string | null;
   groupRows: ZaloGroupInputRow[];
   jobs: ZaloTrackedJobState[];
   summary: ZaloCrawlerSummary;
@@ -80,6 +88,7 @@ export interface ZaloCrawlerFlowValue {
   closeQrModal: () => Promise<void>;
   refreshQrCode: () => Promise<void>;
   addGroupRow: () => void;
+  addCrawledGroup: (group: ZaloCrawledGroupItem) => void;
   updateGroupRow: (
     rowId: string,
     field: "groupName" | "sheetTab",
@@ -236,6 +245,14 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
   const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [warningMessage, setWarningMessage] = useState<string | null>(null);
+  const [crawledGroups, setCrawledGroups] = useState<ZaloCrawledGroupItem[]>([]);
+  const [crawledGroupsSheetUrl, setCrawledGroupsSheetUrl] =
+    useState<string | null>(null);
+  const [crawledGroupsTotal, setCrawledGroupsTotal] = useState(0);
+  const [isLoadingCrawledGroups, setIsLoadingCrawledGroups] = useState(false);
+  const [crawledGroupsError, setCrawledGroupsError] = useState<string | null>(
+    null,
+  );
   const [groupRows, setGroupRows] = useState<ZaloGroupInputRow[]>(() => [
     createGroupRow(0),
   ]);
@@ -272,6 +289,30 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       clearJobPolling();
     };
   }, [clearAuthPolling, clearJobPolling]);
+
+  const loadCrawledGroups = useCallback(async () => {
+    setIsLoadingCrawledGroups(true);
+    setCrawledGroupsError(null);
+
+    try {
+      const response: ZaloCrawledGroupsResponse = await getZaloCrawledGroups();
+      setCrawledGroups(response.groups ?? []);
+      setCrawledGroupsSheetUrl(response.sheet_url ?? null);
+      setCrawledGroupsTotal(response.total_groups ?? response.groups?.length ?? 0);
+    } catch (error) {
+      setCrawledGroupsError(
+        error instanceof Error
+          ? `Không thể tải danh sách nhóm đã crawl: ${error.message}`
+          : "Không thể tải danh sách nhóm đã crawl.",
+      );
+    } finally {
+      setIsLoadingCrawledGroups(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadCrawledGroups();
+  }, [loadCrawledGroups]);
 
   const resetAuthState = useCallback(() => {
     setSessionId(null);
@@ -492,6 +533,58 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     });
   }, []);
 
+  const addCrawledGroup = useCallback((group: ZaloCrawledGroupItem) => {
+    const groupName = group.group_name.trim();
+    const sheetTab = group.sheet_tab.trim();
+
+    if (!groupName) return;
+    let didAdd = false;
+
+    setGroupRows((previous) => {
+      const hasExisting = previous.some(
+        (row) => row.groupName.trim().toLowerCase() === groupName.toLowerCase(),
+      );
+      if (hasExisting) {
+        return previous;
+      }
+
+      const emptyIndex = previous.findIndex(
+        (row) => row.groupName.trim().length === 0,
+      );
+
+      didAdd = true;
+
+      if (emptyIndex >= 0) {
+        return previous.map((row, index) =>
+          index === emptyIndex
+            ? {
+                ...row,
+                groupName,
+                sheetTab: sheetTab || row.sheetTab,
+              }
+            : row,
+        );
+      }
+
+      return [
+        ...previous,
+        {
+          id: `zalo-group-${previous.length}-${crypto.randomUUID()}`,
+          groupName,
+          sheetTab,
+        },
+      ];
+    });
+
+    if (didAdd) {
+      setWarningMessage(null);
+      setFeedbackMessage("Đã thêm nhóm vào danh sách crawl.");
+    } else {
+      setFeedbackMessage(null);
+      setWarningMessage("Nhóm này đã có trong danh sách crawl.");
+    }
+  }, []);
+
   const updateGroupRow = useCallback(
     (rowId: string, field: "groupName" | "sheetTab", value: string) => {
       setGroupRows((previous) =>
@@ -673,6 +766,11 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     feedbackMessage,
     errorMessage,
     warningMessage,
+    crawledGroups,
+    crawledGroupsSheetUrl,
+    crawledGroupsTotal,
+    isLoadingCrawledGroups,
+    crawledGroupsError,
     groupRows,
     jobs,
     summary,
@@ -685,6 +783,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     closeQrModal,
     refreshQrCode,
     addGroupRow,
+    addCrawledGroup,
     updateGroupRow,
     removeGroupRow,
     startCrawlForGroups,

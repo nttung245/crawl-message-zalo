@@ -1,7 +1,8 @@
-import { API_BASE_URL, API_KEY } from "@/lib/env";
+import { ZALO_API_BASE_URL, ZALO_API_KEY } from "@/lib/env";
 import type {
   ZaloAuthInitResponse,
   ZaloAuthStatusResponse,
+  ZaloCrawledGroupsResponse,
   ZaloDeleteSessionResponse,
   ZaloJobData,
   ZaloRefreshQrResponse,
@@ -14,10 +15,10 @@ const JSON_HEADERS = {
 } as const;
 
 function buildHeaders(extra?: HeadersInit): HeadersInit {
-  const baseHeaders: HeadersInit = API_KEY
+  const baseHeaders: HeadersInit = ZALO_API_KEY
     ? {
         ...JSON_HEADERS,
-        "x-api-key": API_KEY,
+        "x-api-key": ZALO_API_KEY,
       }
     : JSON_HEADERS;
 
@@ -31,7 +32,7 @@ async function requestJson<TResponse>(
   path: string,
   init?: RequestInit,
 ): Promise<TResponse> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+  const response = await fetch(`${ZALO_API_BASE_URL}${path}`, {
     ...init,
     credentials: init?.credentials ?? "include",
     headers: buildHeaders(init?.headers),
@@ -121,6 +122,12 @@ export function getZaloJob(jobId: string): Promise<ZaloJobData> {
 
 export function getZaloJobs(): Promise<ZaloJobData[]> {
   return requestJson<ZaloJobData[]>("/api/zalo/jobs", {
+    method: "GET",
+  });
+}
+
+export function getZaloCrawledGroups(): Promise<ZaloCrawledGroupsResponse> {
+  return requestJson<ZaloCrawledGroupsResponse>("/api/zalo/groups/crawled", {
     method: "GET",
   });
 }
