@@ -357,6 +357,44 @@ def system_status() -> StatusResponse:
     )
 
 
+def _pool_prime_fields(pool_prime: dict[str, Any] | None) -> dict[str, int | None]:
+    if not pool_prime:
+        return {
+            "playwright_pool_primed_workers": None,
+            "playwright_pool_workers": None,
+        }
+    return {
+        "playwright_pool_primed_workers": int(pool_prime.get("primed_workers", 0)),
+        "playwright_pool_workers": int(pool_prime.get("total_workers", 0)),
+    }
+
+
+def _login_success_message(
+    base: str,
+    pool_prime: dict[str, Any] | None,
+) -> str:
+    if not pool_prime:
+        return base
+    primed = int(pool_prime.get("primed_workers", 0))
+    total = int(pool_prime.get("total_workers", 0))
+    if total <= 0:
+        return base
+    if primed >= total:
+        return (
+            f"{base} Đã nạp session lên {primed}/{total} browser pool — "
+            "react/comment không cần đăng nhập lại trên từng worker."
+        )
+    if primed > 0:
+        return (
+            f"{base} Nạp session pool một phần ({primed}/{total} worker). "
+            "Xem log backend; có thể gọi lại POST /login với force_relogin=false."
+        )
+    return (
+        f"{base} Không nạp được session lên pool Playwright — "
+        "thử POST /login lại hoặc kiểm tra file storage/session."
+    )
+
+
 @router.post("/login", response_model=LoginResponse, dependencies=[Depends(verify_api_key)])
 def login(payload: LoginRequest) -> LoginResponse:
     """Login to LinkedIn. Returns need_otp when email challenge is required."""
@@ -367,6 +405,7 @@ def login(payload: LoginRequest) -> LoginResponse:
             password=payload.password,
             session_id=payload.session_id,
             force_relogin=payload.force_relogin,
+            prime_pool=payload.prime_pool,
         )
         if result.status == "need_otp":
             return LoginResponse(
@@ -379,15 +418,20 @@ def login(payload: LoginRequest) -> LoginResponse:
                 need_otp=True,
                 checkpoint_url=result.checkpoint_url,
             )
+        prime_fields = _pool_prime_fields(result.pool_prime)
         return LoginResponse(
             success=True,
-            message="LinkedIn session saved successfully",
+            message=_login_success_message(
+                "LinkedIn session saved successfully.",
+                result.pool_prime,
+            ),
             session_id=result.session_id,
             state_path=_state_path_for_response(result.state_path) if result.state_path else None,
             email=result.email,
             login_step="success",
             need_otp=False,
             checkpoint_url=None,
+            **prime_fields,
         )
     except Exception as exc:
         logger.exception("Login endpoint failed")
@@ -407,20 +451,26 @@ def verify_login(payload: VerifyLoginRequest) -> VerifyLoginResponse:
     """Complete LinkedIn OTP verification using pending session from POST /login."""
 
     try:
-        session_id, state_path, email = verify_pending_login_otp(
+        session_id, state_path, email, pool_prime = verify_pending_login_otp(
             pending_session_id=payload.session_id,
             otp_code=payload.otp,
             checkpoint_url=payload.checkpoint_url,
+            prime_pool=payload.prime_pool,
         )
+        prime_fields = _pool_prime_fields(pool_prime)
         return VerifyLoginResponse(
             success=True,
-            message="Xác minh OTP thành công. Session LinkedIn đã được lưu.",
+            message=_login_success_message(
+                "Xác minh OTP thành công. Session LinkedIn đã được lưu.",
+                pool_prime,
+            ),
             session_id=session_id,
             state_path=_state_path_for_response(state_path),
             email=email,
             login_step="success",
             need_otp=False,
             checkpoint_url=None,
+            **prime_fields,
         )
     except PendingLoginSessionNotFoundError as exc:
         return VerifyLoginResponse(

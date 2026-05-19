@@ -24,6 +24,14 @@ class LoginResponse(BaseResponse):
     login_step: Literal["success", "need_otp", "error"] = "error"
     need_otp: bool = False
     checkpoint_url: Optional[str] = None
+    playwright_pool_primed_workers: Optional[int] = Field(
+        default=None,
+        description="Số worker pool đã nạp session thành công (sau login/verify).",
+    )
+    playwright_pool_workers: Optional[int] = Field(
+        default=None,
+        description="Tổng số worker Playwright (PLAYWRIGHT_POOL_SIZE).",
+    )
 
 
 class VerifyLoginResponse(LoginResponse):

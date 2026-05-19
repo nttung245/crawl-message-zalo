@@ -80,6 +80,7 @@ class LoginFlowResult:
     state_path: Path | None
     email: str
     checkpoint_url: str | None = None
+    pool_prime: dict[str, Any] | None = None
 
 
 _pending_login_sessions: dict[str, PendingLoginSession] = {}
@@ -576,11 +577,22 @@ def _save_session_state(context: BrowserContext, state_path: Path) -> None:
     logger.info("Saved LinkedIn storage state to %s", state_path)
 
 
+def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> dict[str, Any] | None:
+    """Nạp file session lên mọi Chromium worker — react/comment không bị login lạnh mỗi browser."""
+
+    if not enabled:
+        return None
+    from app.services.playwright_browser_pool import prime_linkedin_session_on_pool
+
+    return prime_linkedin_session_on_pool(state_path)
+
+
 def login_and_save_session(
     email: str,
     password: str,
     session_id: str | None = None,
     force_relogin: bool = True,
+    prime_pool: bool = True,
 ) -> LoginFlowResult:
     """Login to LinkedIn và lưu storage state vào đúng một file session (theo email / session_id).
 
@@ -598,11 +610,13 @@ def login_and_save_session(
     if state_path.exists() and not force_relogin:
         if _existing_state_is_reusable(state_path):
             logger.info("Reusing existing LinkedIn state file at %s", state_path)
+            pool_prime = _prime_playwright_pool_for_state(state_path, enabled=prime_pool)
             return LoginFlowResult(
                 status="success",
                 session_id=normalized_session_id,
                 state_path=state_path,
                 email=email.strip().lower(),
+                pool_prime=pool_prime,
             )
         logger.info("Existing LinkedIn state file is invalid; continuing with fresh login")
 
@@ -691,11 +705,13 @@ def login_and_save_session(
             )
 
         _save_session_state(context, state_path)
+        pool_prime = _prime_playwright_pool_for_state(state_path, enabled=prime_pool)
         return LoginFlowResult(
             status="success",
             session_id=normalized_session_id,
             state_path=state_path,
             email=email.strip().lower(),
+            pool_prime=pool_prime,
         )
     except Error as exc:
         logger.exception("LinkedIn login failed")
@@ -714,7 +730,8 @@ def verify_pending_login_otp(
     pending_session_id: str,
     otp_code: str,
     checkpoint_url: str | None = None,
-) -> tuple[str, Path, str]:
+    prime_pool: bool = True,
+) -> tuple[str, Path, str, dict[str, Any] | None]:
     """Submit OTP for a pending login session and persist the final state."""
 
     pending = _get_pending_session_or_raise(pending_session_id)
@@ -745,7 +762,16 @@ def verify_pending_login_otp(
                 _save_session_state(pending.context, pending.state_path)
                 _remove_pending_session(pending.pending_session_id)
                 _close_pending_browser_objects(pending)
-                return pending.normalized_session_id, pending.state_path, pending.email
+                pool_prime = _prime_playwright_pool_for_state(
+                    pending.state_path,
+                    enabled=prime_pool,
+                )
+                return (
+                    pending.normalized_session_id,
+                    pending.state_path,
+                    pending.email,
+                    pool_prime,
+                )
             try:
                 page.wait_for_timeout(1000)
             except Error:

@@ -36,6 +36,14 @@ class LoginRequest(BaseModel):
         description="Ignore existing state and login again.",
         validation_alias=AliasChoices("force_relogin", "forceRelogin"),
     )
+    prime_pool: bool = Field(
+        default=True,
+        description=(
+            "After login (or reusing saved session), load storage_state on every Playwright pool "
+            "worker so react/comment do not hit a cold login per browser."
+        ),
+        validation_alias=AliasChoices("prime_pool", "primePool"),
+    )
 
     @field_validator("email")
     @classmethod
@@ -72,6 +80,11 @@ class VerifyLoginRequest(BaseModel):
         default=None,
         description="Optional checkpoint URL returned by POST /login.",
         validation_alias=AliasChoices("checkpoint_url", "checkpointUrl"),
+    )
+    prime_pool: bool = Field(
+        default=True,
+        description="After OTP success, prime every Playwright pool worker with the saved session.",
+        validation_alias=AliasChoices("prime_pool", "primePool"),
     )
 
     @field_validator("session_id", "otp")

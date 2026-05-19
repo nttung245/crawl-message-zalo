@@ -239,6 +239,15 @@ class Settings:
         500,
         int(os.getenv("REACTION_POST_CLICK_SETTLE_MS", "1500")),
     )
+    # Sau POST /login — mo session tren moi worker pool (tranh react/comment bi login lan dau moi browser)
+    linkedin_session_prime_url: str = (
+        os.getenv("LINKEDIN_SESSION_PRIME_URL", "https://www.linkedin.com/feed/").strip()
+        or "https://www.linkedin.com/feed/"
+    )
+    linkedin_session_prime_timeout_ms: int = max(
+        30_000,
+        int(os.getenv("LINKEDIN_SESSION_PRIME_TIMEOUT_MS", "120000")),
+    )
     # Pre-launch Chromium sau khi API listen (nền). false = chỉ khi có request Playwright.
     playwright_warmup_on_startup: bool = _parse_bool(
         os.getenv("PLAYWRIGHT_WARMUP_ON_STARTUP"),
