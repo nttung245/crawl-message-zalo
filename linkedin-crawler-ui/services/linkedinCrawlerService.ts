@@ -64,16 +64,32 @@ async function requestJson<TResponse>(
   path: string,
   init?: RequestInit,
 ): Promise<TResponse> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
-    ...init,
-    credentials: init?.credentials ?? "include",
-    headers: {
-      ...buildHeaders(),
-      ...init?.headers,
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      ...init,
+      credentials: init?.credentials ?? "include",
+      headers: {
+        ...buildHeaders(),
+        ...init?.headers,
+      },
+    });
+  } catch (error) {
+    const hint =
+      error instanceof Error ? error.message : String(error);
+    throw new Error(
+      `Không kết nối được API (${API_BASE_URL}${path}): ${hint}`,
+    );
+  }
 
-  const payload = (await response.json()) as TResponse;
+  let payload: TResponse;
+  try {
+    payload = (await response.json()) as TResponse;
+  } catch {
+    throw new Error(
+      `API ${response.status}: phản hồi không phải JSON (${API_BASE_URL}${path})`,
+    );
+  }
   if (!response.ok) {
     const errorPayload = payload as
       | { message?: string; detail?: string }
@@ -235,7 +251,7 @@ export function postLinkedInComment(
     })),
     post_to_webhook: payload.post_to_webhook ?? true,
     typing_delay_ms: payload.typing_delay_ms ?? 30,
-    timeout_ms: payload.timeout_ms ?? 20000,
+    timeout_ms: payload.timeout_ms ?? 120000,
   };
   if (payload.sheet_row && typeof payload.sheet_row === "object") {
     body.sheet_row = payload.sheet_row;

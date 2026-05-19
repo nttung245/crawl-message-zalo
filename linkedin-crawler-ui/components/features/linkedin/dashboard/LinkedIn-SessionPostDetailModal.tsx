@@ -56,6 +56,24 @@ import {
   sortedRecordEntries,
 } from "@/components/features/linkedin/dashboard/LinkedIn-n8n-sheet-helpers";
 
+/** Gọi API Playwright ngay khi user bấm — không xếp hàng sau sync/refresh (tránh VM chậm không thấy log API). */
+function runLinkedInEngagementApi<T>(options: {
+  run: () => Promise<T>;
+  onSuccess?: (result: T) => void;
+  onFailure?: (error: Error) => void;
+}): void {
+  void (async () => {
+    try {
+      const result = await options.run();
+      options.onSuccess?.(result);
+    } catch (error) {
+      options.onFailure?.(
+        error instanceof Error ? error : new Error(String(error)),
+      );
+    }
+  })();
+}
+
 export interface SessionPostDetailModalProps {
   session: CrawlSessionGroup;
   post: Record<string, unknown>;
@@ -170,7 +188,6 @@ export function SessionPostDetailModal({
   );
 
   const {
-    enqueueEngagement,
     onEngagementSuccess,
     enqueuePostEngagementSync,
     showEngagementFailure,
@@ -309,8 +326,7 @@ export function SessionPostDetailModal({
       const webhookRowNumber =
         pickPositiveRowNumberFromPost(post) ?? rowNumber;
 
-      enqueueEngagement({
-        label: feedbackKind,
+      runLinkedInEngagementApi({
         run: async () => {
           const res = await postLinkedInReaction({
             post_url: postUrl,
@@ -351,7 +367,6 @@ export function SessionPostDetailModal({
       canOpenPost,
       dashboardEmail,
       emailCrawl,
-      enqueueEngagement,
       enqueuePostEngagementSync,
       linkedinPlaywrightSessionId,
       onEngagementSuccess,
@@ -402,8 +417,7 @@ export function SessionPostDetailModal({
 
     const webhookRowNumber = pickPositiveRowNumberFromPost(post) ?? rowNumber;
 
-    enqueueEngagement({
-      label: "comment",
+    runLinkedInEngagementApi({
       run: async () => {
         const res = await postLinkedInComment({
           post_url: postUrl,
@@ -416,6 +430,7 @@ export function SessionPostDetailModal({
           email: (dashboardEmail || "").trim() || undefined,
           session_id: (linkedinPlaywrightSessionId || "").trim() || undefined,
           post_to_webhook: true,
+          timeout_ms: 120000,
         });
         if (!res.success) {
           throw new Error(res.message || "Gửi comment thất bại.");
@@ -442,7 +457,6 @@ export function SessionPostDetailModal({
     canOpenPost,
     dashboardEmail,
     emailCrawl,
-    enqueueEngagement,
     enqueuePostEngagementSync,
     linkedinPlaywrightSessionId,
     onEngagementSuccess,
@@ -505,8 +519,7 @@ export function SessionPostDetailModal({
       onReactionSucceeded?.(rowNumber, optimisticPatchDelete, postUrl);
       onEngagementSuccess("delete_comment");
 
-      enqueueEngagement({
-        label: "delete_comment",
+      runLinkedInEngagementApi({
         run: async () => {
           const slugRes = await getMyProfileSlug({
             sessionId: pwSession || null,
@@ -557,7 +570,6 @@ export function SessionPostDetailModal({
       canOpenPost,
       dashboardEmail,
       emailCrawl,
-      enqueueEngagement,
       enqueuePostEngagementSync,
       linkedinPlaywrightSessionId,
       onEngagementSuccess,
@@ -757,8 +769,7 @@ const runSyncProgress = useCallback(
       setEditingCommentIndex(null);
       setEditCommentNewText("");
 
-      enqueueEngagement({
-        label: "edit_comment",
+      runLinkedInEngagementApi({
         run: async () => {
           const slugRes = await getMyProfileSlug({
             sessionId: pwSession || null,
@@ -812,7 +823,6 @@ const runSyncProgress = useCallback(
       canOpenPost,
       dashboardEmail,
       emailCrawl,
-      enqueueEngagement,
       enqueuePostEngagementSync,
       linkedinPlaywrightSessionId,
       onEngagementSuccess,
