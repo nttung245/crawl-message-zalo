@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Error, Page, TimeoutError as PlaywrightTimeoutError
 
 from app.services.auth_service import build_session_state_path
+from app.services.linkedin_session_nav import goto_linkedin_url, is_linkedin_login_url
 from app.services.playwright_browser_pool import run_with_linkedin_session_page
 from app.utils.logger import get_logger
 
@@ -65,9 +66,7 @@ _COMMENT_SUBMIT_LABELS: Final[tuple[str, ...]] = (
 
 
 def _is_login_url(url: str) -> bool:
-    parsed = urlparse((url or "").strip())
-    path = (parsed.path or "").lower()
-    return any(path.startswith(prefix) for prefix in ("/login", "/checkpoint", "/authwall"))
+    return is_linkedin_login_url(url)
 
 
 def _scroll_comment_section_into_view(post_root, *, timeout_ms: int) -> None:
@@ -265,22 +264,14 @@ def comment_on_linkedin_post(
         )
 
     def _playwright_action(page: Page) -> tuple[str, str]:
-        try:
-            page.goto(url, wait_until="domcontentloaded", timeout=300000)
-        except Error as exc:
-            current = page.url or ""
-            if _is_login_url(current):
-                raise RuntimeError(
-                    "LinkedIn chuyển sang trang đăng nhập/checkpoint — session có thể đã hết hạn.",
-                ) from exc
-            raise RuntimeError(f"Lỗi khi mở URL bài: {exc}") from exc
-
+        page = goto_linkedin_url(
+            page.context,
+            page,
+            url,
+            timeout_ms=300000,
+            post_load_wait_ms=700,
+        )
         page.wait_for_timeout(2800)
-
-        if _is_login_url(page.url):
-            raise RuntimeError(
-                "LinkedIn session không hợp lệ hoặc đã hết hạn (đang ở login/checkpoint).",
-            )
 
         _fill_comment_box(
             page,

@@ -226,6 +226,19 @@ class Settings:
         1,
         min(8, int(os.getenv("PLAYWRIGHT_POOL_SIZE", "3"))),
     )
+    # Playwright reaction — VM chậm cần settle dài hơn (ms).
+    reaction_menu_hover_settle_ms: int = max(
+        400,
+        int(os.getenv("REACTION_MENU_HOVER_SETTLE_MS", "1800")),
+    )
+    reaction_post_goto_settle_ms: int = max(
+        1000,
+        int(os.getenv("REACTION_POST_GOTO_SETTLE_MS", "3500")),
+    )
+    reaction_post_click_settle_ms: int = max(
+        500,
+        int(os.getenv("REACTION_POST_CLICK_SETTLE_MS", "1500")),
+    )
     # Pre-launch Chromium sau khi API listen (nền). false = chỉ khi có request Playwright.
     playwright_warmup_on_startup: bool = _parse_bool(
         os.getenv("PLAYWRIGHT_WARMUP_ON_STARTUP"),

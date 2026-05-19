@@ -11,6 +11,10 @@ from typing import Callable, Generator, TypeVar
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from app.config import settings
+from app.services.linkedin_session_nav import (
+    linkedin_browser_context_options,
+    validate_storage_state_file,
+)
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -168,8 +172,12 @@ def _linkedin_session_page_impl(
     lock = _lock_for_state_path(state_path)
     lock.acquire()
     try:
+        validate_storage_state_file(state_path)
         browser = _ensure_browser_on_worker()
-        context: BrowserContext = browser.new_context(storage_state=str(state_path))
+        context: BrowserContext = browser.new_context(
+            storage_state=str(state_path),
+            **linkedin_browser_context_options(),
+        )
         page = context.new_page()
         try:
             yield page

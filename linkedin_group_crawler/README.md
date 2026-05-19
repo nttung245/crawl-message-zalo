@@ -265,6 +265,19 @@ Cung mot tai khoan LinkedIn (cung file session): van **tuan tu** (lock theo file
 
 Sau doi `.env`: `pm2 restart minhhoang-backend --update-env`. Kiem tra: `curl -s http://127.0.0.1:8101/status` → `playwright_pool_size`.
 
+### Session LinkedIn — tab moi ve login
+
+- File session: `linkedin_group_crawler/storage/session/{email_slug}.json` (vi du email `a@gmail.com` → `a_gmail_com.json`).
+- API reaction/comment can **email** hoac **session_id** khop ten file. Sai email → dung file khong co `li_at` → tab login.
+- LinkedIn doi khi **mo tab moi**; backend tu chon tab da login (khong dung tab login trang).
+- Session het han: `POST /login` voi `force_relogin=true`, OTP qua `/verify` neu can. Xem VNC (`HEADLESS=false`, `DISPLAY=:99`) de xac minh.
+- Kiem tra cookie:
+
+```bash
+ls -la /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler/storage/session/
+python3 -c "import json,sys; p=sys.argv[1]; d=json.load(open(p)); print('li_at', any(c.get('name')=='li_at' and c.get('value') for c in d.get('cookies',[])))" storage/session/FILE.json
+```
+
 ## 10) Vi tri file quan trong
 
 - Backend env: `/opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler/.env`
