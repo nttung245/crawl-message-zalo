@@ -596,6 +596,8 @@ def linkedin_post_react(payload: PostReactionRequest) -> PostReactionResponse:
                     reaction=payload.reaction,
                     session_id=payload.session_id,
                     email=pw_email,
+                    password=payload.password,
+                    auto_login=payload.auto_login,
                 )
             else:
                 resolved_sid, final_url = react_to_linkedin_post(
@@ -603,6 +605,8 @@ def linkedin_post_react(payload: PostReactionRequest) -> PostReactionResponse:
                     reaction=payload.reaction,
                     session_id=payload.session_id,
                     email=pw_email,
+                    password=payload.password,
+                    auto_login=payload.auto_login,
                 )
             playwright_executed = True
         except FileNotFoundError as exc:
@@ -759,6 +763,8 @@ def linkedin_post_comment(payload: PostCommentRequest) -> PostCommentResponse:
             email=pw_email,
             typing_delay_ms=payload.typing_delay_ms,
             timeout_ms=payload.timeout_ms,
+            password=payload.password,
+            auto_login=payload.auto_login,
         )
     except FileNotFoundError as exc:
         return PostCommentResponse(success=False, message=str(exc), data=None)
@@ -2576,6 +2582,8 @@ def linkedin_post_sync_progress(payload: SyncPostProgressRequest) -> SyncPostPro
             session_id=payload.session_id,
             email=pw_email,
             timeout_ms=payload.timeout_ms,
+            password=payload.password,
+            auto_login=payload.auto_login,
         )
     except Exception as exc:
         logger.exception("Sync progress failed")

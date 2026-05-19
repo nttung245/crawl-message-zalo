@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 from playwright.sync_api import Error, Page, TimeoutError as PlaywrightTimeoutError
 
 from app.services.auth_service import build_session_state_path
+from app.services.linkedin_engagement_session import ensure_linkedin_session_for_engagement
 from app.services.linkedin_session_nav import goto_linkedin_url, is_linkedin_login_url
 from app.services.playwright_browser_pool import run_with_linkedin_session_page
 from app.utils.logger import get_logger
@@ -244,6 +245,8 @@ def comment_on_linkedin_post(
     email: str | None,
     typing_delay_ms: int = 30,
     timeout_ms: int = 300000,
+    password: str | None = None,
+    auto_login: bool = True,
 ) -> tuple[str, str]:
     """Trả ``(normalized_session_id, final_page_url)`` sau khi gửi comment.
 
@@ -257,17 +260,24 @@ def comment_on_linkedin_post(
     if "linkedin.com" not in url.lower():
         raise ValueError("post_url phải là URL LinkedIn.")
 
-    normalized_session_id, state_path = build_session_state_path(session_id=session_id, email=email)
+    if auto_login:
+        normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
+            email=email,
+            session_id=session_id,
+            password=password,
+        )
+    else:
+        normalized_session_id, state_path = build_session_state_path(
+            session_id=session_id,
+            email=email,
+        )
     logger.info(
-        "Playwright comment session_id=%s email=%s state_file=%s",
+        "Playwright comment session_id=%s email=%s state_file=%s auto_login=%s",
         normalized_session_id,
         email or "",
         state_path.name,
+        auto_login,
     )
-    if not state_path.is_file():
-        raise FileNotFoundError(
-            f"Không tìm thấy session LinkedIn tại {state_path}. Hãy POST /login (hoặc /verify) trước.",
-        )
 
     def _playwright_action(page: Page) -> tuple[str, str]:
         page = goto_linkedin_url(

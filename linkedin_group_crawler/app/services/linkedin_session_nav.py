@@ -10,7 +10,6 @@ from app.services.auth_service import (
     _context_has_li_at_cookie,
     _existing_state_is_reusable,
     _is_authwall_url,
-    _is_linkedin_authenticated_app_url,
 )
 from app.utils.logger import get_logger
 

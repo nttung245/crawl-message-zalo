@@ -9,6 +9,7 @@ from typing import Any, Final, Literal
 from playwright.sync_api import Error, Locator, Page
 
 from app.services.auth_service import build_session_state_path
+from app.services.linkedin_engagement_session import ensure_linkedin_session_for_engagement
 from app.services.playwright_browser_pool import run_with_linkedin_session_page
 from app.services.post_reaction_service import (
     REACTION_SELECTORS,
@@ -374,17 +375,24 @@ def sync_post_engagement(
     session_id: str | None = None,
     email: str | None = None,
     timeout_ms: int = 300000,
+    password: str | None = None,
+    auto_login: bool = True,
 ) -> dict[str, Any]:
     """Opens a post in a new browser and returns current engagement data."""
-    
-    # Resolve session
-    normalized_session_id, state_path = build_session_state_path(
-        session_id=session_id,
-        email=email,
-    )
-    
-    if not state_path.is_file():
-        raise FileNotFoundError(f"Session not found at {state_path}")
+
+    if auto_login:
+        normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
+            email=email,
+            session_id=session_id,
+            password=password,
+        )
+    else:
+        normalized_session_id, state_path = build_session_state_path(
+            session_id=session_id,
+            email=email,
+        )
+        if not state_path.is_file():
+            raise FileNotFoundError(f"Session not found at {state_path}")
 
     def _action(page: Page) -> dict[str, Any]:
         page.set_default_timeout(timeout_ms)

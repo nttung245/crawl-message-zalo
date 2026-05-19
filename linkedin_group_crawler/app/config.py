@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -17,6 +18,29 @@ def _parse_bool(value: str | None, default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _linkedin_engagement_passwords_from_env() -> dict[str, str]:
+    """Map email (lower) → password cho auto-login trước react/comment."""
+
+    raw = (os.getenv("LINKEDIN_ENGAGEMENT_PASSWORDS_JSON") or "").strip()
+    if not raw:
+        return {}
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+    if not isinstance(data, dict):
+        return {}
+    out: dict[str, str] = {}
+    for key, value in data.items():
+        if not isinstance(key, str) or value is None:
+            continue
+        email_key = key.strip().lower()
+        pw = str(value).strip()
+        if email_key and pw:
+            out[email_key] = pw
+    return out
 
 
 def _parse_csv(value: str | None, default: tuple[str, ...]) -> list[str]:
@@ -231,6 +255,17 @@ class Settings:
         os.getenv("PLAYWRIGHT_PERSIST_SESSION_ON_USE"),
         default=False,
     )
+    # Trước react/comment: tự login/prime session (khuyến nghị bật).
+    linkedin_auto_login_before_engagement: bool = _parse_bool(
+        os.getenv("LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT"),
+        default=True,
+    )
+    linkedin_engagement_passwords: dict[str, str] = field(
+        default_factory=_linkedin_engagement_passwords_from_env,
+    )
+    linkedin_default_engagement_password: str = (
+        os.getenv("LINKEDIN_DEFAULT_ENGAGEMENT_PASSWORD", "") or ""
+    ).strip()
     # Playwright reaction — VM chậm cần settle dài hơn (ms).
     reaction_menu_hover_settle_ms: int = max(
         400,

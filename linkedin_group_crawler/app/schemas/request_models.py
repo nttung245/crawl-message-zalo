@@ -1040,6 +1040,21 @@ class PostReactionRequest(BaseModel):
         description="Email đã login — dùng nếu không có session_id (hoặc kèm session_id).",
         validation_alias=AliasChoices("email", "userEmail"),
     )
+    password: Optional[str] = Field(
+        default=None,
+        description="LinkedIn password — tự login trước Playwright nếu session hết hạn.",
+        validation_alias=AliasChoices(
+            "password",
+            "userPassword",
+            "linkedin_password",
+            "mat_khau",
+        ),
+    )
+    auto_login: bool = Field(
+        default=True,
+        description="Tự đảm bảo session (login/prime) trước khi mở bài.",
+        validation_alias=AliasChoices("auto_login", "autoLogin"),
+    )
     post_to_webhook: bool = Field(
         default=True,
         description="Sau khi reaction thành công, POST JSON tới N8N_WEBHOOK_REACTION (fallback N8N_WEBHOOK_POST_REACTION).",
@@ -1223,6 +1238,19 @@ class PostCommentRequest(BaseModel):
     email: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("email", "userEmail"),
+    )
+    password: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "password",
+            "userPassword",
+            "linkedin_password",
+            "mat_khau",
+        ),
+    )
+    auto_login: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("auto_login", "autoLogin"),
     )
     post_to_webhook: bool = Field(
         default=True,
@@ -1696,6 +1724,19 @@ class SyncPostProgressRequest(BaseModel):
     row_number: int = Field(..., ge=1, validation_alias=AliasChoices("row_number", "rowNumber"))
     session_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("session_id", "sessionId"))
     email: Optional[str] = Field(default=None, validation_alias=AliasChoices("email", "userEmail"))
+    password: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "password",
+            "userPassword",
+            "linkedin_password",
+            "mat_khau",
+        ),
+    )
+    auto_login: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("auto_login", "autoLogin"),
+    )
     post_to_webhook: bool = Field(default=True, validation_alias=AliasChoices("post_to_webhook", "postToWebhook"))
     sheet_row: Optional[dict[str, Any]] = Field(default=None, validation_alias=AliasChoices("sheet_row", "sheetRow"))
     timeout_ms: int = Field(default=300000, ge=30000, le=600000)

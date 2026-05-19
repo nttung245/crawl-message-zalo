@@ -99,6 +99,8 @@ REACTION_POST_CLICK_SETTLE_MS=1500
 
 - **1** Chromium, moi request Playwright **xep hang** (khong 3 browser = 3 lan login/cold-join).
 - File `storage/session/*.json` chi doi khi **POST /login** / **/verify** — react/comment **khong** ghi de file (`PLAYWRIGHT_PERSIST_SESSION_ON_USE=false`).
+- **Truoc moi react/comment:** `LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT=true` — tu goi login/prime (nhanh neu `li_at` con: `force_relogin=false` + prime; cham neu phai login lai).
+- Password: cookie UI (`linkedin_password`), field `password` trong API, hoac `.env` `LINKEDIN_ENGAGEMENT_PASSWORDS_JSON`.
 - Sau login: `prime_pool=true` mo feed **mot lan** tren browser do.
 
 Chi tang `PLAYWRIGHT_POOL_SIZE` khi can throughput va chap nhan phuc tap session.
