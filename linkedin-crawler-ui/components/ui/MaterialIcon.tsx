@@ -11,6 +11,8 @@ export type MaterialSymbolName =
   | "playlist_add"
   | "api"
   | "add"
+  | "expand_less"
+  | "expand_more"
   | "help"
   | "account_circle"
   | "person"
