@@ -8,6 +8,9 @@ def test_authwall_detects_login_paths() -> None:
     assert _is_authwall_url("https://www.linkedin.com/login")
     assert _is_authwall_url("https://www.linkedin.com/checkpoint/challenge/123")
     assert _is_authwall_url("https://www.linkedin.com/authwall")
+    assert _is_authwall_url(
+        "https://www.linkedin.com/signup/cold-join?session_redirect=https%3A%2F%2Fwww.linkedin.com%2Ffeed%2F",
+    )
 
 
 def test_authwall_detects_guest_homepage() -> None:

@@ -201,17 +201,33 @@ def _is_linkedin_authenticated_app_url(current_url: str) -> bool:
     )
 
 
+def _li_at_cookie_is_valid(cookie: dict, *, now: float | None = None) -> bool:
+    """``li_at`` có giá trị và chưa hết hạn (nếu có field ``expires``)."""
+
+    if str(cookie.get("name", "")).strip() != "li_at":
+        return False
+    if not str(cookie.get("value", "")).strip():
+        return False
+    expires = cookie.get("expires", -1)
+    try:
+        expires_f = float(expires)
+    except (TypeError, ValueError):
+        return True
+    if expires_f <= 0:
+        return True
+    reference = time.time() if now is None else now
+    return expires_f > reference
+
+
 def _has_li_at_cookie(storage_state: dict) -> bool:
-    """Check whether storage state contains LinkedIn auth cookie li_at."""
+    """Check whether storage state contains a usable LinkedIn auth cookie ``li_at``."""
 
     cookies = storage_state.get("cookies") if isinstance(storage_state, dict) else None
     if not isinstance(cookies, list):
         return False
 
     for cookie in cookies:
-        if not isinstance(cookie, dict):
-            continue
-        if str(cookie.get("name", "")).strip() == "li_at" and str(cookie.get("value", "")).strip():
+        if isinstance(cookie, dict) and _li_at_cookie_is_valid(cookie):
             return True
     return False
 
@@ -524,7 +540,10 @@ def _existing_state_is_reusable(state_path: Path) -> bool:
         return False
 
     if not _has_li_at_cookie(payload):
-        logger.warning("Existing state file at %s is missing li_at cookie; forcing relogin", state_path)
+        logger.warning(
+            "Existing state file at %s is missing or expired li_at; forcing relogin",
+            state_path,
+        )
         return False
 
     return True
@@ -648,7 +667,7 @@ def safe_persist_session_state(context: BrowserContext, state_path: Path) -> boo
 
 
 def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> dict[str, Any] | None:
-    """Nạp file session lên mọi Chromium worker — react/comment không bị login lạnh mỗi browser."""
+    """Mở feed một lần trên browser queue sau login (xác nhận session)."""
 
     if not enabled:
         return None

@@ -221,10 +221,15 @@ class Settings:
     """Typed settings loaded from environment variables."""
 
     headless: bool = _parse_bool(os.getenv("HEADLESS"), default=True)
-    # Số browser Chromium song song (mỗi worker thread một browser). VM 8GB: 2–3; 16GB+: 4.
+    # Mặc định 1 browser, xếp hàng tuần tự — ổn định session. Chỉ tăng khi cần throughput.
     playwright_pool_size: int = max(
         1,
-        min(8, int(os.getenv("PLAYWRIGHT_POOL_SIZE", "3"))),
+        min(4, int(os.getenv("PLAYWRIGHT_POOL_SIZE", "1"))),
+    )
+    # false = react/comment/sync không ghi đè file session (chỉ POST /login ghi) — khuyến nghị.
+    playwright_persist_session_on_use: bool = _parse_bool(
+        os.getenv("PLAYWRIGHT_PERSIST_SESSION_ON_USE"),
+        default=False,
     )
     # Playwright reaction — VM chậm cần settle dài hơn (ms).
     reaction_menu_hover_settle_ms: int = max(

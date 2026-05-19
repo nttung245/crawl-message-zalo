@@ -297,6 +297,7 @@ def system_status() -> StatusResponse:
             api_key_enabled=bool(settings.api_key),
             headless=settings.headless,
             playwright_pool_size=settings.playwright_pool_size,
+            playwright_persist_session_on_use=settings.playwright_persist_session_on_use,
             default_max_items=settings.default_max_items,
             default_scroll_times=settings.default_scroll_times,
             cors_origins=settings.cors_origins or [],

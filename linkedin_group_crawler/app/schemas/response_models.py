@@ -44,6 +44,7 @@ class StatusDataResponse(BaseModel):
     api_key_enabled: bool
     headless: bool
     playwright_pool_size: int = 1
+    playwright_persist_session_on_use: bool = False
     default_max_items: int
     default_scroll_times: int
     cors_origins: list[str]

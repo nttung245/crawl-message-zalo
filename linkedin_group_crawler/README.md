@@ -85,8 +85,9 @@ API_KEY=secret_api_key
 HEADLESS=true
 PLAYWRIGHT_WARMUP_ON_STARTUP=true
 
-# Playwright — nhieu browser song song (comment/reaction khong xep hang 1 browser)
-PLAYWRIGHT_POOL_SIZE=3
+# Playwright — che do on dinh (khuyen nghi production)
+PLAYWRIGHT_POOL_SIZE=1
+PLAYWRIGHT_PERSIST_SESSION_ON_USE=false
 
 # Reaction — VM cham: tang neu menu mo nhung Like/Love khong din (ms)
 REACTION_MENU_HOVER_SETTLE_MS=1800
@@ -94,16 +95,15 @@ REACTION_POST_GOTO_SETTLE_MS=3500
 REACTION_POST_CLICK_SETTLE_MS=1500
 ```
 
-| RAM `available` (`free -h`) | `PLAYWRIGHT_POOL_SIZE` |
-|-----------------------------|-------------------------|
-| ~2 GB | `1` |
-| ~4–6 GB | `2` |
-| ~6+ GB | `3` |
-| 16 GB+ | `4` |
+**Luong on dinh (mac dinh):**
 
-- Cung **mot** tai khoan LinkedIn (cung file `storage/session/*.json`): van **tuan tu** (lock file session).
-- **Khac** tai khoan: chay song song qua pool.
-- Kiem tra sau sua: `curl -s http://127.0.0.1:8101/status` → `playwright_pool_size`, `headless`.
+- **1** Chromium, moi request Playwright **xep hang** (khong 3 browser = 3 lan login/cold-join).
+- File `storage/session/*.json` chi doi khi **POST /login** / **/verify** — react/comment **khong** ghi de file (`PLAYWRIGHT_PERSIST_SESSION_ON_USE=false`).
+- Sau login: `prime_pool=true` mo feed **mot lan** tren browser do.
+
+Chi tang `PLAYWRIGHT_POOL_SIZE` khi can throughput va chap nhan phuc tap session.
+
+- Kiem tra: `curl -s http://127.0.0.1:8101/status` → `playwright_pool_size: 1`, `playwright_persist_session_on_use: false`.
 
 **Debug co UI (VNC):** dat `HEADLESS=false` va start backend kem `DISPLAY=:99` — xem muc **15**.
 
@@ -310,8 +310,8 @@ python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('li_at OK:', 
 ```
 
 - Login lai: `POST /login` + `force_relogin=true` (xem muc **15** neu can VNC).
-- Sau login thanh cong, API tu dong **prime pool** (`prime_pool=true`, mac dinh): nap `storage/session/*.json` len **tat ca** worker `PLAYWRIGHT_POOL_SIZE` — react/comment khong bi bat dang nhap lan dau tren tung browser.
-- Response co `playwright_pool_primed_workers` / `playwright_pool_workers` (vd. `3/3`). Neu `0/3`, xem log va login lai.
+- Sau login: `prime_pool=true` (mac dinh) — mo feed tren browser queue (voi `POOL_SIZE=1` la **1** browser).
+- Response `playwright_pool_primed_workers` / `playwright_pool_workers` (vd. `1/1`).
 - Chi nap lai pool khong login LinkedIn: `force_relogin=false`, `prime_pool=true`.
 - Code moi: sau `goto` tu **chon tab LinkedIn da login** neu LinkedIn mo tab login.
 - Trang guest `linkedin.com/` (Welcome…) duoc coi la chua login; neu co `li_at` se thu mo `/feed/` mot lan truoc khi bao loi.
@@ -529,7 +529,7 @@ Production qua proxy: xem muc 3 (`basePath` `/minhhoang-scraper`).
 
 | Phan | Mo ta |
 |------|--------|
-| Playwright pool | `PLAYWRIGHT_POOL_SIZE` — nhieu browser/worker song song |
+| Playwright | Mac dinh `POOL_SIZE=1`, `PERSIST_SESSION_ON_USE=false` — on dinh |
 | Reaction | Settle lau hon, click trong flyout, verify + retry |
 | Session | `linkedin_session_nav.py` — validate `li_at`, chon tab da login |
 | Login / verify | Sau thanh cong: `prime_linkedin_session_on_pool` — nap session len moi worker |

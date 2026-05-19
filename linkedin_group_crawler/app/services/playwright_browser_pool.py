@@ -1,4 +1,4 @@
-"""Playwright Chromium pool — nhiều worker thread, mỗi thread một browser (Sync API / greenlet-safe)."""
+"""Playwright — một hàng đợi tuần tự (mặc định 1 Chromium), ưu tiên ổn định session."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_
 from app.config import settings
 from app.services.auth_service import safe_persist_session_state
 from app.services.linkedin_session_nav import (
+    ensure_context_loaded_session,
     goto_linkedin_url,
     linkedin_browser_context_options,
     validate_storage_state_file,
@@ -51,6 +52,10 @@ def _pool_size() -> int:
     return settings.playwright_pool_size
 
 
+def _default_persist_on_use() -> bool:
+    return settings.playwright_persist_session_on_use
+
+
 def _thread_slot() -> _ThreadPlaywright:
     slot = getattr(_thread_local, "slot", None)
     if slot is None:
@@ -68,7 +73,11 @@ def _get_executor() -> ThreadPoolExecutor:
                 max_workers=size,
                 thread_name_prefix="playwright",
             )
-            logger.info("Playwright thread pool started (max_workers=%s)", size)
+            logger.info(
+                "Playwright queue started (workers=%s, persist_on_use=%s)",
+                size,
+                _default_persist_on_use(),
+            )
         return _executor
 
 
@@ -91,7 +100,7 @@ def _ensure_browser_on_worker() -> Browser:
     if slot.browser is not None:
         return slot.browser
     logger.info(
-        "Starting Playwright Chromium on %s (headless=%s)",
+        "Starting Playwright Chromium (%s, headless=%s)",
         threading.current_thread().name,
         settings.headless,
     )
@@ -120,30 +129,20 @@ def _stop_browser_on_worker() -> None:
 
 
 def run_playwright_sync(func: Callable[[], T]) -> T:
-    """Run ``func`` on a pool worker thread and return its result."""
-
     if _is_pool_worker_thread():
         return func()
     return _get_executor().submit(func).result()
 
 
-def _warmup_worker() -> None:
-    _ensure_browser_on_worker()
-
-
 def warmup_playwright_pool() -> None:
-    """Pre-launch one browser per pool worker (background / lifespan)."""
+    """Pre-launch Chromium (một worker nếu pool_size=1)."""
 
-    size = _pool_size()
     ex = _get_executor()
-    for _ in range(size):
-        ex.submit(_warmup_worker).result()
-    logger.info("Playwright pool warmup finished (%s workers)", size)
+    ex.submit(_ensure_browser_on_worker).result()
+    logger.info("Playwright warmup finished (workers=%s)", _pool_size())
 
 
-def _prime_session_on_current_worker(state_path: Path) -> dict[str, Any]:
-    """Tải storage_state và mở LinkedIn feed trên worker hiện tại (đã có browser)."""
-
+def _prime_session_once(state_path: Path) -> dict[str, Any]:
     worker = threading.current_thread().name
     try:
         with _linkedin_session_page_impl(
@@ -155,53 +154,33 @@ def _prime_session_on_current_worker(state_path: Path) -> dict[str, Any]:
                 page,
                 settings.linkedin_session_prime_url,
                 timeout_ms=settings.linkedin_session_prime_timeout_ms,
-                post_load_wait_ms=max(800, settings.reaction_post_goto_settle_ms // 2),
+                post_load_wait_ms=max(1200, settings.reaction_post_goto_settle_ms // 2),
             )
-            return {
-                "worker": worker,
-                "ok": True,
-                "final_url": active.url,
-            }
+            return {"worker": worker, "ok": True, "final_url": active.url}
     except Exception as exc:
-        logger.warning("Pool session prime failed on %s: %s", worker, exc, exc_info=True)
+        logger.warning("Session prime failed: %s", exc, exc_info=True)
         return {"worker": worker, "ok": False, "error": str(exc)}
 
 
 def prime_linkedin_session_on_pool(state_path: Path | str) -> dict[str, Any]:
-    """Nạp session vào **từng** browser trong pool — gọi sau POST /login hoặc /verify thành công."""
+    """Sau POST /login — mở feed một lần trên browser queue (ổn định, không N browser)."""
 
     path = Path(state_path).resolve()
     validate_storage_state_file(path)
     size = _pool_size()
     ex = _get_executor()
-    futures = [ex.submit(_prime_session_on_current_worker, path) for _ in range(size)]
     outcomes: list[dict[str, Any]] = []
-    per_worker_timeout_sec = max(60.0, settings.linkedin_session_prime_timeout_ms / 1000.0 + 30.0)
-    for future in futures:
+    timeout_sec = max(90.0, settings.linkedin_session_prime_timeout_ms / 1000.0 + 30.0)
+    for _ in range(size):
         try:
-            outcomes.append(future.result(timeout=per_worker_timeout_sec))
+            outcomes.append(ex.submit(_prime_session_once, path).result(timeout=timeout_sec))
         except FuturesTimeoutError:
-            outcomes.append(
-                {"worker": "unknown", "ok": False, "error": "prime timeout"},
-            )
+            outcomes.append({"worker": "unknown", "ok": False, "error": "prime timeout"})
         except Exception as exc:
             outcomes.append({"worker": "unknown", "ok": False, "error": str(exc)})
 
     primed = sum(1 for item in outcomes if item.get("ok"))
-    if primed < size:
-        logger.warning(
-            "LinkedIn pool prime partial for %s: %s/%s workers OK",
-            path.name,
-            primed,
-            size,
-        )
-    else:
-        logger.info(
-            "LinkedIn pool primed on all %s workers for %s",
-            size,
-            path.name,
-        )
-
+    logger.info("Session primed %s/%s worker(s) for %s", primed, size, path.name)
     return {
         "total_workers": size,
         "primed_workers": primed,
@@ -210,8 +189,6 @@ def prime_linkedin_session_on_pool(state_path: Path | str) -> dict[str, Any]:
 
 
 def shutdown_playwright_pool() -> None:
-    """Stop browsers on all workers and shut down the executor."""
-
     global _executor
     ex: ThreadPoolExecutor | None
     with _executor_lock:
@@ -219,8 +196,7 @@ def shutdown_playwright_pool() -> None:
     if ex is None:
         return
 
-    size = _pool_size()
-    for _ in range(size):
+    for _ in range(_pool_size()):
         try:
             ex.submit(_stop_browser_on_worker).result(timeout=90)
         except Exception:
@@ -230,15 +206,16 @@ def shutdown_playwright_pool() -> None:
         if _executor is not None:
             _executor.shutdown(wait=True, cancel_futures=False)
             _executor = None
-    logger.info("Playwright pool shut down")
+    logger.info("Playwright queue shut down")
 
 
 @contextmanager
 def _linkedin_session_page_impl(
     *,
     state_path: Path,
-    persist_state: bool = True,
+    persist_state: bool | None = None,
 ) -> Generator[Page, None, None]:
+    should_persist = _default_persist_on_use() if persist_state is None else persist_state
     lock = _lock_for_state_path(state_path)
     lock.acquire()
     try:
@@ -248,11 +225,12 @@ def _linkedin_session_page_impl(
             storage_state=str(state_path),
             **linkedin_browser_context_options(),
         )
+        ensure_context_loaded_session(context, state_path)
         page = context.new_page()
         try:
             yield page
         finally:
-            if persist_state:
+            if should_persist:
                 safe_persist_session_state(context, state_path)
             context.close()
     finally:
@@ -262,11 +240,9 @@ def _linkedin_session_page_impl(
 def run_with_linkedin_session_page(
     *,
     state_path: Path,
-    persist_state: bool = True,
+    persist_state: bool | None = None,
     action: Callable[[Page], T],
 ) -> T:
-    """Run Playwright work on a pool worker (safe from FastAPI request threads)."""
-
     def _inner() -> T:
         with _linkedin_session_page_impl(
             state_path=state_path,
@@ -278,9 +254,8 @@ def run_with_linkedin_session_page(
 
 
 def pool_status() -> dict[str, int | bool]:
-    """Snapshot for /status — số worker cấu hình và headless."""
-
     return {
         "playwright_pool_size": _pool_size(),
+        "playwright_persist_session_on_use": _default_persist_on_use(),
         "headless": settings.headless,
     }
