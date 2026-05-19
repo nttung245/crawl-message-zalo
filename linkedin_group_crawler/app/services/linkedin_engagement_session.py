@@ -8,7 +8,6 @@ from pathlib import Path
 from app.config import settings
 from app.services.auth_service import (
     _existing_state_is_reusable,
-    _prime_playwright_pool_for_state,
     build_session_state_path,
     login_and_save_session,
 )
@@ -40,6 +39,7 @@ def ensure_linkedin_session_for_engagement(
     email: str | None,
     session_id: str | None = None,
     password: str | None = None,
+    force_relogin: bool = False,
 ) -> tuple[str, Path]:
     """Trước Playwright react/comment: login lại nếu cần, luôn prime feed (nhanh nếu session còn hợp lệ).
 
@@ -60,7 +60,7 @@ def ensure_linkedin_session_for_engagement(
     )
 
     if not settings.linkedin_auto_login_before_engagement:
-        if not state_path.is_file() or not _existing_state_is_reusable(state_path):
+        if not state_path.is_file() or not _existing_state_is_reusable(state_path) or force_relogin:
             raise RuntimeError(
                 f"Session {state_path.name} không hợp lệ và auto login đang tắt "
                 "(LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT=false).",
@@ -70,14 +70,13 @@ def ensure_linkedin_session_for_engagement(
     pw_email = login_email if "@" in login_email else ""
     resolved_password = resolve_password_for_email(pw_email, password)
 
-    reusable = state_path.is_file() and _existing_state_is_reusable(state_path)
+    reusable = state_path.is_file() and _existing_state_is_reusable(state_path) and not force_relogin
 
     if reusable and not resolved_password:
         logger.info(
-            "Engagement session: prime only (%s, li_at OK)",
+            "Engagement session: reusable session found (%s, li_at OK), but no password provided for auto-login if it fails later.",
             state_path.name,
         )
-        _prime_playwright_pool_for_state(state_path, enabled=True)
         return normalized_session_id, state_path
 
     if not resolved_password:
@@ -87,11 +86,11 @@ def ensure_linkedin_session_for_engagement(
             "LINKEDIN_ENGAGEMENT_PASSWORDS_JSON / LINKEDIN_DEFAULT_ENGAGEMENT_PASSWORD trong .env).",
         )
 
-    force_relogin = not reusable
+    actual_force_relogin = force_relogin or not reusable
     logger.info(
         "Engagement session: auto login email=%s force_relogin=%s file=%s",
         (email or pw_email)[:40],
-        force_relogin,
+        actual_force_relogin,
         state_path.name,
     )
 
@@ -106,7 +105,7 @@ def ensure_linkedin_session_for_engagement(
             email=login_target_email,
             password=resolved_password,
             session_id=session_id,
-            force_relogin=force_relogin,
+            force_relogin=actual_force_relogin,
             prime_pool=True,
         )
     except Exception as exc:

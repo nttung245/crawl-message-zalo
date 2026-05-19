@@ -346,6 +346,7 @@ def _run_linkedin_post_reaction_playwright(
             email=email,
             session_id=session_id,
             password=password,
+            force_relogin=True,
         )
     else:
         normalized_session_id, state_path = build_session_state_path(
@@ -382,10 +383,49 @@ def _run_linkedin_post_reaction_playwright(
         final_url = page.url or url
         return normalized_session_id, final_url
 
-    return run_with_linkedin_session_page(
-        state_path=state_path,
-        action=_playwright_action,
-    )
+    try:
+        return run_with_linkedin_session_page(
+            state_path=state_path,
+            action=_playwright_action,
+        )
+    except RuntimeError as exc:
+        err_msg = str(exc)
+        is_auth_err = any(hint in err_msg for hint in ("chưa đăng nhập", "login/guest/cold-join", "session hết hạn"))
+        if is_auth_err and auto_login:
+            logger.warning(
+                "Phát hiện session hết hạn hoặc không hợp lệ khi bấm reaction. Đang thực hiện auto-login lại..."
+            )
+            # Re-resolve and force fresh login
+            normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
+                email=email,
+                session_id=session_id,
+                password=password,
+                force_relogin=True,
+            )
+            # Retry running the action with updated session ID
+            def _playwright_action_retry(page: Page) -> tuple[str, str]:
+                page_res = goto_linkedin_url(
+                    page.context,
+                    page,
+                    url,
+                    timeout_ms=300000,
+                    post_load_wait_ms=max(600, _post_goto_settle_ms() // 4),
+                )
+                page_res.wait_for_timeout(_post_goto_settle_ms())
+                if clear_reaction:
+                    _remove_reaction_on_page(page_res, reaction, timeout_ms=300000)
+                else:
+                    _click_reaction_on_page(page_res, reaction, timeout_ms=300000)
+                page_res.wait_for_timeout(_post_click_settle_ms())
+                final_url = page_res.url or url
+                return normalized_session_id, final_url
+
+            return run_with_linkedin_session_page(
+                state_path=state_path,
+                action=_playwright_action_retry,
+            )
+        else:
+            raise
 
 
 def react_to_linkedin_post(

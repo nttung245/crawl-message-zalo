@@ -1768,6 +1768,19 @@ class SyncAllProgressRequest(BaseModel):
     profile_slug: str = Field(..., min_length=1, validation_alias=AliasChoices("profile_slug", "profileSlug"))
     session_id: Optional[str] = Field(default=None, validation_alias=AliasChoices("session_id", "sessionId"))
     email: Optional[str] = Field(default=None, validation_alias=AliasChoices("email", "userEmail"))
+    password: Optional[str] = Field(
+        default=None,
+        validation_alias=AliasChoices(
+            "password",
+            "userPassword",
+            "linkedin_password",
+            "mat_khau",
+        ),
+    )
+    auto_login: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("auto_login", "autoLogin"),
+    )
     timeout_ms_per_post: int = Field(default=120000, ge=30000, le=300000)
     limit_posts: Optional[int] = Field(default=None, ge=1, le=100)
 

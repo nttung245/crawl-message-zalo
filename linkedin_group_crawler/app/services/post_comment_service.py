@@ -265,6 +265,7 @@ def comment_on_linkedin_post(
             email=email,
             session_id=session_id,
             password=password,
+            force_relogin=True,
         )
     else:
         normalized_session_id, state_path = build_session_state_path(
@@ -299,7 +300,47 @@ def comment_on_linkedin_post(
         final_url = page.url or url
         return normalized_session_id, final_url
 
-    return run_with_linkedin_session_page(
-        state_path=state_path,
-        action=_playwright_action,
-    )
+    try:
+        return run_with_linkedin_session_page(
+            state_path=state_path,
+            action=_playwright_action,
+        )
+    except RuntimeError as exc:
+        err_msg = str(exc)
+        is_auth_err = any(hint in err_msg for hint in ("chưa đăng nhập", "login/guest/cold-join", "session hết hạn"))
+        if is_auth_err and auto_login:
+            logger.warning(
+                "Phát hiện session hết hạn hoặc không hợp lệ khi gửi comment. Đang thực hiện auto-login lại..."
+            )
+            # Re-resolve and force fresh login
+            normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
+                email=email,
+                session_id=session_id,
+                password=password,
+                force_relogin=True,
+            )
+            # Retry running the action with updated session ID
+            def _playwright_action_retry(page: Page) -> tuple[str, str]:
+                page_res = goto_linkedin_url(
+                    page.context,
+                    page,
+                    url,
+                    timeout_ms=300000,
+                    post_load_wait_ms=700,
+                )
+                page_res.wait_for_timeout(2800)
+                _fill_comment_box(
+                    page_res,
+                    comment_text,
+                    timeout_ms=timeout_ms,
+                    typing_delay_ms=typing_delay_ms,
+                )
+                final_url = page_res.url or url
+                return normalized_session_id, final_url
+
+            return run_with_linkedin_session_page(
+                state_path=state_path,
+                action=_playwright_action_retry,
+            )
+        else:
+            raise

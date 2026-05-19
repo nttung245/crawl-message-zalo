@@ -11,6 +11,7 @@ from playwright.sync_api import Error, Locator, Page
 from app.services.auth_service import build_session_state_path
 from app.services.linkedin_engagement_session import ensure_linkedin_session_for_engagement
 from app.services.playwright_browser_pool import run_with_linkedin_session_page
+from app.services.linkedin_session_nav import goto_linkedin_url
 from app.services.post_reaction_service import (
     REACTION_SELECTORS,
     _REACTION_STATE_LABEL_HINTS,
@@ -339,15 +340,14 @@ def sync_post_engagement_on_page(
     """Syncs engagement for a post using an already open page."""
     logger.info("Syncing engagement on page for %s", post_url)
     try:
-        page.goto(post_url, wait_until="domcontentloaded", timeout=timeout_ms)
-        
-        # Wait for main content
-        try:
-            page.locator("main").wait_for(state="visible", timeout=60000)
-        except Error:
-            pass
-            
-        page.wait_for_timeout(_POST_DETAIL_SETTLE_MS)
+        # Sử dụng goto_linkedin_url để kiểm tra chính xác trạng thái auth và xử lý nếu bị redirect login
+        goto_linkedin_url(
+            page.context,
+            page,
+            post_url,
+            timeout_ms=timeout_ms,
+            post_load_wait_ms=_POST_DETAIL_SETTLE_MS,
+        )
         
         reaction = detect_current_reaction(page)
         comments = collect_user_comments(page, profile_slug)
@@ -381,10 +381,12 @@ def sync_post_engagement(
     """Opens a post in a new browser and returns current engagement data."""
 
     if auto_login:
+        # Luôn force_relogin=True mỗi lần chạy sync để đảm bảo lấy cookie tươi nhất trước khi vào bài viết
         normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
             email=email,
             session_id=session_id,
             password=password,
+            force_relogin=True,
         )
     else:
         normalized_session_id, state_path = build_session_state_path(
@@ -400,8 +402,31 @@ def sync_post_engagement(
         result["session_id"] = normalized_session_id
         return result
 
-    return run_with_linkedin_session_page(
-        state_path=state_path,
-        persist_state=True,
-        action=_action,
-    )
+    try:
+        return run_with_linkedin_session_page(
+            state_path=state_path,
+            persist_state=True,
+            action=_action,
+        )
+    except RuntimeError as exc:
+        err_msg = str(exc)
+        is_auth_err = any(hint in err_msg for hint in ("chưa đăng nhập", "login/guest/cold-join", "session hết hạn"))
+        if is_auth_err and auto_login:
+            logger.warning(
+                "Phát hiện session hết hạn hoặc không hợp lệ khi đồng bộ bài viết. Đang thực hiện auto-login lại..."
+            )
+            # Re-resolve and force fresh login
+            normalized_session_id, state_path = ensure_linkedin_session_for_engagement(
+                email=email,
+                session_id=session_id,
+                password=password,
+                force_relogin=True,
+            )
+            # Retry running the action
+            return run_with_linkedin_session_page(
+                state_path=state_path,
+                persist_state=True,
+                action=_action,
+            )
+        else:
+            raise
