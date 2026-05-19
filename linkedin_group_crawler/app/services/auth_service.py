@@ -151,11 +151,54 @@ def build_session_state_path(session_id: str | None, email: str | None = None) -
 
 
 def _is_authwall_url(current_url: str) -> bool:
-    """Return True when URL points to a LinkedIn auth gate."""
+    """Return True when URL is login/checkpoint or logged-out marketing home (linkedin.com/)."""
 
     parsed = urlparse((current_url or "").strip())
-    path = (parsed.path or "").lower()
-    return any(path.startswith(prefix) for prefix in ["/login", "/checkpoint", "/authwall"])
+    host = (parsed.netloc or "").lower()
+    if "linkedin.com" not in host:
+        return False
+    path = (parsed.path or "/").lower()
+    if any(
+        path.startswith(prefix)
+        for prefix in (
+            "/login",
+            "/checkpoint",
+            "/authwall",
+            "/uas/",
+            "/signup",
+            "/welcome",
+        )
+    ):
+        return True
+    normalized = path.rstrip("/") or "/"
+    # Trang guest "Welcome to your professional community" — không phải /feed/ đã đăng nhập.
+    if normalized in ("/", "/home"):
+        return True
+    return False
+
+
+def _is_linkedin_authenticated_app_url(current_url: str) -> bool:
+    """True khi URL thường chỉ mở được sau khi đã đăng nhập."""
+
+    parsed = urlparse((current_url or "").strip())
+    if "linkedin.com" not in (parsed.netloc or "").lower():
+        return False
+    path = (parsed.path or "/").lower()
+    return any(
+        path.startswith(prefix)
+        for prefix in (
+            "/feed",
+            "/in/",
+            "/posts/",
+            "/groups/",
+            "/notifications",
+            "/messaging",
+            "/company/",
+            "/school/",
+            "/search/",
+            "/analytics",
+        )
+    )
 
 
 def _has_li_at_cookie(storage_state: dict) -> bool:

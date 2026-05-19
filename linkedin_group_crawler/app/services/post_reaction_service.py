@@ -339,6 +339,12 @@ def _run_linkedin_post_reaction_playwright(
         raise ValueError("post_url phải là URL LinkedIn.")
 
     normalized_session_id, state_path = build_session_state_path(session_id=session_id, email=email)
+    logger.info(
+        "Playwright reaction session_id=%s email=%s state_file=%s",
+        normalized_session_id,
+        email or "",
+        state_path.name,
+    )
     if not state_path.is_file():
         raise FileNotFoundError(
             f"Không tìm thấy session LinkedIn tại {state_path}. Hãy POST /login (hoặc /verify) trước.",

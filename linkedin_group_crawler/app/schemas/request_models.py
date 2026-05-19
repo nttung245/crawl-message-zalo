@@ -9,6 +9,21 @@ from typing import Any, Literal, Optional, Union
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
+def resolve_playwright_session_email(
+    *,
+    email_crawl: str,
+    email: Optional[str] = None,
+) -> Optional[str]:
+    """Ưu tiên ``Email_crawl`` (tài khoản cào) — tránh ``email`` dashboard khác file session."""
+
+    crawl = (email_crawl or "").strip()
+    if "@" in crawl:
+        return crawl
+    if email and email.strip():
+        return email.strip()
+    return None
+
+
 class LoginRequest(BaseModel):
     """Request body for login endpoint."""
 
@@ -1127,12 +1142,10 @@ class PostReactionRequest(BaseModel):
     def playwright_resolve_email(self) -> Optional[str]:
         """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
 
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.Email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.Email_crawl,
+            email=self.email,
+        )
 
 
 class AppCommentEntry(BaseModel):
@@ -1308,12 +1321,10 @@ class PostCommentRequest(BaseModel):
         return self
 
     def playwright_resolve_email(self) -> Optional[str]:
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.Email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.Email_crawl,
+            email=self.email,
+        )
 
 
 class PostCommentDeleteRequest(BaseModel):
@@ -1484,12 +1495,10 @@ class PostCommentDeleteRequest(BaseModel):
         return self
 
     def playwright_resolve_email(self) -> Optional[str]:
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.Email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.Email_crawl,
+            email=self.email,
+        )
 
 
 class PostCommentEditRequest(BaseModel):
@@ -1669,12 +1678,10 @@ class PostCommentEditRequest(BaseModel):
         return self
 
     def playwright_resolve_email(self) -> Optional[str]:
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.Email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.Email_crawl,
+            email=self.email,
+        )
 
 
 class SyncPostProgressRequest(BaseModel):
@@ -1705,12 +1712,10 @@ class SyncPostProgressRequest(BaseModel):
 
     def playwright_resolve_email(self) -> Optional[str]:
         """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.Email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.Email_crawl,
+            email=self.email,
+        )
 
 
 class SyncAllProgressRequest(BaseModel):
@@ -1727,12 +1732,10 @@ class SyncAllProgressRequest(BaseModel):
 
     def playwright_resolve_email(self) -> Optional[str]:
         """Email dùng cho ``build_session_state_path`` khi không chỉ có session_id."""
-        if self.email and self.email.strip():
-            return self.email.strip()
-        crawl = self.email_crawl.strip()
-        if "@" in crawl:
-            return crawl
-        return None
+        return resolve_playwright_session_email(
+            email_crawl=self.email_crawl,
+            email=self.email,
+        )
 
 
 class KpiItem(BaseModel):

@@ -311,6 +311,8 @@ python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('li_at OK:', 
 - Response co `playwright_pool_primed_workers` / `playwright_pool_workers` (vd. `3/3`). Neu `0/3`, xem log va login lai.
 - Chi nap lai pool khong login LinkedIn: `force_relogin=false`, `prime_pool=true`.
 - Code moi: sau `goto` tu **chon tab LinkedIn da login** neu LinkedIn mo tab login.
+- Trang guest `linkedin.com/` (Welcome…) duoc coi la chua login; neu co `li_at` se thu mo `/feed/` mot lan truoc khi bao loi.
+- API react/comment **uu tien Email_crawl** (khong dung email dashboard khac file session).
 
 ## 11) Vi tri file quan trong
 
