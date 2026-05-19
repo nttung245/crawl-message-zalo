@@ -11,6 +11,7 @@ from typing import Any, Callable, Generator, TypeVar
 from playwright.sync_api import Browser, BrowserContext, Page, Playwright, sync_playwright
 
 from app.config import settings
+from app.services.auth_service import safe_persist_session_state
 from app.services.linkedin_session_nav import (
     goto_linkedin_url,
     linkedin_browser_context_options,
@@ -252,10 +253,7 @@ def _linkedin_session_page_impl(
             yield page
         finally:
             if persist_state:
-                try:
-                    context.storage_state(path=str(state_path))
-                except Exception:
-                    logger.warning("Could not persist storage_state", exc_info=True)
+                safe_persist_session_state(context, state_path)
             context.close()
     finally:
         lock.release()

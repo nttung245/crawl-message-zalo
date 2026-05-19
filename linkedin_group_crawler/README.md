@@ -200,17 +200,20 @@ createProxyMiddleware({
 
 ## 8) Build frontend dung cach (tranh mat CSS/chunk)
 
+**Triệu chứng:** kẹt trang Chào mừng, Console 404 file `*.js`, MIME `text/plain` — do thiếu copy static vào standalone.
+
 ```bash
 cd /opt/apps/minhhoang-linkedin-scraper/linkedin-crawler-ui
 rm -rf .next
 npm run build
-mkdir -p .next/standalone/.next
-rm -rf .next/standalone/.next/static
-cp -r .next/static .next/standalone/.next/static
-[ -d public ] && { rm -rf .next/standalone/public; cp -r public .next/standalone/public; } || true
+# postbuild tu dong: node scripts/copy-standalone-assets.mjs
+# Kiem tra chunk (phai co file, khong rong):
+ls .next/standalone/.next/static/chunks | head
 pm2 restart minhhoang-frontend --update-env
 pm2 save
 ```
+
+Neu build tren may khac: sau `npm run build` van can thu muc `.next/standalone/.next/static` day du truoc khi restart PM2.
 
 Sau khi sua `NEXT_PUBLIC_*`: **bat buoc** `npm run build` lai tren VM (gia tri bake vao JS).
 
@@ -313,6 +316,7 @@ python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('li_at OK:', 
 - Code moi: sau `goto` tu **chon tab LinkedIn da login** neu LinkedIn mo tab login.
 - Trang guest `linkedin.com/` (Welcome…) duoc coi la chua login; neu co `li_at` se thu mo `/feed/` mot lan truoc khi bao loi.
 - API react/comment **uu tien Email_crawl** (khong dung email dashboard khac file session).
+- **Quan trong:** Playwright chi ghi lai file session khi context con `li_at` — tranh moi lan tuong tac ghi de file bang trang guest (loi "thieu li_at" moi lan).
 
 ## 11) Vi tri file quan trong
 

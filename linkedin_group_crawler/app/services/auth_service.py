@@ -620,6 +620,33 @@ def _save_session_state(context: BrowserContext, state_path: Path) -> None:
     logger.info("Saved LinkedIn storage state to %s", state_path)
 
 
+def safe_persist_session_state(context: BrowserContext, state_path: Path) -> bool:
+    """Ghi file session sau react/comment **chỉ khi** context còn ``li_at``.
+
+    Trước đây mọi lần tương tác đều ``storage_state(path=...)`` kể cả khi tab ở trang guest
+    → ghi đè file đã login bằng cookie rỗng → lần sau validate báo thiếu ``li_at``.
+    """
+
+    if not _context_has_li_at_cookie(context):
+        logger.warning(
+            "Không ghi đè %s — trình duyệt thiếu cookie li_at (giữ file session cũ). "
+            "Nếu thao tác vừa fail, gọi POST /login lại.",
+            state_path.name,
+        )
+        return False
+    try:
+        payload = context.storage_state()
+    except Error:
+        logger.warning("Không đọc storage_state để lưu %s", state_path.name, exc_info=True)
+        return False
+    if not _has_li_at_cookie(payload):
+        logger.warning("Không ghi đè %s — payload export thiếu li_at", state_path.name)
+        return False
+    save_json_file_overwrite(state_path, payload)
+    logger.debug("Đã cập nhật session %s sau thao tác Playwright", state_path.name)
+    return True
+
+
 def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> dict[str, Any] | None:
     """Nạp file session lên mọi Chromium worker — react/comment không bị login lạnh mỗi browser."""
 
