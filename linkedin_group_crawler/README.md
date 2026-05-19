@@ -242,6 +242,29 @@ Gia tri pass:
   ```
 - Pull ban moi: warmup Playwright chay **nen** sau khi API listen (khong chan `/health`).
 
+### Playwright pool (comment / reaction song song)
+
+Backend dung **nhieu browser Chromium** (mac dinh `PLAYWRIGHT_POOL_SIZE=3`), moi request Playwright chay tren worker rieng — khong con xep hang toan cuc 1 browser.
+
+Trong `linkedin_group_crawler/.env`:
+
+```env
+PLAYWRIGHT_POOL_SIZE=3
+HEADLESS=true
+PLAYWRIGHT_WARMUP_ON_STARTUP=true
+```
+
+| RAM available | Gợi ý `PLAYWRIGHT_POOL_SIZE` |
+|---------------|------------------------------|
+| ~2 GB | `1` |
+| ~4–6 GB | `2` |
+| ~6+ GB | `3` |
+| 16 GB+ | `4` |
+
+Cung mot tai khoan LinkedIn (cung file session): van **tuan tu** (lock theo file session) de tranh ghi de cookie. **Khac tai khoan** chay song song.
+
+Sau doi `.env`: `pm2 restart minhhoang-backend --update-env`. Kiem tra: `curl -s http://127.0.0.1:8101/status` → `playwright_pool_size`.
+
 ## 10) Vi tri file quan trong
 
 - Backend env: `/opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler/.env`

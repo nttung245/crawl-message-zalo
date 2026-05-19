@@ -6,10 +6,10 @@ import re
 from datetime import date, timedelta
 from typing import Any, Final, Literal
 
-from playwright.sync_api import Error, Locator, Page, sync_playwright
+from playwright.sync_api import Error, Locator, Page
 
-from app.config import settings
 from app.services.auth_service import build_session_state_path
+from app.services.playwright_browser_pool import run_with_linkedin_session_page
 from app.services.post_reaction_service import (
     REACTION_SELECTORS,
     _REACTION_STATE_LABEL_HINTS,
@@ -386,18 +386,14 @@ def sync_post_engagement(
     if not state_path.is_file():
         raise FileNotFoundError(f"Session not found at {state_path}")
 
-    with sync_playwright() as p:
-        browser = p.chromium.launch(
-            headless=settings.headless,
-            args=["--no-sandbox", "--disable-setuid-sandbox"]
-        )
-        try:
-            context = browser.new_context(storage_state=str(state_path))
-            page = context.new_page()
-            page.set_default_timeout(timeout_ms)
-            
-            result = sync_post_engagement_on_page(page, post_url, profile_slug, timeout_ms)
-            result["session_id"] = normalized_session_id
-            return result
-        finally:
-            browser.close()
+    def _action(page: Page) -> dict[str, Any]:
+        page.set_default_timeout(timeout_ms)
+        result = sync_post_engagement_on_page(page, post_url, profile_slug, timeout_ms)
+        result["session_id"] = normalized_session_id
+        return result
+
+    return run_with_linkedin_session_page(
+        state_path=state_path,
+        persist_state=True,
+        action=_action,
+    )

@@ -657,72 +657,6 @@ export function SessionPostDetailModal({
               <p className="text-error mt-2 text-xs font-medium">{rxErr}</p>
             ) : null}
 
-            {commentComposerOpen ? (
-              <div className="border-outline-variant bg-surface-container-low/40 mt-md rounded-xl border p-md">
-                <p className="text-label-md text-on-surface-variant mb-2 font-semibold uppercase tracking-wide">
-                  Comment tại đây
-                </p>
-                <textarea
-                  value={commentDraft}
-                  onChange={(e) => setCommentDraft(e.target.value)}
-                  rows={4}
-                  disabled={cmBusy}
-                  placeholder="Nhập nội dung bình luận…"
-                  className="border-outline-variant bg-surface text-body-sm text-on-surface focus:ring-primary min-h-[96px] w-full resize-y rounded-lg border px-md py-sm outline-none focus:ring-2 disabled:opacity-50"
-                />
-                {existingComments.length > 0 ? (
-                  <div className="mt-md">
-                    <p className="text-body-xs text-on-surface-variant mb-1 font-semibold uppercase">
-                      Đã gửi ({existingComments.length})
-                    </p>
-                    <ul className="max-h-36 space-y-2 overflow-y-auto text-xs">
-                      {existingComments.map((c, i) => (
-                        <li
-                          key={`${appCommentDay(c)}-${i}-${appCommentContent(c).slice(0, 24)}`}
-                          className="border-outline-variant/60 rounded-md border bg-black/[0.02] px-sm py-1.5 dark:bg-white/[0.03]"
-                        >
-                          <span className="text-on-surface-variant font-mono text-[10px]">
-                            {formatDayVi(appCommentDay(c))}
-                          </span>
-                          <p className="text-on-surface mt-0.5 whitespace-pre-wrap">
-                            {appCommentContent(c)}
-                          </p>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ) : null}
-                {cmErr ? (
-                  <p className="text-error mt-2 text-xs font-medium">{cmErr}</p>
-                ) : null}
-                <div className="mt-md flex justify-end gap-sm">
-                  <button
-                    type="button"
-                    disabled={cmBusy}
-                    className="border-outline-variant text-on-surface hover:bg-surface-container-high rounded-lg border px-md py-sm text-xs font-bold uppercase"
-                    onClick={() => {
-                      setCommentComposerOpen(false);
-                      setCmErr(null);
-                    }}
-                  >
-                    Đóng
-                  </button>
-                  <button
-                    type="button"
-                    disabled={
-                      cmBusy ||
-                      !canOpenPost ||
-                      !emailCrawl ||
-                      !commentDraft.trim()
-                    }
-                    className="bg-primary text-on-primary hover:bg-primary-container rounded-lg px-md py-sm text-xs font-bold uppercase disabled:opacity-45"
-                    onClick={() => void runPostComment()}
-                  >
-                    {cmBusy ? "Đang gửi…" : "Gửi comment"}
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             <div className="border-outline-variant bg-surface-container-low/50 mt-md flex flex-wrap gap-x-lg gap-y-sm rounded-lg border px-md py-sm">
               <span className="inline-flex items-center gap-1 text-sm tabular-nums">
@@ -797,7 +731,51 @@ export function SessionPostDetailModal({
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-y-auto px-lg py-md">
+          <div className="min-h-0 flex-1 overflow-y-auto px-lg py-md flex flex-col gap-md">
+            {commentComposerOpen ? (
+              <div className="border-outline-variant bg-surface-container-low/40 rounded-xl border p-md shadow-sm">
+                <p className="text-label-md text-on-surface-variant mb-2 font-semibold uppercase tracking-wide">
+                  Comment tại đây
+                </p>
+                <textarea
+                  value={commentDraft}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                  rows={4}
+                  disabled={cmBusy}
+                  placeholder="Nhập nội dung bình luận…"
+                  className="border-outline-variant bg-surface text-body-sm text-on-surface focus:ring-primary min-h-[96px] w-full resize-y rounded-lg border px-md py-sm outline-none focus:ring-2 disabled:opacity-50"
+                />
+                {cmErr ? (
+                  <p className="text-error mt-2 text-xs font-medium">{cmErr}</p>
+                ) : null}
+                <div className="mt-md flex justify-end gap-sm">
+                  <button
+                    type="button"
+                    disabled={cmBusy}
+                    className="border-outline-variant text-on-surface hover:bg-surface-container-high rounded-lg border px-md py-sm text-xs font-bold uppercase transition-colors"
+                    onClick={() => {
+                      setCommentComposerOpen(false);
+                      setCmErr(null);
+                    }}
+                  >
+                    Đóng
+                  </button>
+                  <button
+                    type="button"
+                    disabled={
+                      cmBusy ||
+                      !canOpenPost ||
+                      !emailCrawl ||
+                      !commentDraft.trim()
+                    }
+                    className="bg-primary text-on-primary hover:bg-primary-container rounded-lg px-md py-sm text-xs font-bold uppercase disabled:opacity-45 transition-colors shadow-sm"
+                    onClick={() => void runPostComment()}
+                  >
+                    {cmBusy ? "Đang gửi…" : "Gửi comment"}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <section className="border-outline-variant bg-surface-container-low/30 rounded-xl border p-md">
               <h4 className="text-label-md text-on-surface-variant mb-2 font-semibold uppercase tracking-wide">
                 Nội dung bài viết
@@ -814,7 +792,7 @@ export function SessionPostDetailModal({
             </section>
 
             {existingComments.length > 0 ? (
-              <section className="border-outline-variant bg-surface-container-low/30 mt-md rounded-xl border p-md">
+              <section className="border-outline-variant bg-surface-container-low/30 rounded-xl border p-md">
                 <h4 className="text-label-md text-on-surface-variant mb-3 font-semibold uppercase tracking-wide flex items-center gap-2">
                   <MaterialIcon name="comment" className="text-[16px]" />
                   Comments đã gửi ({existingComments.length})
@@ -839,7 +817,7 @@ export function SessionPostDetailModal({
               </section>
             ) : null}
 
-            <details className="group border-outline-variant bg-surface-container-low/20 mt-md rounded-xl border">
+            <details className="group border-outline-variant bg-surface-container-low/20 rounded-xl border">
               <summary className="text-body-sm text-on-surface cursor-pointer list-none px-md py-md font-semibold [&::-webkit-details-marker]:hidden">
                 <span className="inline-flex items-center gap-2">
                   <MaterialIcon name="table_view" className="text-[20px]" />
@@ -883,7 +861,7 @@ export function SessionPostDetailModal({
               </div>
             </details>
 
-            <p className="text-on-surface-variant mt-md text-center text-[11px]">
+            <p className="text-on-surface-variant text-center text-[11px]">
               Phiên:{" "}
               <span className="font-mono" title={session.id_session_crawl}>
                 {shortenSessionId(session.id_session_crawl)}

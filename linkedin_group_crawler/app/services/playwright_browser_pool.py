@@ -1,4 +1,4 @@
-"""Shared Playwright Chromium on a single dedicated thread (Sync API / greenlet-safe)."""
+"""Playwright Chromium pool — nhiều worker thread, mỗi thread một browser (Sync API / greenlet-safe)."""
 
 from __future__ import annotations
 
@@ -27,98 +27,136 @@ CHROMIUM_LAUNCH_ARGS: tuple[str, ...] = (
 
 T = TypeVar("T")
 
-_playwright: Playwright | None = None
-_browser: Browser | None = None
-_playwright_worker_id: int | None = None
+_executor: ThreadPoolExecutor | None = None
+_executor_lock = threading.Lock()
+_state_path_locks_guard = threading.Lock()
+_state_path_locks: dict[str, threading.Lock] = {}
 
-_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="playwright")
+
+class _ThreadPlaywright:
+    playwright: Playwright | None = None
+    browser: Browser | None = None
 
 
-def _is_playwright_worker_thread() -> bool:
-    return (
-        _playwright_worker_id is not None
-        and threading.current_thread().ident == _playwright_worker_id
+_thread_local = threading.local()
+
+
+def _pool_size() -> int:
+    return settings.playwright_pool_size
+
+
+def _thread_slot() -> _ThreadPlaywright:
+    slot = getattr(_thread_local, "slot", None)
+    if slot is None:
+        slot = _ThreadPlaywright()
+        _thread_local.slot = slot
+    return slot
+
+
+def _get_executor() -> ThreadPoolExecutor:
+    global _executor
+    with _executor_lock:
+        if _executor is None:
+            size = _pool_size()
+            _executor = ThreadPoolExecutor(
+                max_workers=size,
+                thread_name_prefix="playwright",
+            )
+            logger.info("Playwright thread pool started (max_workers=%s)", size)
+        return _executor
+
+
+def _lock_for_state_path(state_path: Path) -> threading.Lock:
+    key = str(state_path.resolve())
+    with _state_path_locks_guard:
+        lock = _state_path_locks.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _state_path_locks[key] = lock
+        return lock
+
+
+def _is_pool_worker_thread() -> bool:
+    return threading.current_thread().name.startswith("playwright_")
+
+
+def _ensure_browser_on_worker() -> Browser:
+    slot = _thread_slot()
+    if slot.browser is not None:
+        return slot.browser
+    logger.info(
+        "Starting Playwright Chromium on %s (headless=%s)",
+        threading.current_thread().name,
+        settings.headless,
     )
-
-
-def run_playwright_sync(func: Callable[[], T]) -> T:
-    """Run ``func`` on the dedicated Playwright thread and return its result."""
-
-    if _is_playwright_worker_thread():
-        return func()
-    return _executor.submit(func).result()
-
-
-def start_playwright_browser() -> None:
-    """Launch Chromium once — must run on the Playwright worker thread."""
-
-    global _playwright, _browser
-    if _browser is not None:
-        return
-    if not _is_playwright_worker_thread():
-        run_playwright_sync(start_playwright_browser)
-        return
-    logger.info("Starting shared Playwright Chromium browser")
-    _playwright = sync_playwright().start()
-    _browser = _playwright.chromium.launch(
+    slot.playwright = sync_playwright().start()
+    slot.browser = slot.playwright.chromium.launch(
         headless=settings.headless,
         args=list(CHROMIUM_LAUNCH_ARGS),
     )
+    return slot.browser
 
 
-def stop_playwright_browser() -> None:
-    """Tear down browser and driver — must run on the Playwright worker thread."""
-
-    global _playwright, _browser
-    if not _is_playwright_worker_thread():
-        run_playwright_sync(stop_playwright_browser)
-        return
-    if _browser is None and _playwright is None:
-        return
-    if _browser is not None:
+def _stop_browser_on_worker() -> None:
+    slot = _thread_slot()
+    if slot.browser is not None:
         try:
-            _browser.close()
+            slot.browser.close()
         except Exception:
-            logger.warning("Error closing shared browser", exc_info=True)
-        _browser = None
-    if _playwright is not None:
+            logger.warning("Error closing browser on worker", exc_info=True)
+        slot.browser = None
+    if slot.playwright is not None:
         try:
-            _playwright.stop()
+            slot.playwright.stop()
         except Exception:
-            logger.warning("Error stopping Playwright driver", exc_info=True)
-        _playwright = None
-    logger.info("Stopped shared Playwright Chromium browser")
+            logger.warning("Error stopping Playwright on worker", exc_info=True)
+        slot.playwright = None
 
 
-def _register_worker_and_start() -> int:
-    global _playwright_worker_id
-    _playwright_worker_id = threading.current_thread().ident
-    start_playwright_browser()
-    return _playwright_worker_id or 0
+def run_playwright_sync(func: Callable[[], T]) -> T:
+    """Run ``func`` on a pool worker thread and return its result."""
+
+    if _is_pool_worker_thread():
+        return func()
+    return _get_executor().submit(func).result()
+
+
+def _warmup_worker() -> None:
+    _ensure_browser_on_worker()
 
 
 def warmup_playwright_pool() -> None:
-    """Pre-launch browser on the worker thread (FastAPI lifespan)."""
+    """Pre-launch one browser per pool worker (background / lifespan)."""
 
-    global _playwright_worker_id
-    _playwright_worker_id = _executor.submit(_register_worker_and_start).result()
+    size = _pool_size()
+    ex = _get_executor()
+    for idx in range(size):
+        ex.submit(_warmup_worker).result()
+    logger.info("Playwright pool warmup finished (%s workers)", size)
 
 
 def shutdown_playwright_pool() -> None:
-    """Stop browser and shut down the worker executor."""
+    """Stop browsers on all workers and shut down the executor."""
 
-    global _playwright_worker_id
+    global _executor
+    ex: ThreadPoolExecutor | None
+    with _executor_lock:
+        ex = _executor
+    if ex is None:
+        return
 
-    if _playwright_worker_id is not None:
-        run_playwright_sync(stop_playwright_browser)
-    _executor.shutdown(wait=True, cancel_futures=False)
-    _playwright_worker_id = None
+    size = _pool_size()
+    for _ in range(size):
+        try:
+            ex.submit(_stop_browser_on_worker).result(timeout=90)
+        except Exception:
+            logger.warning("Playwright worker shutdown issue", exc_info=True)
 
-
-def _require_browser() -> Browser:
-    start_playwright_browser()
-    assert _browser is not None
-    return _browser
+    with _executor_lock:
+        if _executor is not None:
+            _executor.shutdown(wait=True, cancel_futures=False)
+            _executor = None
+    logger.info("Playwright pool shut down")
 
 
 @contextmanager
@@ -127,18 +165,23 @@ def _linkedin_session_page_impl(
     state_path: Path,
     persist_state: bool = True,
 ) -> Generator[Page, None, None]:
-    browser = _require_browser()
-    context: BrowserContext = browser.new_context(storage_state=str(state_path))
-    page = context.new_page()
+    lock = _lock_for_state_path(state_path)
+    lock.acquire()
     try:
-        yield page
+        browser = _ensure_browser_on_worker()
+        context: BrowserContext = browser.new_context(storage_state=str(state_path))
+        page = context.new_page()
+        try:
+            yield page
+        finally:
+            if persist_state:
+                try:
+                    context.storage_state(path=str(state_path))
+                except Exception:
+                    logger.warning("Could not persist storage_state", exc_info=True)
+            context.close()
     finally:
-        if persist_state:
-            try:
-                context.storage_state(path=str(state_path))
-            except Exception:
-                logger.warning("Could not persist storage_state", exc_info=True)
-        context.close()
+        lock.release()
 
 
 def run_with_linkedin_session_page(
@@ -147,7 +190,7 @@ def run_with_linkedin_session_page(
     persist_state: bool = True,
     action: Callable[[Page], T],
 ) -> T:
-    """Run Playwright work on the dedicated thread (safe from FastAPI workers)."""
+    """Run Playwright work on a pool worker (safe from FastAPI request threads)."""
 
     def _inner() -> T:
         with _linkedin_session_page_impl(
@@ -157,3 +200,12 @@ def run_with_linkedin_session_page(
             return action(page)
 
     return run_playwright_sync(_inner)
+
+
+def pool_status() -> dict[str, int | bool]:
+    """Snapshot for /status — số worker cấu hình và headless."""
+
+    return {
+        "playwright_pool_size": _pool_size(),
+        "headless": settings.headless,
+    }

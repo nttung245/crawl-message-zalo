@@ -221,6 +221,11 @@ class Settings:
     """Typed settings loaded from environment variables."""
 
     headless: bool = _parse_bool(os.getenv("HEADLESS"), default=True)
+    # Số browser Chromium song song (mỗi worker thread một browser). VM 8GB: 2–3; 16GB+: 4.
+    playwright_pool_size: int = max(
+        1,
+        min(8, int(os.getenv("PLAYWRIGHT_POOL_SIZE", "3"))),
+    )
     # Pre-launch Chromium sau khi API listen (nền). false = chỉ khi có request Playwright.
     playwright_warmup_on_startup: bool = _parse_bool(
         os.getenv("PLAYWRIGHT_WARMUP_ON_STARTUP"),
