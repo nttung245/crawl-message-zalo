@@ -7,3 +7,10 @@ httpx
 pytest
 google-api-python-client
 google-auth
+# nguyen
+playwright-stealth
+pyotp
+gspread
+apscheduler
+pyngrok
+gspread_asyncio
