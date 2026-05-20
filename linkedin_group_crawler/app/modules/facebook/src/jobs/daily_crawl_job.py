@@ -8,16 +8,16 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.executors.asyncio import AsyncIOExecutor
 
 # Import các service
-from src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
-from src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
-from src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
 
-from src.modules.gg_sheet.services.history_sheet_service import HistorySheetService
-from src.modules.gg_sheet.services.user_score_sheet_service import UserScoreSheetService
-from src.modules.facebook.services.facebook_scraper import FacebookScraper, GroupTarget 
-from src.modules.telegram.services.telegram_service import TelegramService
-from src.core.config.env import Config
-from src.modules.crawl_fb.models.GroupSummary import GroupSummary
+from app.modules.facebook.src.modules.gg_sheet.services.history_sheet_service import HistorySheetService
+from app.modules.facebook.src.modules.gg_sheet.services.user_score_sheet_service import UserScoreSheetService
+from app.modules.facebook.src.modules.facebook.services.facebook_scraper import FacebookScraper, GroupTarget
+from app.modules.facebook.src.modules.telegram.services.telegram_service import TelegramService
+from app.modules.facebook.src.core.config.env import Config
+from app.modules.facebook.src.modules.crawl_fb.models.GroupSummary import GroupSummary
 
 
 

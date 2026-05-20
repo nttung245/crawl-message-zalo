@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from src.modules.crawl_fb.models.post import Post
+from app.modules.facebook.src.modules.crawl_fb.models.post import Post
 @dataclass
 class GroupSummary:
     """

@@ -3,14 +3,14 @@ import asyncio
 from typing import List, Optional
 from fastapi import HTTPException, status 
 from fastapi.concurrency import run_in_threadpool
-from src.modules.crawl_fb.schemas.crawl_schema import CrawlPayload
-from src.modules.crawl_fb.models.GroupSummary import GroupSummary
-from src.modules.facebook.services.facebook_scraper import FacebookScraper
-from src.modules.telegram.services.telegram_service import TelegramService
-from src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
-from src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
-from src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
-from src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
+from app.modules.facebook.src.modules.crawl_fb.schemas.crawl_schema import CrawlPayload
+from app.modules.facebook.src.modules.crawl_fb.models.GroupSummary import GroupSummary
+from app.modules.facebook.src.modules.facebook.services.facebook_scraper import FacebookScraper
+from app.modules.facebook.src.modules.telegram.services.telegram_service import TelegramService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
 
 
 logger = logging.getLogger(__name__)

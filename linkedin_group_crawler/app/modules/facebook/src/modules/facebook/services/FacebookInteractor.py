@@ -6,8 +6,8 @@ from typing import Optional
 
 from playwright.sync_api import sync_playwright, Page
 
-from src.modules.facebook.services.facebook_auth import FacebookAuth
-from src.core.utils.logger import setup_logger
+from app.modules.facebook.src.modules.facebook.services.facebook_auth import FacebookAuth
+from app.modules.facebook.src.core.utils.logger import setup_logger
 from .human_behavior import HumanBehavior
 
 logger = setup_logger(__name__)

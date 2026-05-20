@@ -6,8 +6,8 @@ Nơi gom nhóm tất cả các endpoint của ứng dụng.
 from fastapi import APIRouter
 
 # Import các file route con
-from src.modules.crawl_fb.router.index import crawl_fb_router
-from src.modules.crawl_fb.router.sheet_management import sheet_management_router
+from app.modules.facebook.src.modules.crawl_fb.router.index import crawl_fb_router
+from app.modules.facebook.src.modules.crawl_fb.router.sheet_management import sheet_management_router
 # Ví dụ khi dự án mở rộng, bạn sẽ import thêm:
 # from src.api.routes import user_route
 # from src.api.routes import auth_route

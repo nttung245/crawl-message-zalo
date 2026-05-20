@@ -4,9 +4,9 @@ from datetime import datetime
 
 import gspread
 from google.oauth2.service_account import Credentials
-from src.modules.crawl_fb.models.GroupSummary import GroupSummary
+from app.modules.facebook.src.modules.crawl_fb.models.GroupSummary import GroupSummary
 # Giả định import cấu hình từ project của bạn
-from src.core.config.env import Config
+from app.modules.facebook.src.core.config.env import Config
 
 logger = logging.getLogger(__name__)
 

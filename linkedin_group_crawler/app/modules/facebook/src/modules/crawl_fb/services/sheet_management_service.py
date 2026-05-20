@@ -5,12 +5,12 @@ from datetime import datetime
 
 from fastapi.concurrency import run_in_threadpool
 # Giả định import theo cấu trúc project của bạn
-from src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
-from src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
-from src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
-from src.modules.gg_sheet.services.user_score_sheet_service import UserScoreSheetService
-from src.modules.gg_sheet.services.history_sheet_service import HistorySheetService
-from src.modules.gg_sheet.services.comment_sheet_service import CommentSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.user_score_sheet_service import UserScoreSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.history_sheet_service import HistorySheetService
+from app.modules.facebook.src.modules.gg_sheet.services.comment_sheet_service import CommentSheetService
 
 def format_time_and_status(last_crawl_str: str) -> Tuple[str, str]:
     """

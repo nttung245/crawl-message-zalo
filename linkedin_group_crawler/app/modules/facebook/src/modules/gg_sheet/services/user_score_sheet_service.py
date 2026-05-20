@@ -4,7 +4,7 @@ import gspread
 from google.oauth2.service_account import Credentials
 
 # Giả định import cấu hình từ project của bạn
-from src.core.config.env import Config
+from app.modules.facebook.src.core.config.env import Config
 
 logger = logging.getLogger(__name__)
 

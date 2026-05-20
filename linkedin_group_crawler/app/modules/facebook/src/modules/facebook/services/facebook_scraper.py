@@ -7,13 +7,13 @@ import sys
 
 from playwright.sync_api import sync_playwright
 
-from src.modules.crawl_fb.models.post import Post
-from src.modules.facebook.services.facebook_auth import FacebookAuth
-from src.modules.facebook.services.post_extractor import PostExtractor
-from src.core.utils.facebook_parsers import classify_timestamp
-from src.core.utils.logger import setup_logger
+from app.modules.facebook.src.modules.crawl_fb.models.post import Post
+from app.modules.facebook.src.modules.facebook.services.facebook_auth import FacebookAuth
+from app.modules.facebook.src.modules.facebook.services.post_extractor import PostExtractor
+from app.modules.facebook.src.core.utils.facebook_parsers import classify_timestamp
+from app.modules.facebook.src.core.utils.logger import setup_logger
 
-from src.modules.crawl_fb.models.GroupSummary import GroupSummary
+from app.modules.facebook.src.modules.crawl_fb.models.GroupSummary import GroupSummary
 from .human_behavior import HumanBehavior
 
 logger = setup_logger(__name__)

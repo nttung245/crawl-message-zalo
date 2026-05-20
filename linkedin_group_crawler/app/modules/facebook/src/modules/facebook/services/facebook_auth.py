@@ -6,10 +6,10 @@ from typing import Dict, Any, Optional
 from playwright_stealth import Stealth
 import pyotp
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Browser, TimeoutError as PlaywrightTimeoutError
-from src.modules.gg_sheet.services.google_sheets_account import GoogleSheetAccountService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_account import GoogleSheetAccountService
 from .human_behavior import HumanBehavior
-from src.core.config.env import Config
-from src.core.utils.logger import setup_logger
+from app.modules.facebook.src.core.config.env import Config
+from app.modules.facebook.src.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

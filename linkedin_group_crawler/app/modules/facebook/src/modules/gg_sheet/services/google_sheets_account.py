@@ -1,8 +1,8 @@
 import os
 import gspread
 from google.oauth2.service_account import Credentials
-from src.core.config.env import Config
-from src.core.utils.logger import setup_logger
+from app.modules.facebook.src.core.config.env import Config
+from app.modules.facebook.src.core.utils.logger import setup_logger
 
 logger = setup_logger(__name__)
 

@@ -7,17 +7,17 @@ from typing import List, Optional, Dict
 from pydantic import BaseModel
 import uuid
 # Imports từ project của bạn
-from src.modules.facebook.services.facebook_auth import FacebookAuth
-from src.modules.crawl_fb.schemas.crawl_schema import CrawlPayload
-from src.modules.crawl_fb.services.index import CrawlService
-from src.modules.facebook.services.facebook_scraper import FacebookScraper, cancel_registry
-from src.modules.telegram.services.telegram_service import TelegramService
-from src.modules.gg_sheet.services.google_sheets import GoogleApiService
-from src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
-from src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
-from src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
-from src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
-from src.core.config.env import Config
+from app.modules.facebook.src.modules.facebook.services.facebook_auth import FacebookAuth
+from app.modules.facebook.src.modules.crawl_fb.schemas.crawl_schema import CrawlPayload
+from app.modules.facebook.src.modules.crawl_fb.services.index import CrawlService
+from app.modules.facebook.src.modules.facebook.services.facebook_scraper import FacebookScraper, cancel_registry
+from app.modules.facebook.src.modules.telegram.services.telegram_service import TelegramService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets import GoogleApiService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_service import GroupManagementSheetService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_posts import GoogleSheetServicePosts
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_groups_24h import TargetGroupSheet24HService
+from app.modules.facebook.src.modules.gg_sheet.services.google_sheets_intent_service import IntentSheetService
+from app.modules.facebook.src.core.config.env import Config
 
 from fastapi.encoders import jsonable_encoder
 import traceback

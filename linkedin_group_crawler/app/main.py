@@ -103,4 +103,4 @@ async def request_validation_exception_handler(_, exc: RequestValidationError) -
 
 app.include_router(router)
 app.include_router(linkedin_app_router)
-app.include_router(api_router, prefix="facebook/api/v1")
+app.include_router(api_router, prefix="/facebook/api/v1")

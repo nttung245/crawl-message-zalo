@@ -2,13 +2,13 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.concurrency import run_in_threadpool
 
 # Import schemas và service vừa tạo ở trên
-from src.core.config.env import Config
-from src.modules.crawl_fb.schemas.sheet_schema import (
+from app.modules.facebook.src.core.config.env import Config
+from app.modules.facebook.src.modules.crawl_fb.schemas.sheet_schema import (
     BulkAddGroupPayload, BulkDeleteGroupPayload,
     BulkAddIntentPayload, BulkDeleteIntentPayload,GetIntentsResponse,
     GetGroupsResponse
 )
-from src.modules.crawl_fb.services.sheet_management_service import SheetManagementService
+from app.modules.facebook.src.modules.crawl_fb.services.sheet_management_service import SheetManagementService
 
 sheet_management_router = APIRouter( tags=["Sheet Management API"])
 
@@ -121,7 +121,7 @@ async def api_bulk_delete_intents(
         return {"status": "success", "message": f"Đã xóa {len(payload.intents)} Intents."}
     return {"status": "error", "message": "Xóa Intent thất bại."}
 
-from src.modules.facebook.services.FacebookInteractor import FacebookInteractor, InteractionResult,InteractionTarget
+from app.modules.facebook.src.modules.facebook.services.FacebookInteractor import FacebookInteractor, InteractionResult,InteractionTarget
 @sheet_management_router.post("/posts/interact", status_code=status.HTTP_200_OK)
 async def auto_interact(req_data: dict,service: SheetManagementService = Depends(get_sheet_management_service)):
     """

@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta
 import re
-from src.modules.facebook.constants.facebook_regex import (
+from app.modules.facebook.src.modules.facebook.constants.facebook_regex import (
     RE_JUST_NOW, RE_SECONDS, RE_MINUTES, RE_HOURS,
     RE_TODAY, RE_YESTERDAY, RE_DAYS_AGO, RE_WEEKS_AGO,
     RE_MONTHS, RE_YEAR_4D,
