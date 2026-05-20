@@ -69,11 +69,8 @@ async function requestJson<TResponse>(
       },
     });
   } catch (error) {
-    const hint =
-      error instanceof Error ? error.message : String(error);
-    throw new Error(
-      `Không kết nối được API (${API_BASE_URL}${path}): ${hint}`,
-    );
+    const hint = error instanceof Error ? error.message : String(error);
+    throw new Error(`Không kết nối được API (${API_BASE_URL}${path}): ${hint}`);
   }
 
   let payload: TResponse;
@@ -149,10 +146,13 @@ export function getMyProfileSlug(payload: {
   const body: Record<string, unknown> = {};
   if (session_id) body.session_id = session_id;
   if (email) body.email = email;
-  return requestJson<GetMyProfileSlugResponse>("/api/linkedin/me/profile-slug", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return requestJson<GetMyProfileSlugResponse>(
+    "/api/linkedin/me/profile-slug",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function verifyLinkedInOtp(
@@ -207,10 +207,13 @@ export function getAllLinkedInPosts(
 export function getAllN8nGroups(
   payload: GetAllN8nGroupsRequest,
 ): Promise<N8nGroupOperationResponse> {
-  return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/n8n-get-all", {
-    method: "POST",
-    body: JSON.stringify({ email: payload.email.trim() }),
-  });
+  return requestJson<N8nGroupOperationResponse>(
+    "/api/linkedin/groups/n8n-get-all",
+    {
+      method: "POST",
+      body: JSON.stringify({ email: payload.email.trim() }),
+    },
+  );
 }
 
 export function addListGroupBulk(
@@ -223,12 +226,16 @@ export function addListGroupBulk(
     delay_max_sec: payload.delay_max_sec ?? 5,
   };
   if (payload.email?.trim()) body.email = payload.email.trim();
+  body.type = (payload.type || "").trim();
   if (payload.webhook_timeout_sec != null)
     body.webhook_timeout_sec = payload.webhook_timeout_sec;
-  return requestJson<BulkGroupImportResponse>("/api/linkedin/groups/add-list-group", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
+  return requestJson<BulkGroupImportResponse>(
+    "/api/linkedin/groups/add-list-group",
+    {
+      method: "POST",
+      body: JSON.stringify(body),
+    },
+  );
 }
 
 export function addN8nGroup(
@@ -240,6 +247,7 @@ export function addN8nGroup(
     member: payload.member,
   };
   if (payload.email?.trim()) body.email = payload.email.trim();
+  body.type = (payload.type || "").trim();
   return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/add", {
     method: "POST",
     body: JSON.stringify(body),
@@ -272,6 +280,8 @@ export function updateN8nGroup(
   if (payload.new_name_group != null && payload.new_name_group !== "")
     body.new_name_group = payload.new_name_group.trim();
   if (payload.new_member != null) body.new_member = payload.new_member;
+  if (payload.new_type != null && payload.new_type !== "")
+    body.new_type = payload.new_type.trim();
   if (payload.email?.trim()) body.email = payload.email.trim();
   return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/update", {
     method: "POST",
@@ -346,10 +356,13 @@ export function assignKpi(
 export function checkPermission(
   payload: CheckPermissionRequest,
 ): Promise<CheckPermissionResponse> {
-  return requestJson<CheckPermissionResponse>("/api/linkedin/auth/check-permission", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return requestJson<CheckPermissionResponse>(
+    "/api/linkedin/auth/check-permission",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 
 /** Lấy toàn bộ KPI cho leader. */
@@ -386,10 +399,13 @@ export function addMember(
 export function verifyLeaderCode(
   payload: VerifyLeaderCodeRequest,
 ): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/api/linkedin/auth/verify-leader-code", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return requestJson<ApiResponse<unknown>>(
+    "/api/linkedin/auth/verify-leader-code",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
 export const getAllProfiles = async (
   payload: GetProfilesRequest,
@@ -407,8 +423,11 @@ export const getAllProfiles = async (
 export function updateProfileSlug(
   payload: UpdateProfileSlugRequest,
 ): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/api/linkedin/me/profile-slug-update", {
-    method: "POST",
-    body: JSON.stringify(payload),
-  });
+  return requestJson<ApiResponse<unknown>>(
+    "/api/linkedin/me/profile-slug-update",
+    {
+      method: "POST",
+      body: JSON.stringify(payload),
+    },
+  );
 }
