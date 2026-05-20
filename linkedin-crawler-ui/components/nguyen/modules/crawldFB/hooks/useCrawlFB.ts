@@ -12,7 +12,7 @@ export const useCrawlFB = () => {
     const wsRef = useRef<WebSocket | null>(null);
 
     const getWsUrl = (email: string) => {
-        const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+        const baseUrl = `${process.env.NEXT_PUBLIC_API_FACEBOOK_BASE_URL}/facebook` || "";
         let wsUrl = "";
 
         if (baseUrl.startsWith("http")) {

@@ -8,7 +8,7 @@ export const Login_Schemas = z.object({
     // password: z.string().optional(),
 
     // 2. [ĐỀ XUẤT] - Đã làm Form Login thì BẮT BUỘC phải nhập và phải chuẩn:
-    userName: z.string({ error: "Vui lòng nhập tài khoản" })
+    email: z.string({ error: "Vui lòng nhập tài khoản" })
         .trim() // Tự động cắt khoảng trắng thừa ở đầu/cuối
         .min(1, "Tài khoản không được để trống"),
     secret_2fa:z.string().optional(),
