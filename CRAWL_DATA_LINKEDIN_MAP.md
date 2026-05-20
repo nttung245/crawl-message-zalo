@@ -8,7 +8,7 @@ Tai lieu nay tom tat chuc nang cua tung khu vuc (backend + frontend), cac file c
 
 ## 1) Tong quan kien truc
 
-- Backend FastAPI: [linkedin_group_crawler/app/main.py](linkedin_group_crawler/app/main.py) + routes: [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/routes.py)
+- Backend FastAPI: [linkedin_group_crawler/app/main.py](linkedin_group_crawler/app/main.py) + routes: [linkedin_group_crawler/app/modules/linkedin/router.py](linkedin_group_crawler/app/modules/linkedin/router.py)
 - Frontend Next.js (App Router): [linkedin-crawler-ui/app](linkedin-crawler-ui/app)
 - Dong du lieu chinh:
   - Frontend -> Backend (API) -> Playwright / n8n / Google Sheets
@@ -26,6 +26,15 @@ Cac tai lieu van hanh quan trong:
 
 ## 2) Backend (FastAPI) - cau truc va chuc nang
 
+### 2.0 Cau truc thu muc modular moi
+Hệ thống được chuyển đổi sang cấu trúc Modular để sẵn sàng mở rộng sang nhiều nền tảng (Facebook, Zalo, v.v.):
+- **`app/core/`**: Chứa cấu hình dùng chung (`config.py`), logger, và quản lý browser pool (`playwright_browser_pool.py`).
+- **`app/shared/`**: Các service chia sẻ giữa các module (`google_sheet_service.py`, `n8n_webhook_service.py`).
+- **`app/modules/linkedin/`**: Đóng gói toàn bộ logic riêng của LinkedIn:
+  - `router.py`: Chứa các endpoint API có tiền tố `/api/linkedin/...` và `/api/linkedin/app/...` để tránh xung đột với module khác.
+  - `services/`: (Mục tiêu tiếp theo) Di chuyển toàn bộ services liên quan đến LinkedIn vào đây.
+
+
 ### 2.1 Entry point
 
 - [linkedin_group_crawler/app/main.py](linkedin_group_crawler/app/main.py)
@@ -34,9 +43,9 @@ Cac tai lieu van hanh quan trong:
   - Include router: `router` + `linkedin_app_router`
   - Dam bao thu muc data/state/session ton tai
 
-### 2.2 API routes (routes.py)
+### 2.2 API routes (router.py)
 
-File: [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/routes.py)
+File: [linkedin_group_crawler/app/modules/linkedin/router.py](linkedin_group_crawler/app/modules/linkedin/router.py)
 
 **Health / status**
 
@@ -316,58 +325,60 @@ Frontend: [linkedin-crawler-ui/.env.local](linkedin-crawler-ui/.env.local)
 
 **Login / session**
 
-- [linkedin_group_crawler/app/services/auth_service.py](linkedin_group_crawler/app/services/auth_service.py)
-- [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/routes.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/auth_service.py](linkedin_group_crawler/app/modules/linkedin/services/auth_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/router.py](linkedin_group_crawler/app/modules/linkedin/router.py)
 - [linkedin-crawler-ui/services/linkedinCrawlerService.ts](linkedin-crawler-ui/services/linkedinCrawlerService.ts)
 
 **Crawl + top post**
 
-- [linkedin_group_crawler/app/services/crawler_service.py](linkedin_group_crawler/app/services/crawler_service.py)
-- [linkedin_group_crawler/app/services/ranking_service.py](linkedin_group_crawler/app/services/ranking_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/crawler_service.py](linkedin_group_crawler/app/modules/linkedin/services/crawler_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/ranking_service.py](linkedin_group_crawler/app/modules/linkedin/services/ranking_service.py)
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-CrawlResultsSection.tsx)
 
 **N8n group management**
 
-- [linkedin_group_crawler/app/services/n8n_webhook_service.py](linkedin_group_crawler/app/services/n8n_webhook_service.py)
-- [linkedin_group_crawler/app/api/routes.py](linkedin_group_crawler/app/api/routes.py)
+- [linkedin_group_crawler/app/shared/services/n8n_webhook_service.py](linkedin_group_crawler/app/shared/services/n8n_webhook_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/router.py](linkedin_group_crawler/app/modules/linkedin/router.py)
 - [linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInN8nManagedGroupsSection.tsx](linkedin-crawler-ui/components/features/linkedin/group-management/LinkedInN8nManagedGroupsSection.tsx)
 
 **Comment / reaction**
 
-- [linkedin_group_crawler/app/services/post_comment_service.py](linkedin_group_crawler/app/services/post_comment_service.py)
-- [linkedin_group_crawler/app/services/post_comment_delete_service.py](linkedin_group_crawler/app/services/post_comment_delete_service.py)
-- [linkedin_group_crawler/app/services/post_comment_edit_service.py](linkedin_group_crawler/app/services/post_comment_edit_service.py)
-- [linkedin_group_crawler/app/services/post_reaction_service.py](linkedin_group_crawler/app/services/post_reaction_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/post_comment_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/post_comment_delete_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_delete_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/post_comment_edit_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_edit_service.py)
+- [linkedin_group_crawler/app/modules/linkedin/services/post_reaction_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_reaction_service.py)
 - [linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx](linkedin-crawler-ui/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal.tsx)
 
 ---
 
-Neu ban muon, toi co the bo sung mo ta chi tiet hon cho tung file con trong [linkedin_group_crawler/app/services](linkedin_group_crawler/app/services) va [linkedin-crawler-ui/components](linkedin-crawler-ui/components), hoac xuat ra so do Mermaid (backend <-> frontend <-> n8n) de de doc hon.
+Neu ban muon, toi co the bo sung mo ta chi tiet hon cho tung file con trong [linkedin_group_crawler/app/modules/linkedin/services](linkedin_group_crawler/app/modules/linkedin/services) va [linkedin-crawler-ui/components](linkedin-crawler-ui/components), hoac xuat ra so do Mermaid (backend <-> frontend <-> n8n) de de doc hon.
 
 ---
 
 ## 8) Chi tiet tung file trong backend services
 
-Thu muc: [linkedin_group_crawler/app/services](linkedin_group_crawler/app/services)
+- **LinkedIn specific services (Thu muc: [linkedin_group_crawler/app/modules/linkedin/services](linkedin_group_crawler/app/modules/linkedin/services))**
+  - [linkedin_group_crawler/app/modules/linkedin/services/auth_service.py](linkedin_group_crawler/app/modules/linkedin/services/auth_service.py): Login LinkedIn, luu storage state, xu ly OTP, resolve session id theo email, tim selector login, ghi artifacts (screenshot/html) khi loi.
+  - [linkedin_group_crawler/app/modules/linkedin/services/crawler_service.py](linkedin_group_crawler/app/modules/linkedin/services/crawler_service.py): Mo group URL, scroll, parse post, lay group_name, luu raw html; goi parse_post_locator tu parser_service.
+  - [linkedin_group_crawler/app/modules/linkedin/services/group_bulk_import_service.py](linkedin_group_crawler/app/modules/linkedin/services/group_bulk_import_service.py): Crawl hang loat URL nhom, parse member count, ten nhom, tra ve danh sach ket qua.
+  - [linkedin_group_crawler/app/modules/linkedin/services/n8n_post_filter_service.py](linkedin_group_crawler/app/modules/linkedin/services/n8n_post_filter_service.py): Normalize payload n8n, parse ngay bai viet, loc theo date range, gom session, map cac key alias.
+  - [linkedin_group_crawler/app/modules/linkedin/services/parser_service.py](linkedin_group_crawler/app/modules/linkedin/services/parser_service.py): Parse post element LinkedIn (author, content, posted_at_raw, reactions, comments, reposts, post_url) voi selector fallback.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_comment_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_service.py): Playwright mo post detail, tim editor comment, go comment, submit va verify.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_comment_delete_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_delete_service.py): Xoa comment tu post detail / recent-activity, match text, mo menu more, click Delete va confirm.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_comment_edit_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_edit_service.py): Sua comment tu post detail (menu Edit -> contenteditable -> Save changes) va verify.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_comment_sync_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_comment_sync_service.py): Merge comment vao sheet row, patch comments cell, dong bo danh sach qua webhook ghi de.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_reaction_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_reaction_service.py): Playwright reaction (like/love/celebrate/support/insightful/funny) hoac clear reaction tren post.
+  - [linkedin_group_crawler/app/modules/linkedin/services/post_reaction_sync_service.py](linkedin_group_crawler/app/modules/linkedin/services/post_reaction_sync_service.py): Dong bo reaction vao sheet; fetch posts tu n8n, match url+email, build webhook payload, skip Playwright neu sheet da co.
+  - [linkedin_group_crawler/app/modules/linkedin/services/profile_comments_service.py](linkedin_group_crawler/app/modules/linkedin/services/profile_comments_service.py): Crawl recent-activity comments theo public_id, parse activity_url, group_post/activity id, comment text va time.
+  - [linkedin_group_crawler/app/modules/linkedin/services/profile_slug_service.py](linkedin_group_crawler/app/modules/linkedin/services/profile_slug_service.py): Lay profile slug tu /in/me hoac menu Me, validate slug, tra ve profile_url.
+  - [linkedin_group_crawler/app/modules/linkedin/services/profile_slug_sheet_service.py](linkedin_group_crawler/app/modules/linkedin/services/profile_slug_sheet_service.py): Doc webhook danh sach profile slug, normalize rows, tim email khop, (tu chon) ghi slug moi qua webhook.
+  - [linkedin_group_crawler/app/modules/linkedin/services/ranking_service.py](linkedin_group_crawler/app/modules/linkedin/services/ranking_service.py): Tinh score tu likes/comments/reposts, loc theo ngay muc tieu, chon top post, pick bai moi nhat fallback.
+  - [linkedin_group_crawler/app/modules/linkedin/services/sync_progress_service.py](linkedin_group_crawler/app/modules/linkedin/services/sync_progress_service.py): `sync_post_engagement` / `sync_post_engagement_on_page` — doc reaction, comment (You/Bạn), metrics; goto truc tiep `post_url`.
 
-- [linkedin_group_crawler/app/services/auth_service.py](linkedin_group_crawler/app/services/auth_service.py): Login LinkedIn, luu storage state, xu ly OTP, resolve session id theo email, tim selector login, ghi artifacts (screenshot/html) khi loi.
-- [linkedin_group_crawler/app/services/crawler_service.py](linkedin_group_crawler/app/services/crawler_service.py): Mo group URL, scroll, parse post, lay group_name, luu raw html; goi parse_post_locator tu parser_service.
-- [linkedin_group_crawler/app/services/google_sheet_service.py](linkedin_group_crawler/app/services/google_sheet_service.py): Ket noi Google Sheets bang service account; resolve tab top_posts / group_urls; doc/ghi du lieu, map header alias.
-- [linkedin_group_crawler/app/services/group_bulk_import_service.py](linkedin_group_crawler/app/services/group_bulk_import_service.py): Crawl hang loat URL nhom, parse member count, ten nhom, tra ve danh sach ket qua.
-- [linkedin_group_crawler/app/services/n8n_post_filter_service.py](linkedin_group_crawler/app/services/n8n_post_filter_service.py): Normalize payload n8n, parse ngay bai viet, loc theo date range, gom session, map cac key alias.
-- [linkedin_group_crawler/app/services/n8n_webhook_service.py](linkedin_group_crawler/app/services/n8n_webhook_service.py): Goi webhook n8n (credentials, start, get sheet link, post_json); xu ly timeout va preview response.
-- [linkedin_group_crawler/app/services/parser_service.py](linkedin_group_crawler/app/services/parser_service.py): Parse post element LinkedIn (author, content, posted_at_raw, reactions, comments, reposts, post_url) voi selector fallback.
-- [linkedin_group_crawler/app/services/post_comment_service.py](linkedin_group_crawler/app/services/post_comment_service.py): Playwright mo post detail, tim editor comment, go comment, submit va verify.
-- [linkedin_group_crawler/app/services/post_comment_delete_service.py](linkedin_group_crawler/app/services/post_comment_delete_service.py): Xoa comment tu post detail / recent-activity, match text, mo menu more, click Delete va confirm.
-- [linkedin_group_crawler/app/services/post_comment_edit_service.py](linkedin_group_crawler/app/services/post_comment_edit_service.py): Sua comment tu post detail (menu Edit -> contenteditable -> Save changes) va verify.
-- [linkedin_group_crawler/app/services/post_comment_sync_service.py](linkedin_group_crawler/app/services/post_comment_sync_service.py): Merge comment vao sheet row, patch comments cell, dong bo danh sach qua webhook ghi de.
-- [linkedin_group_crawler/app/services/post_reaction_service.py](linkedin_group_crawler/app/services/post_reaction_service.py): Playwright reaction (like/love/celebrate/support/insightful/funny) hoac clear reaction tren post.
-- [linkedin_group_crawler/app/services/post_reaction_sync_service.py](linkedin_group_crawler/app/services/post_reaction_sync_service.py): Dong bo reaction vao sheet; fetch posts tu n8n, match url+email, build webhook payload, skip Playwright neu sheet da co.
-- [linkedin_group_crawler/app/services/profile_comments_service.py](linkedin_group_crawler/app/services/profile_comments_service.py): Crawl recent-activity comments theo public_id, parse activity_url, group_post/activity id, comment text va time.
-- [linkedin_group_crawler/app/services/profile_slug_service.py](linkedin_group_crawler/app/services/profile_slug_service.py): Lay profile slug tu /in/me hoac menu Me, validate slug, tra ve profile_url.
-- [linkedin_group_crawler/app/services/profile_slug_sheet_service.py](linkedin_group_crawler/app/services/profile_slug_sheet_service.py): Doc webhook danh sach profile slug, normalize rows, tim email khop, (tu chon) ghi slug moi qua webhook.
-- [linkedin_group_crawler/app/services/ranking_service.py](linkedin_group_crawler/app/services/ranking_service.py): Tinh score tu likes/comments/reposts, loc theo ngay muc tieu, chon top post, pick bai moi nhat fallback.
-- [linkedin_group_crawler/app/services/sync_progress_service.py](linkedin_group_crawler/app/services/sync_progress_service.py): `sync_post_engagement` / `sync_post_engagement_on_page` — doc reaction, comment (You/Bạn), metrics; goto truc tiep `post_url`.
+- **Shared / General services (Thu muc: [linkedin_group_crawler/app/shared/services](linkedin_group_crawler/app/shared/services))**
+  - [linkedin_group_crawler/app/shared/services/google_sheet_service.py](linkedin_group_crawler/app/shared/services/google_sheet_service.py): Ket noi Google Sheets bang service account; doc/ghi du lieu, map header alias.
+  - [linkedin_group_crawler/app/shared/services/n8n_webhook_service.py](linkedin_group_crawler/app/shared/services/n8n_webhook_service.py): Goi webhook n8n (credentials, start, get sheet link, post_json); xu ly timeout va preview response.
+
 
 ---
 

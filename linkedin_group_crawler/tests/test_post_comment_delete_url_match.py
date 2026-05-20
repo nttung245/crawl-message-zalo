@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from app.services.post_comment_delete_service import (
+from app.modules.linkedin.services.post_comment_delete_service import (
     _comment_text_pattern,
     _dom_comment_matches_sheet,
     _first_words_for_timeline_match,
     _urls_same_post,
 )
-from app.services.profile_comments_service import parse_comment_activity_href
+from app.modules.linkedin.services.profile_comments_service import parse_comment_activity_href
 
 
 def test_urls_same_post_group_post_and_deeplink() -> None:
@@ -84,13 +84,13 @@ def test_dom_comment_matches_zero_width_and_prefix() -> None:
 
 
 def test_dom_comment_matches_short_exact_blob() -> None:
-    from app.services.post_comment_delete_service import _comment_text_in_blob_relaxed
+    from app.modules.linkedin.services.post_comment_delete_service import _comment_text_in_blob_relaxed
 
     assert _comment_text_in_blob_relaxed("good job", "good job") is True
 
 
 def test_owner_label_matches_bullet_you() -> None:
-    from app.services.post_comment_delete_service import _OWNER_LABEL_RE
+    from app.modules.linkedin.services.post_comment_delete_service import _OWNER_LABEL_RE
 
     assert _OWNER_LABEL_RE.search(" • You") is not None
     assert _OWNER_LABEL_RE.search("Minh Hoàng Nguyễn • You") is not None

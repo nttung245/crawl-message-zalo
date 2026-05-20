@@ -2,7 +2,7 @@
 
 from datetime import date
 
-from app.services.n8n_post_filter_service import (
+from app.modules.linkedin.services.n8n_post_filter_service import (
     build_crawl_sessions_from_posts,
     filter_posts_by_inclusive_date_range,
     flatten_crawl_sessions_posts,

@@ -100,11 +100,11 @@ async function requestJson<TResponse>(
 }
 
 export function fetchCrawlerStatus(): Promise<StatusResponse> {
-  return requestJson<StatusResponse>("/status", { method: "GET" });
+  return requestJson<StatusResponse>("/api/linkedin/status", { method: "GET" });
 }
 
 export function loginLinkedIn(payload: LoginRequest): Promise<LoginResponse> {
-  return requestJson<LoginResponse>("/login", {
+  return requestJson<LoginResponse>("/api/linkedin/login", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -114,7 +114,7 @@ export function checkProfileSlugInSheet(payload: {
   email: string;
 }): Promise<ProfileSlugSheetCheckResponse> {
   return requestJson<ProfileSlugSheetCheckResponse>(
-    "/linkedin/me/profile-slug-sheet-check",
+    "/api/linkedin/me/profile-slug-sheet-check",
     {
       method: "POST",
       body: JSON.stringify({ email: payload.email.trim() }),
@@ -131,7 +131,7 @@ export function ensureProfileSlugIfMissing(payload: {
   const sid = payload.sessionId?.trim();
   if (sid) body.session_id = sid;
   return requestJson<EnsureProfileSlugResponse>(
-    "/linkedin/me/ensure-profile-slug",
+    "/api/linkedin/me/ensure-profile-slug",
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -149,7 +149,7 @@ export function getMyProfileSlug(payload: {
   const body: Record<string, unknown> = {};
   if (session_id) body.session_id = session_id;
   if (email) body.email = email;
-  return requestJson<GetMyProfileSlugResponse>("/linkedin/me/profile-slug", {
+  return requestJson<GetMyProfileSlugResponse>("/api/linkedin/me/profile-slug", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -158,7 +158,7 @@ export function getMyProfileSlug(payload: {
 export function verifyLinkedInOtp(
   payload: VerifyLoginRequest,
 ): Promise<VerifyLoginResponse> {
-  return requestJson<VerifyLoginResponse>("/verify", {
+  return requestJson<VerifyLoginResponse>("/api/linkedin/verify", {
     method: "POST",
     body: JSON.stringify({
       session_id: payload.sessionId,
@@ -171,7 +171,7 @@ export function verifyLinkedInOtp(
 export function startN8nWorkflow(
   payload: StartWorkflowRequest,
 ): Promise<StartWorkflowResponse> {
-  return requestJson<StartWorkflowResponse>("/start", {
+  return requestJson<StartWorkflowResponse>("/api/linkedin/start", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -180,7 +180,7 @@ export function startN8nWorkflow(
 export function crawlLinkedInGroup(
   payload: CrawlGroupRequest,
 ): Promise<CrawlResponse> {
-  return requestJson<CrawlResponse>("/crawl-linkedin-group", {
+  return requestJson<CrawlResponse>("/api/linkedin/crawl-linkedin-group", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -189,7 +189,7 @@ export function crawlLinkedInGroup(
 export function filterLinkedInPosts(
   payload: FilterDataRequest,
 ): Promise<FilterDataResponse> {
-  return requestJson<FilterDataResponse>("/filter-data", {
+  return requestJson<FilterDataResponse>("/api/linkedin/filter-data", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -198,7 +198,7 @@ export function filterLinkedInPosts(
 export function getAllLinkedInPosts(
   payload: GetAllPostsRequest,
 ): Promise<GetAllPostsResponse> {
-  return requestJson<GetAllPostsResponse>("/get-all-posts", {
+  return requestJson<GetAllPostsResponse>("/api/linkedin/get-all-posts", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -207,7 +207,7 @@ export function getAllLinkedInPosts(
 export function getAllN8nGroups(
   payload: GetAllN8nGroupsRequest,
 ): Promise<N8nGroupOperationResponse> {
-  return requestJson<N8nGroupOperationResponse>("/groups/n8n-get-all", {
+  return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/n8n-get-all", {
     method: "POST",
     body: JSON.stringify({ email: payload.email.trim() }),
   });
@@ -225,7 +225,7 @@ export function addListGroupBulk(
   if (payload.email?.trim()) body.email = payload.email.trim();
   if (payload.webhook_timeout_sec != null)
     body.webhook_timeout_sec = payload.webhook_timeout_sec;
-  return requestJson<BulkGroupImportResponse>("/groups/add-list-group", {
+  return requestJson<BulkGroupImportResponse>("/api/linkedin/groups/add-list-group", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -240,7 +240,7 @@ export function addN8nGroup(
     member: payload.member,
   };
   if (payload.email?.trim()) body.email = payload.email.trim();
-  return requestJson<N8nGroupOperationResponse>("/groups/add", {
+  return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/add", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -253,7 +253,7 @@ export function removeN8nGroup(
     url_group: payload.url_group.trim(),
   };
   if (payload.email?.trim()) body.email = payload.email.trim();
-  return requestJson<N8nGroupOperationResponse>("/groups/remove", {
+  return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/remove", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -273,7 +273,7 @@ export function updateN8nGroup(
     body.new_name_group = payload.new_name_group.trim();
   if (payload.new_member != null) body.new_member = payload.new_member;
   if (payload.email?.trim()) body.email = payload.email.trim();
-  return requestJson<N8nGroupOperationResponse>("/groups/update", {
+  return requestJson<N8nGroupOperationResponse>("/api/linkedin/groups/update", {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -295,7 +295,7 @@ export function syncPostProgress(payload: {
   timeout_ms?: number;
 }): Promise<import("@/types/api").SyncPostProgressResponse> {
   return requestJson<import("@/types/api").SyncPostProgressResponse>(
-    "/linkedin/post/sync-progress",
+    "/api/linkedin/post/sync-progress",
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -315,7 +315,7 @@ export function syncAllProgress(payload: {
   limit_posts?: number;
 }): Promise<import("@/types/api").SyncAllProgressResponse> {
   return requestJson<import("@/types/api").SyncAllProgressResponse>(
-    "/linkedin/sync-all-progress",
+    "/api/linkedin/sync-all-progress",
     {
       method: "POST",
       body: JSON.stringify(payload),
@@ -326,7 +326,7 @@ export function syncAllProgress(payload: {
 export function getLinkedInStats(
   payload: LinkedinAppStatsRequest,
 ): Promise<LinkedinAppStatsResponse> {
-  return requestJson<LinkedinAppStatsResponse>("/linkedin-app/stats", {
+  return requestJson<LinkedinAppStatsResponse>("/api/linkedin/app/stats", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -336,7 +336,7 @@ export function getLinkedInStats(
 export function assignKpi(
   payload: AssignKpiRequest,
 ): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/kpi/assign", {
+  return requestJson<ApiResponse<unknown>>("/api/linkedin/kpi/assign", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -346,7 +346,7 @@ export function assignKpi(
 export function checkPermission(
   payload: CheckPermissionRequest,
 ): Promise<CheckPermissionResponse> {
-  return requestJson<CheckPermissionResponse>("/auth/check-permission", {
+  return requestJson<CheckPermissionResponse>("/api/linkedin/auth/check-permission", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -356,7 +356,7 @@ export function checkPermission(
 export function getAllKpi(
   payload: GetAllKpiRequest,
 ): Promise<GetAllKpiResponse> {
-  return requestJson<GetAllKpiResponse>("/kpi/get-all", {
+  return requestJson<GetAllKpiResponse>("/api/linkedin/kpi/get-all", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -366,7 +366,7 @@ export function getAllKpi(
 export function getKpiByEmail(
   payload: GetKpiByEmailRequest,
 ): Promise<GetKpiByEmailResponse> {
-  return requestJson<GetKpiByEmailResponse>("/kpi/get-by-email", {
+  return requestJson<GetKpiByEmailResponse>("/api/linkedin/kpi/get-by-email", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -376,7 +376,7 @@ export function getKpiByEmail(
 export function addMember(
   payload: AddMemberRequest,
 ): Promise<AddMemberResponse> {
-  return requestJson<AddMemberResponse>("/team/add-member", {
+  return requestJson<AddMemberResponse>("/api/linkedin/team/add-member", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -386,7 +386,7 @@ export function addMember(
 export function verifyLeaderCode(
   payload: VerifyLeaderCodeRequest,
 ): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/auth/verify-leader-code", {
+  return requestJson<ApiResponse<unknown>>("/api/linkedin/auth/verify-leader-code", {
     method: "POST",
     body: JSON.stringify(payload),
   });
@@ -394,7 +394,7 @@ export function verifyLeaderCode(
 export const getAllProfiles = async (
   payload: GetProfilesRequest,
 ): Promise<ApiResponse<any[]>> => {
-  const response = await fetch(`${API_BASE_URL}/linkedin/all-profiles`, {
+  const response = await fetch(`${API_BASE_URL}/api/linkedin/all-profiles`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -407,7 +407,7 @@ export const getAllProfiles = async (
 export function updateProfileSlug(
   payload: UpdateProfileSlugRequest,
 ): Promise<ApiResponse<unknown>> {
-  return requestJson<ApiResponse<unknown>>("/linkedin/me/profile-slug-update", {
+  return requestJson<ApiResponse<unknown>>("/api/linkedin/me/profile-slug-update", {
     method: "POST",
     body: JSON.stringify(payload),
   });

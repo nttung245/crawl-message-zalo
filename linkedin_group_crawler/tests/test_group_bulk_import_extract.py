@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from app.schemas.request_models import AddListGroupRequest
-from app.services.group_bulk_import_service import extract_member_count_from_html, normalize_group_url
+from app.modules.linkedin.schemas.request_models import AddListGroupRequest
+from app.modules.linkedin.services.group_bulk_import_service import extract_member_count_from_html, normalize_group_url
 
 
 def _sample_group_url() -> str:

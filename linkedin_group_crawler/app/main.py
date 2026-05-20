@@ -10,14 +10,15 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import linkedin_app_router, router
-from app.config import settings
-from app.services.playwright_browser_pool import (
+from app.modules.linkedin.router import linkedin_app_router, router
+from app.modules.linkedin.schemas.response_models import BaseResponse
+from app.core.config import settings
+from app.core.playwright_browser_pool import (
     shutdown_playwright_pool,
     warmup_playwright_pool,
 )
-from app.utils.file_utils import ensure_directory
-from app.utils.logger import get_logger, setup_logging
+from app.core.utils.file_utils import ensure_directory
+from app.core.logger import get_logger, setup_logging
 
 
 setup_logging()
@@ -71,6 +72,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/health", response_model=BaseResponse)
+def root_health() -> BaseResponse:
+    """Root health check for DevOps/Docker infrastructure."""
+    return BaseResponse(success=True, message="Service is healthy")
+
 
 
 @app.exception_handler(RequestValidationError)

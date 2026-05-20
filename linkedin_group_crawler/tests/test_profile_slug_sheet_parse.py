@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.profile_slug_sheet_service import (
+from app.modules.linkedin.services.profile_slug_sheet_service import (
     find_owner_row,
     normalize_sheet_data_rows,
 )

@@ -2,7 +2,7 @@
 
 import time
 
-from app.services.auth_service import _has_li_at_cookie, _li_at_cookie_is_valid
+from app.modules.linkedin.services.auth_service import _has_li_at_cookie, _li_at_cookie_is_valid
 
 
 def test_has_li_at_requires_name_and_value() -> None:

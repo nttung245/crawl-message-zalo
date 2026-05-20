@@ -508,7 +508,27 @@ curl -s -o /dev/null -w "api=%{http_code}\n" http://127.0.0.1:18080/minhhoang-sc
 
 ---
 
-## 17) Frontend local (tham khao)
+## 17) Kiến Trúc Thư Mục Modular (Mở Rộng Nhiều Platform)
+
+Để hệ thống có thể tích hợp thêm các platform khác (Facebook, Zalo) một cách độc lập và tránh xung đột code, backend đã được phân chia theo kiến trúc Modular:
+- **`app/core/`**: Cấu hình hệ thống dùng chung (`config.py`), logger, quản lý browser pool (`playwright_browser_pool.py`), và các tiện ích hệ thống khác (`utils/`).
+- **`app/shared/`**: Các service kết nối bên ngoài dùng chung (`google_sheet_service.py`, `n8n_webhook_service.py`).
+- **`app/modules/linkedin/`**: Đóng gói toàn bộ logic riêng của LinkedIn:
+  - `router.py`: Chứa các endpoint API có tiền tố bắt đầu bằng `/api/linkedin/...` (cho crawler, KPI, auth, v.v.) và `/api/linkedin/app/...` (cho Google Sheet).
+  - `services/`: Toàn bộ các dịch vụ crawl/engagement (auth, crawler, comment, reaction, sync).
+  - `utils/`: Các helper giải mã payload webhook chuyên biệt của LinkedIn.
+  - `schemas/`: Request/Response model dùng cho API LinkedIn.
+- **`app/modules/facebook/`**: Thư mục trống (bao gồm `services/`, `utils/`, `schemas/`) sẵn sàng cho việc tích hợp module Facebook Crawler.
+- **`app/modules/zalo/`**: Thư mục trống (bao gồm `services/`, `utils/`, `schemas/`) sẵn sàng cho việc tích hợp module Zalo Crawler.
+
+### Quy định tiền tố API:
+- LinkedIn crawler & admin: `/api/linkedin/...` (ví dụ: `/api/linkedin/login`, `/api/linkedin/crawl-linkedin-group`)
+- LinkedIn Google Sheet stats: `/api/linkedin/app/...` (ví dụ: `/api/linkedin/app/stats`)
+
+---
+
+## 18) Frontend local (tham khao)
+
 
 ```bash
 cd linkedin-crawler-ui

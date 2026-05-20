@@ -39,7 +39,6 @@ export function reactionToolbarLabelVi(
   return labels[kind];
 }
 
-/** Nhãn «đã tương tác» tiếng Việt (chip / bảng). */
 export function reactionDoneLabelVi(kind: PostLinkedInReactionKind): string {
   const labels: Record<PostLinkedInReactionKind, string> = {
     like: "Đã Like",
