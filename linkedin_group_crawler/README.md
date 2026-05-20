@@ -76,14 +76,47 @@ pm2 restart minhhoang-proxy --update-env
 pm2 save
 ```
 
-## 5) Lenh start lai full stack (chuan da verify)
+## 5) Backend `.env` khuyen nghi (VM)
+
+File: `linkedin_group_crawler/.env` — mau day du: [.env.example](.env.example).
+
+```env
+API_KEY=secret_api_key
+HEADLESS=true
+PLAYWRIGHT_WARMUP_ON_STARTUP=true
+
+# Playwright — che do on dinh (khuyen nghi production)
+PLAYWRIGHT_POOL_SIZE=1
+PLAYWRIGHT_PERSIST_SESSION_ON_USE=false
+
+# Reaction — VM cham: tang neu menu mo nhung Like/Love khong din (ms)
+REACTION_MENU_HOVER_SETTLE_MS=1800
+REACTION_POST_GOTO_SETTLE_MS=3500
+REACTION_POST_CLICK_SETTLE_MS=1500
+```
+
+**Luong on dinh (mac dinh):**
+
+- **1** Chromium, moi request Playwright **xep hang** (khong 3 browser = 3 lan login/cold-join).
+- File `storage/session/*.json` chi doi khi **POST /login** / **/verify** — react/comment **khong** ghi de file (`PLAYWRIGHT_PERSIST_SESSION_ON_USE=false`).
+- **Truoc moi react/comment:** `LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT=true` — tu goi login/prime (nhanh neu `li_at` con: `force_relogin=false` + prime; cham neu phai login lai).
+- Password: cookie UI (`linkedin_password`), field `password` trong API, hoac `.env` `LINKEDIN_ENGAGEMENT_PASSWORDS_JSON`.
+- Sau login: `prime_pool=true` mo feed **mot lan** tren browser do.
+
+Chi tang `PLAYWRIGHT_POOL_SIZE` khi can throughput va chap nhan phuc tap session.
+
+- Kiem tra: `curl -s http://127.0.0.1:8101/status` → `playwright_pool_size: 1`, `playwright_persist_session_on_use: false`.
+
+**Debug co UI (VNC):** dat `HEADLESS=false` va start backend kem `DISPLAY=:99` — xem muc **15**.
+
+## 6) Lenh start lai full stack (chuan da verify)
 
 ```bash
 cd /opt/apps/minhhoang-linkedin-scraper
 
-# Backend (.venv, KHONG phai venv)
+# Backend production (headless, .venv KHONG phai venv)
 pm2 delete minhhoang-backend || true
-pm2 start "bash -lc 'cd /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler && source .venv/bin/activate && python -m uvicorn app.main:app --host 127.0.0.1 --port 8101'" --name minhhoang-backend --update-env
+pm2 start "bash -lc 'cd /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler && source .venv/bin/activate && set -a && source .env && set +a && python -m uvicorn app.main:app --host 127.0.0.1 --port 8101'" --name minhhoang-backend --update-env
 
 # Frontend standalone
 pm2 delete minhhoang-frontend || true
@@ -96,7 +129,7 @@ pm2 start server.js --name minhhoang-proxy --cwd /opt/apps/minhhoang-linkedin-sc
 pm2 save
 ```
 
-## 6) Proxy config chuan (anti-prefix bug)
+## 7) Proxy config chuan (anti-prefix bug)
 
 File: `/opt/apps/minhhoang-linkedin-scraper/minhhoang-private-proxy/server.js`
 
@@ -154,21 +187,39 @@ Quan trong:
 - Bat buoc listen `0.0.0.0` neu can truy cap tu may khac trong LAN.
 - Khong them redirect tay `/minhhoang-scraper -> /minhhoang-scraper/` trong proxy neu da co redirect tu Next, de tranh `ERR_TOO_MANY_REDIRECTS`.
 
-## 7) Build frontend dung cach (tranh mat CSS/chunk)
+API Playwright lau (comment/reaction pending nhieu phut) — tang timeout proxy (tuy chon):
+
+```js
+createProxyMiddleware({
+  target: "http://127.0.0.1:8101",
+  changeOrigin: true,
+  proxyTimeout: 600000,
+  timeout: 600000,
+  pathFilter: (path) => path.startsWith("/minhhoang-scraper/api"),
+  pathRewrite: { "^/minhhoang-scraper/api": "" },
+}),
+```
+
+## 8) Build frontend dung cach (tranh mat CSS/chunk)
+
+**Triệu chứng:** kẹt trang Chào mừng, Console 404 file `*.js`, MIME `text/plain` — do thiếu copy static vào standalone.
 
 ```bash
 cd /opt/apps/minhhoang-linkedin-scraper/linkedin-crawler-ui
 rm -rf .next
 npm run build
-mkdir -p .next/standalone/.next
-rm -rf .next/standalone/.next/static
-cp -r .next/static .next/standalone/.next/static
-[ -d public ] && { rm -rf .next/standalone/public; cp -r public .next/standalone/public; } || true
+# postbuild tu dong: node scripts/copy-standalone-assets.mjs
+# Kiem tra chunk (phai co file, khong rong):
+ls .next/standalone/.next/static/chunks | head
 pm2 restart minhhoang-frontend --update-env
 pm2 save
 ```
 
-## 8) Healthcheck nhanh sau deploy (pass/fail)
+Neu build tren may khac: sau `npm run build` van can thu muc `.next/standalone/.next/static` day du truoc khi restart PM2.
+
+Sau khi sua `NEXT_PUBLIC_*`: **bat buoc** `npm run build` lai tren VM (gia tri bake vao JS).
+
+## 9) Healthcheck nhanh sau deploy (pass/fail)
 
 ```bash
 curl -s -o /dev/null -w "backend=%{http_code}\n" http://127.0.0.1:8101/health
@@ -188,7 +239,7 @@ Gia tri pass:
 - `page=200`
 - `api=200`
 
-## 9) Xu ly su co thuong gap
+## 10) Xu ly su co thuong gap
 
 1. `Connection refused` tu may local vao `:18080`
 
@@ -242,7 +293,34 @@ Gia tri pass:
   ```
 - Pull ban moi: warmup Playwright chay **nen** sau khi API listen (khong chan `/health`).
 
-## 10) Vi tri file quan trong
+7. **Comment/reaction pending lau / khong thay log API**
+
+- Network `pending` = request da gui; log `POST /linkedin/post/react` thuong chi hien **sau** khi Playwright xong (co the 1–5 phut).
+- FE goi dung URL: `http://10.30.50.29:18080/minhhoang-scraper/api/linkedin/post/...` (khong phai `127.0.0.1:8000` tren may client).
+- Popup thanh cong **truoc** khi API xong (optimistic UI) — doi hoac xem `pm2 logs minhhoang-backend`.
+- Tang `PLAYWRIGHT_POOL_SIZE` neu RAM du; dung `pm2 stop` app khac khi test.
+
+8. **Session / tab moi ve login**
+
+- File: `storage/session/{email_slug}.json` (email `user@gmail.com` → `user_gmail_com.json`).
+- Request can `Email_crawl` / `session_id` **khop** file. Kiem tra `li_at`:
+
+```bash
+cd /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler
+ls -la storage/session/
+python3 -c "import json,sys; d=json.load(open(sys.argv[1])); print('li_at OK:', any(c.get('name')=='li_at' and c.get('value') for c in d.get('cookies',[])))" storage/session/FILE.json
+```
+
+- Login lai: `POST /login` + `force_relogin=true` (xem muc **15** neu can VNC).
+- Sau login: `prime_pool=true` (mac dinh) — mo feed tren browser queue (voi `POOL_SIZE=1` la **1** browser).
+- Response `playwright_pool_primed_workers` / `playwright_pool_workers` (vd. `1/1`).
+- Chi nap lai pool khong login LinkedIn: `force_relogin=false`, `prime_pool=true`.
+- Code moi: sau `goto` tu **chon tab LinkedIn da login** neu LinkedIn mo tab login.
+- Trang guest `linkedin.com/` (Welcome…) duoc coi la chua login; neu co `li_at` se thu mo `/feed/` mot lan truoc khi bao loi.
+- API react/comment **uu tien Email_crawl** (khong dung email dashboard khac file session).
+- **Quan trong:** Playwright chi ghi lai file session khi context con `li_at` — tranh moi lan tuong tac ghi de file bang trang guest (loi "thieu li_at" moi lan).
+
+## 11) Vi tri file quan trong
 
 - Backend env: `/opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler/.env`
 - Frontend env: `/opt/apps/minhhoang-linkedin-scraper/linkedin-crawler-ui/.env.local`
@@ -250,7 +328,12 @@ Gia tri pass:
 - Proxy config: `/opt/apps/minhhoang-linkedin-scraper/minhhoang-private-proxy/server.js`
 - PM2 dump: `/home/vmadmin/.pm2/dump.pm2`
 
-## 11) Ghi chu Python 3.8
+- Session Playwright: `linkedin_group_crawler/storage/session/`
+- Module pool: `app/services/playwright_browser_pool.py`
+- Module session/nav: `app/services/linkedin_session_nav.py`
+- Reaction timing: `app/services/post_reaction_service.py`
+
+## 12) Ghi chu Python 3.8
 
 VM dang chay Python 3.8, da fix:
 
@@ -261,7 +344,7 @@ Khuyen nghi dai han: nang cap Python 3.10+.
 
 ---
 
-## 12) Tinh nang moi (2026-05)
+## 13) Tinh nang moi (2026-05)
 
 ### Dong bo tien do bai (`sync-progress`)
 
@@ -282,7 +365,16 @@ Khuyen nghi dai han: nang cap Python 3.10+.
 
 ---
 
-## 13) Cau hinh webhook n8n (.env)
+### Frontend engagement (optimistic UI)
+
+- Popup reaction/comment thanh cong hien **ngay**; Playwright + webhook chay **nen**.
+- API goi ngay khi bam (khong xep hang FIFO toan cuc nhu truoc).
+- Nut OK popup **chi dong popup**, khong bat dau API.
+- Badge `Nen: N tac vu` khi con sync/refresh trong hang doi.
+
+---
+
+## 14) Cau hinh webhook n8n (.env)
 
 Mau bien: [.env.example](.env.example). **Khong commit** `.env` that.
 
@@ -300,7 +392,143 @@ Sau sua `.env` tren VM: `pm2 restart minhhoang-backend --update-env`.
 
 ---
 
-## 14) Frontend local (tham khao)
+## 15) Debug Playwright bang RealVNC (VM khong co man hinh that)
+
+Dung khi can **nhin Chromium**, login thu cong, OTP, hoac debug reaction/comment.
+
+### A. Cai dat display ao + VNC (chay tren VM, mot lan hoac sau reboot)
+
+```bash
+sudo apt-get update -y
+sudo apt-get install -y xvfb x11vnc fluxbox
+
+pkill -f x11vnc || true
+pkill -f fluxbox || true
+pkill -f "Xvfb :99" || true
+
+/usr/bin/Xvfb :99 -screen 0 1366x768x24 -ac >/tmp/xvfb.log 2>&1 &
+sleep 2
+DISPLAY=:99 /usr/bin/fluxbox >/tmp/fluxbox.log 2>&1 &
+sleep 1
+/usr/bin/x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -listen 0.0.0.0 >/tmp/x11vnc.log 2>&1 &
+sleep 2
+ss -ltnp | grep 5900
+```
+
+Kiem tra: co dong `LISTEN ... 5900` va log `The VNC desktop is`.
+
+### B. Ket noi RealVNC tu Windows
+
+**Cach 1 — SSH tunnel (khuyen nghi, tranh firewall port 5900):**
+
+Tren **may Windows** (CMD/PowerShell rieng — **khong** chay trong SSH session `vmadmin@web`):
+
+```bash
+ssh -N -L 5901:127.0.0.1:5900 vmadmin@10.30.50.29
+```
+
+- Nhap password SSH xong cua so **im lang** = tunnel dang chay — **khong dong**.
+- Mo **RealVNC Viewer** → connect: **`127.0.0.1:5901`**
+
+**Cach 2 — Truc tiep LAN** (neu port 5900 mo):
+
+- RealVNC → **`10.30.50.29:5900`**
+- Neu timeout: dung Cach 1 hoac `sudo ufw allow 5900/tcp`
+
+**Lu y RealVNC Connect:** Add device / nhap thang `IP:port` (direct), khong chi tim tren cloud.
+
+### C. Backend hien browser tren VNC (`:99`)
+
+Trong `.env`:
+
+```env
+HEADLESS=false
+```
+
+Start backend **kem** `DISPLAY=:99` (quan trong — chi `HEADLESS=false` khong du):
+
+```bash
+pm2 delete minhhoang-backend || true
+pm2 start "bash -lc 'cd /opt/apps/minhhoang-linkedin-scraper/linkedin_group_crawler && source .venv/bin/activate && export DISPLAY=:99 && set -a && source .env && set +a && python -m uvicorn app.main:app --host 127.0.0.1 --port 8101'" --name minhhoang-backend
+pm2 save
+```
+
+Kiem tra: `curl -s http://127.0.0.1:8101/status` → `"headless":false`.
+
+### D. Login LinkedIn qua API (mo browser tren VNC)
+
+```bash
+curl -X POST "http://10.30.50.29:18080/minhhoang-scraper/api/login" \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: secret_api_key" \
+  -d '{"email":"EMAIL_CUA_BAN","password":"MAT_KHAU","force_relogin":true}'
+```
+
+- Neu can OTP: dung `session_id` pending → `POST /verify`.
+- Sau login: file `storage/session/{email_slug}.json` co cookie `li_at`.
+
+### E. Debug reaction/comment
+
+1. VNC dang mo + backend `DISPLAY=:99`, `HEADLESS=false`.
+2. UI gui reaction → xem Chromium tren VNC (hover menu → chon Like/Love).
+3. Log realtime: `pm2 logs minhhoang-backend --lines 0`
+4. Xong debug: dat lai `HEADLESS=true`, start backend muc **6** (khong can `DISPLAY`).
+
+### F. Xử lý lỗi VNC thường gặp
+
+| Lỗi | Cách xử lý |
+|-----|------------|
+| `XOpenDisplay(:99) failed` | Chay lai block muc **A** (Xvfb truoc, x11vnc sau) |
+| `Connection refused` voi `127.0.0.1:5901` | Tunnel SSH chua chay hoac chay nham tren VM thay vi Windows |
+| `Timed out` voi `10.30.50.29:5900` | Dung SSH tunnel |
+| VNC den nhung khong thay browser | `HEADLESS=true` hoac thieu `DISPLAY=:99` tren PM2 |
+
+---
+
+## 16) Deploy nhanh sau `git pull`
+
+```bash
+cd /opt/apps/minhhoang-linkedin-scraper
+git pull origin main
+
+cd linkedin_group_crawler
+# cap nhat .env theo muc 5 neu can
+pm2 restart minhhoang-backend --update-env
+
+cd ../linkedin-crawler-ui
+npm ci
+rm -rf .next
+npm run build
+mkdir -p .next/standalone/.next
+cp -r .next/static .next/standalone/.next/static
+pm2 restart minhhoang-frontend --update-env
+
+curl -s -o /dev/null -w "api=%{http_code}\n" http://127.0.0.1:18080/minhhoang-scraper/api/health
+```
+
+---
+
+## 17) Kiến Trúc Thư Mục Modular (Mở Rộng Nhiều Platform)
+
+Để hệ thống có thể tích hợp thêm các platform khác (Facebook, Zalo) một cách độc lập và tránh xung đột code, backend đã được phân chia theo kiến trúc Modular:
+- **`app/core/`**: Cấu hình hệ thống dùng chung (`config.py`), logger, quản lý browser pool (`playwright_browser_pool.py`), và các tiện ích hệ thống khác (`utils/`).
+- **`app/shared/`**: Các service kết nối bên ngoài dùng chung (`google_sheet_service.py`, `n8n_webhook_service.py`).
+- **`app/modules/linkedin/`**: Đóng gói toàn bộ logic riêng của LinkedIn:
+  - `router.py`: Chứa các endpoint API có tiền tố bắt đầu bằng `/api/linkedin/...` (cho crawler, KPI, auth, v.v.) và `/api/linkedin/app/...` (cho Google Sheet).
+  - `services/`: Toàn bộ các dịch vụ crawl/engagement (auth, crawler, comment, reaction, sync).
+  - `utils/`: Các helper giải mã payload webhook chuyên biệt của LinkedIn.
+  - `schemas/`: Request/Response model dùng cho API LinkedIn.
+- **`app/modules/facebook/`**: Thư mục trống (bao gồm `services/`, `utils/`, `schemas/`) sẵn sàng cho việc tích hợp module Facebook Crawler.
+- **`app/modules/zalo/`**: Thư mục trống (bao gồm `services/`, `utils/`, `schemas/`) sẵn sàng cho việc tích hợp module Zalo Crawler.
+
+### Quy định tiền tố API:
+- LinkedIn crawler & admin: `/api/linkedin/...` (ví dụ: `/api/linkedin/login`, `/api/linkedin/crawl-linkedin-group`)
+- LinkedIn Google Sheet stats: `/api/linkedin/app/...` (ví dụ: `/api/linkedin/app/stats`)
+
+---
+
+## 18) Frontend local (tham khao)
+
 
 ```bash
 cd linkedin-crawler-ui
@@ -316,3 +544,17 @@ NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY=<cung API_KEY backend>
 ```
 
 Production qua proxy: xem muc 3 (`basePath` `/minhhoang-scraper`).
+
+---
+
+## Tom tat thay doi code (2026-05)
+
+| Phan | Mo ta |
+|------|--------|
+| Playwright | Mac dinh `POOL_SIZE=1`, `PERSIST_SESSION_ON_USE=false` — on dinh |
+| Reaction | Settle lau hon, click trong flyout, verify + retry |
+| Session | `linkedin_session_nav.py` — validate `li_at`, chon tab da login |
+| Login / verify | Sau thanh cong: `prime_linkedin_session_on_pool` — nap session len moi worker |
+| Sync-progress | Dung chung pool (khong mo browser rieng moi lan) |
+| FE | Optimistic UI; API reaction/comment goi ngay |
+| Startup | Playwright warmup nen (khong chan `/health`) |

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.post_comment_sync_service import (
+from app.modules.linkedin.services.post_comment_sync_service import (
     COMMENT_CONTENT_FIELD,
     COMMENT_DAY_FIELD,
     apply_comments_to_sheet_rows,

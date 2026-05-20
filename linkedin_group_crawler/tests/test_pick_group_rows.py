@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.api.routes import _normalize_n8n_groups, _pick_group_rows
+from app.modules.linkedin.router import _normalize_n8n_groups, _pick_group_rows
 
 
 def test_pick_group_rows_plain_list() -> None:

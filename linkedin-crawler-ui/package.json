@@ -5,6 +5,9 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "postbuild": "node scripts/copy-standalone-assets.mjs",
+    "build:prod": "npm run build",
+    "start:standalone": "node .next/standalone/server.js",
     "start": "next start",
     "lint": "eslint",
     "type-check": "tsc --noEmit",

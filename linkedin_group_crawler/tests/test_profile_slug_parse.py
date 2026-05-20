@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.services.profile_slug_service import parse_profile_slug_from_href
+from app.modules.linkedin.services.profile_slug_service import parse_profile_slug_from_href
 
 
 def test_parse_relative_href() -> None:

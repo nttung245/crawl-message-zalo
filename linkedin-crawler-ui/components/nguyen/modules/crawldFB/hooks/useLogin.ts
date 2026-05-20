@@ -27,8 +27,8 @@ export const useAuthHook = () => {
       if (res.status === "success") {
         setIsLoading(false);
         setSuccessMessage("Đăng nhập thành công!");
-        saveUserSession(values.userName, values.password);
-        route.push("/minhhoang-scraper");
+        saveUserSession(values.email, values.password);
+        route.push("/minhhoang-scraper/crawl-data");
       } 
       else if (res.status === "need_otp" && res.session_id) {
         setIsLoading(false);
@@ -55,8 +55,8 @@ export const useAuthHook = () => {
           if (approvalRes.status === "success") {
             setIsLoading(false);
             setSuccessMessage("Đăng nhập thành công!");
-            saveUserSession(values.userName, values.password);
-            route.push("/minhhoang-scraper");
+            saveUserSession(values.email, values.password);
+            route.push("/minhhoang-scraper/crawl-data");
           } 
           else if (approvalRes.status === "need_otp") {
             setIsLoading(false);
@@ -112,8 +112,8 @@ export const useAuthHook = () => {
         setSuccessMessage("Xác thực OTP thành công!");
         setIsOtpModalOpen(false);
         
-        saveUserSession(originalValues.userName, originalValues.password);
-        route.push("/minhhoang-scraper");
+        saveUserSession(originalValues.email, originalValues.password);
+        route.push("/minhhoang-scraper/crawl-data");
       } else {
         setIsLoading(false);
         setErrorMessage(res.message || "Mã OTP không chính xác hoặc đã hết hạn.");

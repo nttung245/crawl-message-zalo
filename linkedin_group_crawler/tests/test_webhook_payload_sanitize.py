@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from decimal import Decimal
 
-from app.utils.webhook_payload_sanitize import sanitize_webhook_payload
+from app.modules.linkedin.utils.webhook_payload_sanitize import sanitize_webhook_payload
 
 
 def test_sanitize_nested_datetime() -> None:

@@ -23,7 +23,7 @@ export default function LoginPage() {
 
   const { register, handleSubmit, getValues, formState: { errors } } = useForm<LoginFormValues>({
     resolver: zodResolver(Login_Schemas),
-    defaultValues: { userName: "", password: "", secret_2fa: "" },
+    defaultValues: { email: "", password: "", secret_2fa: "" },
   });
 
   return (
@@ -47,9 +47,9 @@ export default function LoginPage() {
               id="userName"
               placeholder="email or phone"
               className="w-full border-2 border-dashed rounded-xl px-4 py-3 outline-none transition-all duration-300 bg-white text-slate-900 border-slate-300 focus:border-indigo-600"
-              {...register("userName")}
+              {...register("email")}
             />
-            {errors.userName && <span className="text-xs text-red-500 mt-1 block">{errors.userName.message}</span>}
+            {errors.email && <span className="text-xs text-red-500 mt-1 block">{errors.email.message}</span>}
           </div>
 
           <div>

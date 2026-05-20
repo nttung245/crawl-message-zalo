@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services.post_reaction_sync_service import (
+from app.modules.linkedin.services.post_reaction_sync_service import (
     apply_reaction_to_sheet_rows,
     build_reaction_action_record,
     build_reaction_cell_value,

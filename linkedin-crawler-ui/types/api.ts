@@ -291,6 +291,9 @@ export interface PostLinkedInReactionRequest {
   sheet_row?: Record<string, unknown> | null;
   session_id?: string | null;
   email?: string | null;
+  /** Tự login/prime session trước Playwright (mặc định true). */
+  password?: string | null;
+  auto_login?: boolean;
   post_to_webhook?: boolean;
   /** Gỡ reaction trên LinkedIn và ghi ô reaction trống (không null) trên sheet. */
   clear_reaction?: boolean;
@@ -332,6 +335,8 @@ export interface PostLinkedInCommentRequest {
   sheet_row?: Record<string, unknown> | null;
   session_id?: string | null;
   email?: string | null;
+  password?: string | null;
+  auto_login?: boolean;
   post_to_webhook?: boolean;
   typing_delay_ms?: number;
   timeout_ms?: number;
@@ -427,6 +432,8 @@ export interface SyncAllProgressRequest {
   profile_slug: string;
   session_id?: string | null;
   email?: string | null;
+  password?: string | null;
+  auto_login?: boolean;
   timeout_ms_per_post?: number;
   limit_posts?: number;
 }
@@ -511,4 +518,9 @@ export interface GetAllKpiResponse extends ApiResponse<KpiMemberData[]> {
 
 export interface GetKpiByEmailResponse extends ApiResponse<KpiMemberData[]> {
   total: number;
+}
+
+export interface AddMemberResponse extends ApiResponse<any> {
+  allowAdd: boolean;
+  code: string;
 }

@@ -12,6 +12,7 @@ import {
 
 import { useDashboard } from "@/components/features/dashboard/dashboard-context";
 import { EngagementFeedbackOverlays } from "@/components/features/linkedin/dashboard/EngagementFeedbackOverlays";
+import { SessionPostDetailModal } from "@/components/features/linkedin/dashboard/LinkedIn-SessionPostDetailModal";
 import { MaterialIcon } from "@/components/ui";
 import {
   useEngagementTaskQueue,
@@ -23,10 +24,12 @@ export type LinkedInEngagementQueueValue = {
   enqueueEngagement: <T>(task: EngagementQueueTask<T>) => void;
   pendingCount: number;
   onEngagementSuccess: (kind: EngagementFeedbackKind) => void;
-  enqueuePostEngagementSync: () => void;
   showEngagementFailure: (
     kind: EngagementFeedbackKind,
     message: string,
+    post?: Record<string, unknown> | null,
+    rowNumber?: number | null,
+    session?: any | null,
   ) => void;
   registerBackgroundSync: (runner: (() => Promise<void>) | null) => void;
 };
@@ -54,10 +57,9 @@ export function LinkedInEngagementQueueProvider({
 }: {
   children: ReactNode;
 }) {
-  const { refreshDashboardData } = useDashboard();
+  const { refreshDashboardData, updatePostInSessions, email } = useDashboard();
   const { enqueue: enqueueEngagement, pendingCount } = useEngagementTaskQueue();
 
-  const backgroundSyncRef = useRef<(() => Promise<void>) | null>(null);
   const engagementSuccessCloseTimerRef = useRef<number | null>(null);
 
   const [engagementSuccessKind, setEngagementSuccessKind] =
@@ -67,14 +69,20 @@ export function LinkedInEngagementQueueProvider({
   const [engagementError, setEngagementError] = useState<{
     kind: EngagementFeedbackKind;
     message: string;
+    post?: Record<string, unknown> | null;
+    rowNumber?: number | null;
+    session?: any | null;
   } | null>(null);
 
-  const registerBackgroundSync = useCallback(
-    (runner: (() => Promise<void>) | null) => {
-      backgroundSyncRef.current = runner;
-    },
-    [],
-  );
+  const [errorDetailPost, setErrorDetailPost] = useState<{
+    post: Record<string, unknown>;
+    rowNumber: number;
+    session: any;
+  } | null>(null);
+
+  const registerBackgroundSync = useCallback((_runner: (() => Promise<void>) | null) => {
+    /* Giữ API tương thích modal; không còn sync nền sau reaction/comment. */
+  }, []);
 
   const scheduleEngagementSuccessClose = useCallback(() => {
     if (engagementSuccessCloseTimerRef.current !== null) return;
@@ -126,21 +134,15 @@ export function LinkedInEngagementQueueProvider({
     }
   }, [enqueueEngagement, refreshDashboardData]);
 
-  /** Gọi sau khi Playwright thành công — đồng bộ sheet + refresh dashboard ở nền. */
-  const enqueuePostEngagementSync = useCallback(() => {
-    const runner = backgroundSyncRef.current;
-    enqueueEngagement({
-      label: "background_sync",
-      run: async () => {
-        if (runner) await runner();
-        await refreshDashboardData();
-      },
-    });
-  }, [enqueueEngagement, refreshDashboardData]);
-
   const showEngagementFailure = useCallback(
-    (kind: EngagementFeedbackKind, message: string) => {
-      setEngagementError({ kind, message });
+    (
+      kind: EngagementFeedbackKind,
+      message: string,
+      post?: Record<string, unknown> | null,
+      rowNumber?: number | null,
+      session?: any | null,
+    ) => {
+      setEngagementError({ kind, message, post, rowNumber, session });
     },
     [],
   );
@@ -153,7 +155,6 @@ export function LinkedInEngagementQueueProvider({
     enqueueEngagement,
     pendingCount,
     onEngagementSuccess,
-    enqueuePostEngagementSync,
     showEngagementFailure,
     registerBackgroundSync,
   };
@@ -168,10 +169,37 @@ export function LinkedInEngagementQueueProvider({
         onSuccessOk={handleEngagementOkConfirm}
         error={engagementError}
         onErrorDismiss={() => setEngagementError(null)}
+        onViewPostDetails={(post, rowNumber, session) => {
+          setErrorDetailPost({ post, rowNumber, session });
+        }}
         zIndexClass="z-[100]"
       />
       {pendingCount > 0 ? (
         <EngagementQueueGlobalBadge count={pendingCount} />
+      ) : null}
+
+      {errorDetailPost ? (
+        <SessionPostDetailModal
+          session={errorDetailPost.session}
+          post={errorDetailPost.post}
+          rowNumber={errorDetailPost.rowNumber}
+          dashboardEmail={email}
+          onRefreshSessions={refreshDashboardData}
+          onReactionSucceeded={(rowNum, patch, postUrlForSync) => {
+            if (updatePostInSessions) {
+              updatePostInSessions(
+                errorDetailPost.session.id_session_crawl,
+                rowNum,
+                patch,
+                postUrlForSync,
+              );
+            }
+            setErrorDetailPost((prev) =>
+              prev ? { ...prev, post: { ...prev.post, ...patch } } : null,
+            );
+          }}
+          onClose={() => setErrorDetailPost(null)}
+        />
       ) : null}
     </LinkedInEngagementQueueContext.Provider>
   );

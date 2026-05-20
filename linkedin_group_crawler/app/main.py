@@ -10,14 +10,17 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import linkedin_app_router, router
-from app.config import settings
-from app.services.playwright_browser_pool import (
+from app.modules.linkedin.router import linkedin_app_router, router
+from app.modules.linkedin.schemas.response_models import BaseResponse
+from app.core.config import settings
+from app.modules.facebook.src.jobs.daily_crawl_job import setup_and_start_jobs
+from app.modules.facebook.src.modules.api_router.index import api_router
+from app.core.playwright_browser_pool import (
     shutdown_playwright_pool,
     warmup_playwright_pool,
 )
-from app.utils.file_utils import ensure_directory
-from app.utils.logger import get_logger, setup_logging
+from app.core.utils.file_utils import ensure_directory
+from app.core.logger import get_logger, setup_logging
 
 
 setup_logging()
@@ -32,7 +35,7 @@ ensure_directory(settings.session_storage_dir)
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     warmup_task: asyncio.Task[None] | None = None
-
+    setup_and_start_jobs()
     async def _warmup_background() -> None:
         try:
             await asyncio.to_thread(warmup_playwright_pool)
@@ -71,6 +74,11 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+@app.get("/health", response_model=BaseResponse)
+def root_health() -> BaseResponse:
+    """Root health check for DevOps/Docker infrastructure."""
+    return BaseResponse(success=True, message="Service is healthy")
+
 
 
 @app.exception_handler(RequestValidationError)
@@ -95,3 +103,4 @@ async def request_validation_exception_handler(_, exc: RequestValidationError) -
 
 app.include_router(router)
 app.include_router(linkedin_app_router)
+app.include_router(api_router, prefix="/facebook/api/v1")

@@ -210,3 +210,40 @@ export function sortedRecordEntries(
     a.localeCompare(b, "vi", { sensitivity: "base" }),
   );
 }
+
+export function getPostCrawlError(
+  post: Record<string, unknown>,
+): string | null {
+  const errKeys = [
+    "error",
+    "errorMessage",
+    "error_message",
+    "Lỗi",
+    "loi",
+    "Reason",
+    "reason",
+    "ghi_chu",
+    "Ghi chú",
+    "note",
+    "status",
+    "Trạng thái",
+  ];
+  for (const k of errKeys) {
+    const val = String(post[k] ?? "").trim();
+    if (!val) continue;
+    const lower = val.toLowerCase();
+    if (
+      lower.includes("lỗi") ||
+      lower.includes("error") ||
+      lower.includes("failed") ||
+      lower.includes("thất bại") ||
+      lower.includes("hỏng") ||
+      lower.includes("không thể") ||
+      lower.includes("cannot") ||
+      lower.includes("missing")
+    ) {
+      return val;
+    }
+  }
+  return null;
+}
