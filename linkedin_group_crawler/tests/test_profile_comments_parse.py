@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from app.services.profile_comments_service import parse_comment_activity_href
+from app.modules.linkedin.services.profile_comments_service import parse_comment_activity_href
 
 
 def test_parse_group_post_comment_href() -> None:

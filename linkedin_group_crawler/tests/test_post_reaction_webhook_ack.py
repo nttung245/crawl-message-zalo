@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 
-from app.utils.post_reaction_webhook_ack import (
+from app.modules.linkedin.utils.post_reaction_webhook_ack import (
     evaluate_post_reaction_webhook_response,
     truthy_success_value,
 )

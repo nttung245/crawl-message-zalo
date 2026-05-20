@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.utils.webhook_payload_keys import (
+from app.modules.linkedin.utils.webhook_payload_keys import (
     bump_like_metrics_after_like_reaction,
     enrich_webhook_sheet_metrics,
     merge_sheet_row_into_webhook_body,

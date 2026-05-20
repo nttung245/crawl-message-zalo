@@ -1,7 +1,7 @@
 """Tests for LinkedIn guest/login URL detection."""
 
-from app.schemas.request_models import resolve_playwright_session_email
-from app.services.auth_service import _is_authwall_url, _is_linkedin_authenticated_app_url
+from app.modules.linkedin.schemas.request_models import resolve_playwright_session_email
+from app.modules.linkedin.services.auth_service import _is_authwall_url, _is_linkedin_authenticated_app_url
 
 
 def test_authwall_detects_login_paths() -> None:
