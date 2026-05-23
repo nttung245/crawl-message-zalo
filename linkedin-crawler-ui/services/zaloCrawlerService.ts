@@ -1,11 +1,12 @@
-import { ZALO_API_BASE_URL, ZALO_API_KEY } from "@/lib/env";
+import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
   ZaloAuthInitResponse,
   ZaloAuthStatusResponse,
+  ZaloCurrentStatusResponse,
   ZaloCrawledGroupsResponse,
   ZaloDeleteSessionResponse,
   ZaloJobData,
-  ZaloRefreshQrResponse,
+  ZaloManualLoginResponse,
   ZaloStartCrawlRequest,
   ZaloStartCrawlResponse,
 } from "@/types/zalo-api";
@@ -15,10 +16,10 @@ const JSON_HEADERS = {
 } as const;
 
 function buildHeaders(extra?: HeadersInit): HeadersInit {
-  const baseHeaders: HeadersInit = ZALO_API_KEY
+  const baseHeaders: HeadersInit = API_KEY
     ? {
         ...JSON_HEADERS,
-        "x-api-key": ZALO_API_KEY,
+        "x-api-key": API_KEY,
       }
     : JSON_HEADERS;
 
@@ -32,7 +33,7 @@ async function requestJson<TResponse>(
   path: string,
   init?: RequestInit,
 ): Promise<TResponse> {
-  const response = await fetch(`${ZALO_API_BASE_URL}${path}`, {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     credentials: init?.credentials ?? "include",
     headers: buildHeaders(init?.headers),
@@ -74,15 +75,40 @@ export function getZaloAuthStatus(
   );
 }
 
-export function refreshZaloQr(
-  sessionId: string,
-): Promise<ZaloRefreshQrResponse> {
-  return requestJson<ZaloRefreshQrResponse>(
-    `/api/zalo/auth/refresh-qr/${encodeURIComponent(sessionId)}`,
+export function getZaloCurrentStatus(
+  userId = "default",
+): Promise<ZaloCurrentStatusResponse> {
+  return requestJson<ZaloCurrentStatusResponse>(
+    "/api/zalo/auth/current-status",
     {
-      method: "POST",
+      method: "GET",
+      headers: buildHeaders({
+        "X-User-ID": userId,
+      }),
     },
   );
+}
+
+export function startZaloManualLogin(
+  userId = "default",
+): Promise<ZaloManualLoginResponse> {
+  return requestJson<ZaloManualLoginResponse>("/api/zalo/auth/manual-login/start", {
+    method: "POST",
+    headers: buildHeaders({
+      "X-User-ID": userId,
+    }),
+  });
+}
+
+export function resumeZaloManualLogin(
+  userId = "default",
+): Promise<ZaloManualLoginResponse> {
+  return requestJson<ZaloManualLoginResponse>("/api/zalo/auth/manual-login/resume", {
+    method: "POST",
+    headers: buildHeaders({
+      "X-User-ID": userId,
+    }),
+  });
 }
 
 export function deleteZaloSession(
@@ -96,14 +122,30 @@ export function deleteZaloSession(
   );
 }
 
+export function deleteAllZaloSessions(
+  userId = "default",
+): Promise<ZaloDeleteSessionResponse> {
+  return requestJson<ZaloDeleteSessionResponse>("/api/zalo/auth/sessions", {
+    method: "DELETE",
+    headers: buildHeaders({
+      "X-User-ID": userId,
+    }),
+  });
+}
+
 export function startZaloCrawl(
   payload: ZaloStartCrawlRequest,
 ): Promise<ZaloStartCrawlResponse> {
+  const headers: HeadersInit = {
+    "X-User-ID": payload.userId?.trim() || "default",
+  };
+  if (payload.sessionId?.trim()) {
+    headers["X-Session-ID"] = payload.sessionId.trim();
+  }
+
   return requestJson<ZaloStartCrawlResponse>("/api/zalo/crawl", {
     method: "POST",
-    headers: buildHeaders({
-      "X-Session-ID": payload.sessionId,
-    }),
+    headers: buildHeaders(headers),
     body: JSON.stringify({
       group_name: payload.group_name.trim(),
       sheet_tab: payload.sheet_tab?.trim() || undefined,

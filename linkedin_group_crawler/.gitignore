@@ -14,3 +14,6 @@ data/raw/*.html
 .pytest_cache/
 *.session
 *.session-journal
+storage/chromium-profile
+storage/chromium-profile/**
+credentials/**

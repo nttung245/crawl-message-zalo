@@ -34,11 +34,13 @@ linkedin_group_crawler/.env
 # BE runtime/session/state
 linkedin_group_crawler/storage/session/**
 linkedin_group_crawler/storage/sessions/**
+linkedin_group_crawler/storage/chromium-profile/**
 linkedin_group_crawler/storage/linkedin_state.json
 linkedin_group_crawler/storage/runtime/*.log
 linkedin_group_crawler/storage/runtime/*.json
 linkedin_group_crawler/storage/runtime/*.txt
 linkedin_group_crawler/storage/permission/*.json
+linkedin_group_crawler/credentials/**
 linkedin_group_crawler/*.session
 linkedin_group_crawler/*.session-journal
 

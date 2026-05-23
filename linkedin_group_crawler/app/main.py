@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import sys
 from contextlib import asynccontextmanager
+
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
@@ -15,6 +19,11 @@ from app.modules.linkedin.schemas.response_models import BaseResponse
 from app.core.config import settings
 from app.modules.facebook.src.jobs.daily_crawl_job import setup_and_start_jobs
 from app.modules.facebook.src.modules.api_router.index import api_router
+from app.modules.zalo.api.routes.auth import router as zalo_auth_router
+from app.modules.zalo.api.routes.crawler import router as zalo_crawl_router
+from app.modules.zalo.api.routes.groups import router as zalo_groups_router
+from app.modules.zalo.api.routes.groups import zalo_groups_router as zalo_groups_sheet_router
+from app.modules.zalo.api.routes.jobs import router as zalo_jobs_router
 from app.core.playwright_browser_pool import (
     shutdown_playwright_pool,
     warmup_playwright_pool,
@@ -103,4 +112,9 @@ async def request_validation_exception_handler(_, exc: RequestValidationError) -
 
 app.include_router(router)
 app.include_router(linkedin_app_router)
+app.include_router(zalo_auth_router)
+app.include_router(zalo_crawl_router)
+app.include_router(zalo_groups_router)
+app.include_router(zalo_groups_sheet_router)
+app.include_router(zalo_jobs_router)
 app.include_router(api_router, prefix="/facebook/api/v1")

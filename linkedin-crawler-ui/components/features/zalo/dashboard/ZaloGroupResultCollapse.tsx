@@ -39,17 +39,19 @@ export function ZaloGroupResultCollapse({
         <div className="space-y-xs">
           <div className="text-h3 text-on-surface font-semibold">{job.groupName}</div>
           <div className="flex flex-wrap gap-sm">
-            <span className={`rounded-full border px-sm py-xs text-xs font-bold uppercase ${chipClasses(job.status)}`}>
+            <span
+              className={`rounded-full border px-sm py-xs text-xs font-bold uppercase ${chipClasses(job.status)}`}
+            >
               {job.status}
             </span>
             <span className="bg-surface rounded-full px-sm py-xs text-xs font-semibold text-on-surface-variant">
-              {job.progress.messages_collected} tin nhắn
+              {job.progress.messages_collected} {"tin nh\u1eafn"}
             </span>
             <span className="bg-surface rounded-full px-sm py-xs text-xs font-semibold text-on-surface-variant">
-              {job.progress.images_found} ảnh
+              {job.progress.images_found} {"\u1ea3nh"}
             </span>
             <span className="bg-surface rounded-full px-sm py-xs text-xs font-semibold text-on-surface-variant">
-              Cũ nhất: {job.progress.oldest_message_date || "Chưa có"}
+              {"C\u0169 nh\u1ea5t: "} {job.progress.oldest_message_date || "Ch\u01b0a c\u00f3"}
             </span>
           </div>
         </div>
@@ -91,16 +93,18 @@ export function ZaloGroupResultCollapse({
             </div>
             <div className="border-outline-variant bg-surface rounded-xl border p-md">
               <div className="text-label-md text-on-surface-variant mb-xs font-semibold uppercase">
-                Bắt đầu
+                {"B\u1eaft \u0111\u1ea7u"}
               </div>
-              <div className="text-body-sm text-on-surface">{job.startedAt || "Chưa có"}</div>
+              <div className="text-body-sm text-on-surface">
+                {job.startedAt || "Ch\u01b0a c\u00f3"}
+              </div>
             </div>
             <div className="border-outline-variant bg-surface rounded-xl border p-md">
               <div className="text-label-md text-on-surface-variant mb-xs font-semibold uppercase">
-                Hoàn tất
+                {"Ho\u00e0n t\u1ea5t"}
               </div>
               <div className="text-body-sm text-on-surface">
-                {job.completedAt || (job.status === "running" ? "Đang chạy" : "Chưa có")}
+                {job.completedAt || (job.status === "running" ? "\u0110ang ch\u1ea1y" : "Ch\u01b0a c\u00f3")}
               </div>
             </div>
           </div>

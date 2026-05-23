@@ -1,0 +1,34 @@
+version: "3.9"
+
+services:
+  zalo-api-vnc:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc
+    container_name: zalo-api-vnc
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      API_KEY: ${API_KEY:-secret_api_key}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
+      ZALO_BROWSER_HEADLESS: "false"
+      ZALO_BROWSER_PERSISTENT_PROFILE: "true"
+      ZALO_BROWSER_USER_DATA_DIR: /app/storage/chromium-profile
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ${ZALO_BROWSER_REMOTE_VIEWER_URL:-http://localhost:6080/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true}
+      DISPLAY: ":99"
+    ports:
+      - "8000:8000"
+      - "5900:5900"
+      - "6080:6080"
+    volumes:
+      - ./storage:/app/storage
+      - ./data:/app/data
+      - ./credentials:/app/credentials
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s

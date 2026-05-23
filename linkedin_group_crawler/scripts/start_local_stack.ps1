@@ -7,7 +7,7 @@ $ErrorActionPreference = "Stop"
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $venvPython = Join-Path $projectRoot ".venv\Scripts\python.exe"
-$uvicornExe = Join-Path $projectRoot ".venv\Scripts\uvicorn.exe"
+$apiLauncher = Join-Path $projectRoot "scripts\run_api_windows.py"
 $runtimeDir = Join-Path $projectRoot "storage\runtime"
 $apiLog = Join-Path $runtimeDir "api.log"
 $tunnelLog = Join-Path $runtimeDir "cloudflared.log"
@@ -63,8 +63,8 @@ function Wait-ForTunnelUrl {
     return $null
 }
 
-if (-not (Test-Path $venvPython) -or -not (Test-Path $uvicornExe)) {
-    throw "Khong tim thay .venv hoac uvicorn trong .venv\Scripts. Hay cai dat project truoc."
+if (-not (Test-Path $venvPython) -or -not (Test-Path $apiLauncher)) {
+    throw "Khong tim thay .venv hoac scripts\\run_api_windows.py. Hay cai dat project truoc."
 }
 
 if (-not (Test-CommandExists "cloudflared")) {
@@ -77,8 +77,8 @@ if (Test-Path $apiLog) { Remove-Item -LiteralPath $apiLog -Force }
 if (Test-Path $tunnelLog) { Remove-Item -LiteralPath $tunnelLog -Force }
 
 Write-Status "Khoi dong FastAPI tren cong $Port ..."
-$apiProcess = Start-Process -FilePath $uvicornExe `
-    -ArgumentList "app.main:app --host $Host --port $Port" `
+$apiProcess = Start-Process -FilePath $venvPython `
+    -ArgumentList "`"$apiLauncher`" --host $Host --port $Port" `
     -WorkingDirectory $projectRoot `
     -RedirectStandardOutput $apiLog `
     -RedirectStandardError $apiLog `

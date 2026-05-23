@@ -11,5 +11,7 @@ __pycache__
 .vscode
 .env
 storage/linkedin_state.json
+storage/chromium-profile
+storage/chromium-profile/**
 data/raw
 data/output

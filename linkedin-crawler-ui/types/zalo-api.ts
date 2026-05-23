@@ -1,4 +1,8 @@
-export type ZaloAuthStatus = "waiting_scan" | "confirmed" | "qr_expired";
+export type ZaloAuthStatus =
+  | "waiting_scan"
+  | "confirmed"
+  | "qr_expired"
+  | "not_logged_in";
 
 export type ZaloJobStatus = "queued" | "running" | "completed" | "failed";
 
@@ -14,9 +18,21 @@ export interface ZaloAuthStatusResponse {
   status: ZaloAuthStatus;
 }
 
-export interface ZaloRefreshQrResponse {
-  qr_base64: string;
-  status: "waiting_scan";
+export interface ZaloCurrentStatusResponse {
+  user_id: string;
+  session_id: string | null;
+  status: ZaloAuthStatus;
+  is_logged_in: boolean;
+  can_crawl: boolean;
+  login_url: string | null;
+  manual_viewer_url?: string | null;
+}
+
+export interface ZaloManualLoginResponse {
+  session_id: string;
+  status: ZaloAuthStatus;
+  can_crawl: boolean;
+  manual_viewer_url?: string | null;
 }
 
 export interface ZaloDeleteSessionResponse {
@@ -24,7 +40,8 @@ export interface ZaloDeleteSessionResponse {
 }
 
 export interface ZaloStartCrawlRequest {
-  sessionId: string;
+  sessionId?: string | null;
+  userId?: string;
   group_name: string;
   sheet_tab?: string;
 }

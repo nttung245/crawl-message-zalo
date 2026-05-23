@@ -103,7 +103,7 @@ Current Google Sheet row columns:
 - `content`
 
 Backend writes to:
-- spreadsheet id from `DEFAULT_SHEET_ID` env
+- spreadsheet id from `ZALO_DEFAULT_SHEET_ID` env
 - worksheet/tab = `sheet_tab` (or fallback `group_name`)
 
 ### 3.4 Container Connectivity (Backend <-> UI)

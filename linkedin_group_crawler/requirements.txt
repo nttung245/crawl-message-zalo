@@ -1,12 +1,14 @@
 fastapi
 uvicorn
-playwright
+playwright==1.60.0
 python-dotenv
 pydantic
+pydantic-settings
 httpx
 pytest
 google-api-python-client
 google-auth
+loguru
 # nguyen
 playwright-stealth
 pyotp
