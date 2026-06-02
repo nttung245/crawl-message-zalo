@@ -1,11 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import Image from "next/image";
+import { useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
 import type { ZaloCrawlerFlowValue } from "@/hooks/useZaloCrawlerFlow";
+import { ZALO_WORKERS } from "@/lib/env";
 
 import { ZaloGroupInputList } from "./ZaloGroupInputList";
+import { ZaloLiveGroupPicker } from "./ZaloLiveGroupPicker";
 
 interface ZaloCrawlerConfigCardProps {
   flow: ZaloCrawlerFlowValue;
@@ -13,8 +16,8 @@ interface ZaloCrawlerConfigCardProps {
 
 const AUTH_LABELS = {
   confirmed: "Đã đăng nhập",
-  waiting_scan: "Đang thao tác trên Zalo",
-  qr_expired: "Phiên QR hết hạn",
+  waiting_scan: "Đang chờ xác nhận",
+  qr_expired: "QR đã hết hạn",
   not_logged_in: "Chưa đăng nhập",
   checking: "Đang kiểm tra",
 } as const;
@@ -38,70 +41,165 @@ function authStateLabel(status: ZaloCrawlerFlowValue["authStatus"]): string {
   return AUTH_LABELS[status] ?? AUTH_LABELS.checking;
 }
 
+function StepBadge({
+  index,
+  active,
+  done,
+}: {
+  index: number;
+  active?: boolean;
+  done?: boolean;
+}) {
+  const classes = done
+    ? "bg-secondary-container text-on-secondary-container"
+    : active
+      ? "bg-primary text-on-primary"
+      : "bg-surface-container-high text-on-surface-variant";
+
+  return (
+    <span className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${classes}`}>
+      {done ? <MaterialIcon name="check_circle" className="text-base" filled /> : index}
+    </span>
+  );
+}
+
+function BusyLabel({ text }: { text: string }) {
+  return (
+    <span className="inline-flex items-center gap-2">
+      <span className="border-on-primary/40 border-t-on-primary h-4 w-4 animate-spin rounded-full border-2" />
+      {text}
+    </span>
+  );
+}
+
 export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
   const [isCrawledOpen, setIsCrawledOpen] = useState(false);
+  const selectedGroupCount = useMemo(
+    () => flow.groupRows.filter((row) => row.groupName.trim()).length,
+    [flow.groupRows],
+  );
+  const hasBlockingAction =
+    flow.isStartingSession ||
+    flow.isOpeningManualScreen ||
+    flow.isSubmittingGroups ||
+    flow.isVerifyingGroups ||
+    flow.isResumingSession ||
+    flow.isEndingSession;
 
   return (
     <section className="flex flex-col gap-md">
       <div className="border-outline-variant bg-surface-container-lowest rounded-xl border p-lg shadow-sm">
         <div className="border-surface-variant mb-md flex items-center gap-2 border-b pb-md">
-          <MaterialIcon name="settings_input_component" className="text-primary" />
-          <h2 className="text-h3 font-semibold">{"Thiết lập crawl Zalo"}</h2>
+          <MaterialIcon name="radar" className="text-primary" />
+          <div>
+            <h2 className="text-h3 font-semibold text-on-surface">Crawl tin nhắn Zalo</h2>
+            <p className="text-body-sm text-on-surface-variant">
+              Lấy tin nhắn và ảnh thật trong group đã chọn, lưu vào Supabase để xem lại hoặc dùng cho gửi hàng loạt.
+            </p>
+          </div>
         </div>
 
         <div className={`mb-md rounded-xl border px-md py-sm ${authStateTone(flow.authStatus)}`}>
-          <div className="flex items-center justify-between gap-sm">
+          <div className="flex flex-wrap items-center justify-between gap-sm">
             <div>
-              <div className="text-label-md mb-xs font-semibold uppercase">{"Trạng thái đăng nhập"}</div>
+              <div className="text-label-md mb-xs font-semibold uppercase">Trạng thái Zalo</div>
               <div className="text-body-md font-semibold">
                 {flow.isCheckingLoginStatus ? AUTH_LABELS.checking : authStateLabel(flow.authStatus)}
               </div>
+              <div className="text-body-sm mt-xs opacity-80">
+                User phiên: <span className="font-mono">{flow.userId}</span>
+              </div>
+              <div className="mt-sm flex flex-wrap items-center gap-sm">
+                <label
+                  className="text-label-md font-semibold uppercase opacity-80"
+                  htmlFor="zalo-worker-select"
+                >
+                  Account Zalo
+                </label>
+                <select
+                  id="zalo-worker-select"
+                  className="border-outline-variant bg-surface min-h-10 rounded-lg border px-sm py-xs text-body-sm font-semibold text-on-surface disabled:cursor-not-allowed disabled:opacity-60"
+                  value={flow.selectedWorkerId}
+                  onChange={(event) => flow.switchWorker(event.target.value)}
+                  disabled={hasBlockingAction || flow.isSubmittingGroups}
+                >
+                  {ZALO_WORKERS.map((workerId) => (
+                    <option key={workerId} value={workerId}>
+                      {workerId}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
+            {flow.hasConfirmedSession ? (
+              <div className="inline-flex items-center gap-1 rounded-full bg-secondary-container px-sm py-xs text-xs font-semibold text-on-secondary-container">
+                <MaterialIcon name="verified_user" className="text-base" />
+                Sẵn sàng crawl
+              </div>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="mb-md grid gap-sm lg:grid-cols-3">
+          <div className="rounded-xl border border-outline-variant bg-surface p-md">
+            <div className="mb-xs flex items-center gap-sm">
+              <StepBadge index={1} active={!flow.hasConfirmedSession} done={flow.hasConfirmedSession} />
+              <div className="font-semibold text-on-surface">Đăng nhập</div>
+            </div>
+            <p className="text-body-sm text-on-surface-variant">
+              Quét QR hoặc mở màn hình Zalo khi tài khoản cần xác minh thêm.
+            </p>
+          </div>
+          <div className="rounded-xl border border-outline-variant bg-surface p-md">
+            <div className="mb-xs flex items-center gap-sm">
+              <StepBadge index={2} active={flow.hasConfirmedSession && selectedGroupCount === 0} done={selectedGroupCount > 0} />
+              <div className="font-semibold text-on-surface">Chọn group</div>
+            </div>
+            <p className="text-body-sm text-on-surface-variant">
+              Tải danh sách group từ Zalo rồi tick nhóm cần crawl. Có thể nhập tay nếu cần.
+            </p>
+          </div>
+          <div className="rounded-xl border border-outline-variant bg-surface p-md">
+            <div className="mb-xs flex items-center gap-sm">
+              <StepBadge index={3} active={flow.hasConfirmedSession && selectedGroupCount > 0} done={flow.summary.completed > 0} />
+              <div className="font-semibold text-on-surface">Chạy crawl</div>
+            </div>
+            <p className="text-body-sm text-on-surface-variant">
+              Hệ thống chạy tuần tự để ổn định. Khi đang crawl không thao tác vào cửa sổ Zalo.
+            </p>
           </div>
         </div>
 
         <div className="mb-md flex flex-wrap gap-sm">
+          {!flow.hasConfirmedSession ? (
+            <button
+              type="button"
+              className="bg-primary text-on-primary hover:bg-primary-container inline-flex min-h-11 items-center justify-center rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void flow.startSession()}
+            disabled={hasBlockingAction}
+          >
+              {flow.isStartingSession ? <BusyLabel text="Đang tạo QR" /> : "Hiện QR đăng nhập"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="bg-primary text-on-primary hover:bg-primary-container inline-flex min-h-11 items-center justify-center rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void flow.startCrawlForGroups()}
+            disabled={!flow.canLaunchJobs}
+          >
+              {flow.isSubmittingGroups ? <BusyLabel text="Đang tạo job" /> : `Chạy crawl${selectedGroupCount > 0 ? ` ${selectedGroupCount} nhóm` : ""}`}
+            </button>
+          )}
+
           {flow.manualViewerUrl ? (
             <button
               type="button"
-              className="border-outline-variant bg-surface hover:bg-surface-container-high rounded-lg border px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() => void flow.startSession()}
-              disabled={
-                flow.isCheckingLoginStatus ||
-                flow.isSubmittingGroups ||
-                flow.isResumingSession ||
-                flow.isEndingSession
-              }
+              className="border-outline-variant bg-surface hover:bg-surface-container-high inline-flex min-h-11 items-center justify-center gap-2 rounded-lg border px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => void flow.openManualScreen()}
+              disabled={hasBlockingAction}
             >
-              {"Mở Zalo"}
-            </button>
-          ) : null}
-
-          {(flow.hasConfirmedSession || flow.authStatus === "not_logged_in") ? (
-            <button
-              type="button"
-              className="bg-primary text-on-primary hover:bg-primary-container rounded-lg px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
-              onClick={() =>
-                void (flow.hasConfirmedSession
-                  ? flow.startCrawlForGroups()
-                  : flow.openManualScreen())
-              }
-              disabled={
-                flow.isCheckingLoginStatus ||
-                flow.isSubmittingGroups ||
-                flow.isResumingSession ||
-                flow.isEndingSession
-              }
-            >
-              {flow.isEndingSession
-                ? "Đang kết thúc phiên..."
-                : flow.isSubmittingGroups
-                  ? "Đang tạo job..."
-                  : flow.isResumingSession
-                    ? "Đang kiểm tra lại..."
-                    : flow.hasConfirmedSession
-                      ? "Chạy Crawl"
-                      : "Mở Zalo & đăng nhập"}
+              <MaterialIcon name="open_in_new" className="text-base" />
+              {flow.isOpeningManualScreen ? "Đang mở Zalo" : "Mở màn hình Zalo"}
             </button>
           ) : null}
 
@@ -111,67 +209,77 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
             onClick={() => void flow.endSession()}
             disabled={!flow.sessionId || flow.isEndingSession || flow.isSubmittingGroups}
           >
-            {flow.isEndingSession ? "Đang kết thúc phiên..." : "Kết thúc phiên"}
+            {flow.isEndingSession ? "Đang kết thúc phiên" : "Kết thúc phiên"}
+          </button>
+
+          <button
+            type="button"
+            className="border-outline-variant bg-surface hover:bg-surface-container-high rounded-lg border px-lg py-sm text-sm font-bold uppercase disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={() => void flow.restartSession()}
+            disabled={hasBlockingAction || flow.isSubmittingGroups}
+          >
+            Đăng nhập lại
           </button>
         </div>
 
-        <div className="mb-md rounded-xl border border-outline-variant bg-surface p-md">
-          <h3 className="text-body-md font-semibold text-on-surface">{"Hướng dẫn sử dụng Zalo Crawler"}</h3>
-          <div className="mt-sm space-y-1 text-body-sm text-on-surface">
-            <p>{"Bước 1: Nhấn nút “Mở Zalo” để khởi động phiên đăng nhập. Nhấn Connect ở trang noVNC."}</p>
-            <p>{"Bước 2: Tiến hành đăng nhập tài khoản Zalo bằng cách quét QR."}</p>
-            <p>
-              {
-                "Bước 3: Sau khi đăng nhập thành công, quay lại hệ thống và nhập tên nhóm muốn crawl, hoặc chọn một nhóm đã được lưu trước đó."
-              }
-            </p>
-            <p>{"Bước 4: Nhấn “Chạy Crawl” để bắt đầu quá trình thu thập dữ liệu."}</p>
+        {(flow.qrBase64 || flow.qrImageUrl) && !flow.hasConfirmedSession ? (
+          <div className="border-outline-variant bg-surface mb-md rounded-xl border p-md">
+            <div className="flex flex-col gap-md sm:flex-row sm:items-center">
+              <Image
+                src={flow.qrBase64 || flow.qrImageUrl || ""}
+                alt="QR đăng nhập Zalo"
+                width={256}
+                height={256}
+                unoptimized
+                className="h-64 w-64 rounded-lg border border-outline-variant bg-white object-contain p-sm"
+              />
+              <div className="text-body-sm text-on-surface">
+                <div className="text-body-md mb-xs font-semibold">Quét QR bằng ứng dụng Zalo</div>
+                <p>Sau khi xác nhận trên điện thoại, trạng thái sẽ tự chuyển sang “Đã đăng nhập”.</p>
+                {flow.manualViewerUrl ? (
+                  <p className="mt-xs text-on-surface-variant">
+                    Nếu Zalo yêu cầu xác minh thêm, bấm “Mở màn hình Zalo” để xử lý.
+                  </p>
+                ) : null}
+              </div>
+            </div>
           </div>
-          <div className="mt-sm rounded-lg border border-amber-300 bg-amber-50 px-sm py-xs text-body-sm text-amber-900">
-            {
-              "⚠️ Lưu ý: Để quá trình crawl diễn ra ổn định và tránh lỗi, vui lòng hạn chế thao tác hoặc tương tác với giao diện Zalo trong khi hệ thống đang chạy crawl."
-            }
+        ) : null}
+
+        <div className="mb-md rounded-xl border border-amber-300 bg-amber-50 px-md py-sm text-body-sm text-amber-900">
+          <div className="flex gap-2">
+            <MaterialIcon name="info" className="mt-0.5 text-base" />
+            <div>
+              Crawler chỉ lấy nội dung trong group được chọn: text và ảnh gửi trong tin nhắn. Ảnh đại diện, icon, sticker/reaction sẽ bị lọc bỏ.
+            </div>
           </div>
         </div>
 
         <div className="border-outline-variant bg-surface-container-low mb-md rounded-xl border p-md">
           <div className="flex flex-wrap items-center justify-between gap-sm">
             <div>
-              <div className="text-label-md text-on-surface-variant font-semibold uppercase">{"Nhóm đã crawl"}</div>
-              <div className="text-body-sm text-on-surface-variant">{"Tổng nhóm: "} {flow.crawledGroupsTotal}</div>
+              <div className="text-label-md text-on-surface-variant font-semibold uppercase">Nhóm đã lưu</div>
+              <div className="text-body-sm text-on-surface-variant">Tổng nhóm: {flow.crawledGroupsTotal}</div>
             </div>
-            <div className="flex flex-wrap items-center gap-sm">
-              {flow.crawledGroupsSheetUrl ? (
-                <a
-                  href={flow.crawledGroupsSheetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-primary inline-flex items-center gap-1 text-sm font-semibold hover:underline"
-                >
-                  <MaterialIcon name="open_in_new" className="text-base" />
-                  {"Mở Google Sheets"}
-                </a>
-              ) : null}
-              <button
-                type="button"
-                className="border-outline-variant bg-surface hover:bg-surface-container-high inline-flex items-center gap-1 rounded-lg border px-md py-xs text-xs font-bold uppercase"
-                onClick={() => setIsCrawledOpen((previous) => !previous)}
-              >
-                {isCrawledOpen ? "Thu gọn" : "Xem danh sách"}
-              </button>
-            </div>
+            <button
+              type="button"
+              className="border-outline-variant bg-surface hover:bg-surface-container-high inline-flex items-center gap-1 rounded-lg border px-md py-xs text-xs font-bold uppercase"
+              onClick={() => setIsCrawledOpen((previous) => !previous)}
+            >
+              {isCrawledOpen ? "Thu gọn" : "Xem nhóm đã lưu"}
+            </button>
           </div>
 
           {isCrawledOpen ? (
             <div className="mt-sm max-h-72 overflow-y-auto pr-1">
               {flow.isLoadingCrawledGroups ? (
-                <div className="text-body-sm text-on-surface-variant">{"Đang tải danh sách nhóm đã crawl..."}</div>
+                <div className="text-body-sm text-on-surface-variant">Đang tải nhóm đã lưu...</div>
               ) : flow.crawledGroupsError ? (
                 <div className="border-error-container bg-error-container/40 text-error rounded-lg border px-md py-sm text-body-sm">
                   {flow.crawledGroupsError}
                 </div>
               ) : flow.crawledGroups.length === 0 ? (
-                <div className="text-body-sm text-on-surface-variant">{"Chưa có nhóm nào được crawl trước đó."}</div>
+                <div className="text-body-sm text-on-surface-variant">Chưa có nhóm nào được lưu.</div>
               ) : (
                 <div className="grid gap-sm sm:grid-cols-2">
                   {flow.crawledGroups.map((group) => (
@@ -181,9 +289,8 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
                       className="border-outline-variant bg-surface hover:bg-surface-container-high rounded-lg border px-md py-sm text-left transition"
                       onClick={() => flow.addCrawledGroup(group)}
                     >
-                      <div className="text-body-sm text-on-surface font-semibold">{group.group_name}</div>
-                      <div className="text-body-sm text-on-surface-variant">Tab: {group.sheet_tab}</div>
-                      <div className="text-body-sm text-on-surface-variant">{"Tin nhắn: "} {group.message_count}</div>
+                      <div className="text-body-sm font-semibold text-on-surface">{group.group_name}</div>
+                      <div className="text-body-sm text-on-surface-variant">Tin nhắn đã lưu: {group.message_count}</div>
                     </button>
                   ))}
                 </div>
@@ -193,10 +300,14 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
         </div>
 
         <div className={!flow.hasConfirmedSession ? "opacity-70" : undefined}>
+          <ZaloLiveGroupPicker flow={flow} />
+
           <ZaloGroupInputList
             rows={flow.groupRows}
-            disabled={!flow.hasConfirmedSession || flow.isSubmittingGroups}
+            disabled={!flow.hasConfirmedSession || flow.isSubmittingGroups || flow.isVerifyingGroups}
+            verifying={flow.isVerifyingGroups}
             onAddRow={flow.addGroupRow}
+            onVerifyRows={() => void flow.verifyGroupRows()}
             onUpdateRow={flow.updateGroupRow}
             onRemoveRow={flow.removeGroupRow}
           />

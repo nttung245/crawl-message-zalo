@@ -26,7 +26,7 @@ def _cleanup_profile_lock_files(user_data_dir: str) -> None:
     for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
         path = os.path.join(user_data_dir, name)
         try:
-            if os.path.exists(path):
+            if os.path.lexists(path):
                 os.remove(path)
                 logger.warning(f"Removed stale Chromium profile lock file: {path}")
         except Exception as exc:
@@ -53,7 +53,7 @@ def clear_user_profile_data(user_id: str) -> bool:
 def _kill_stale_chromium_processes() -> None:
     try:
         # In Docker, stale chrome processes may hold persistent profile locks across retries.
-        subprocess.run(["pkill", "-f", "chrome-linux/chrome"], check=False)
+        subprocess.run(["pkill", "-f", settings.browser_user_data_dir], check=False)
     except Exception as exc:
         logger.warning(f"Could not kill stale chromium processes: {exc}")
 
@@ -78,13 +78,18 @@ def _resolve_browser_executable() -> str | None:
 def _should_force_headless() -> bool:
     """Force headless mode when the runtime has no GUI display, such as Docker."""
 
-    if os.path.exists("/.dockerenv"):
-        return True
     if os.environ.get("CI", "").strip().lower() in {"1", "true", "yes", "on"}:
         return True
     if os.name != "nt":
         return not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
     return False
+
+
+def _display_socket_exists(display: str) -> bool:
+    if os.name == "nt" or not display.startswith(":"):
+        return True
+    display_num = display[1:].split(".", 1)[0]
+    return os.path.exists(f"/tmp/.X11-unix/X{display_num}")
 
 
 async def create_browser(user_id: str = "default") -> tuple[Optional[Browser], BrowserContext, Page]:
@@ -112,7 +117,19 @@ async def create_browser(user_id: str = "default") -> tuple[Optional[Browser], B
     launch_kwargs: dict = {
         "headless": headless,
         "args": launch_args,
+        "env": {
+            **os.environ,
+            "DISPLAY": os.environ.get("DISPLAY", ":99"),
+        },
     }
+
+    if not headless:
+        display = launch_kwargs["env"]["DISPLAY"]
+        if not _display_socket_exists(display):
+            logger.warning(
+                f"DISPLAY={display} is set but the X11 socket is missing. "
+                "Start Zalo with the VNC/Xvfb entrypoint or set ZALO_BROWSER_HEADLESS=true."
+            )
     executable_path = _resolve_browser_executable()
     if executable_path:
         launch_kwargs["executable_path"] = executable_path

@@ -1,6 +1,7 @@
 ﻿import base64
 import hashlib
 from typing import Any
+import time
 
 from loguru import logger
 from playwright.async_api import Error as PlaywrightError, Frame, Page
@@ -8,6 +9,7 @@ from playwright.async_api import Error as PlaywrightError, Frame, Page
 from app.modules.zalo.services.debug_artifacts import save_page_artifacts
 
 ZALO_WEB_URL = "https://chat.zalo.me"
+_last_account_continue_click_at = 0.0
 
 CANVAS_SELECTORS = [
     "canvas.qr-img",
@@ -33,6 +35,18 @@ QR_SCREENSHOT_FALLBACK_SELECTORS = [
     "[id*=qr]",
     "[data-id*=QR]",
     "[data-id*=qr]",
+]
+
+QR_PRIMARY_SCREENSHOT_SELECTORS = [
+    "canvas.qr-img",
+    ".qr-panel canvas",
+    "[class*=qr-code] canvas",
+    "[class*=QRCode] canvas",
+    "canvas[class*=qr]",
+    "img[class*=qr]",
+    "img[class*=QR]",
+    "[class*=qr] img",
+    "[class*=QR] img",
 ]
 
 ACCOUNT_CONTINUE_SELECTORS = [
@@ -104,6 +118,7 @@ _JS_IMG = """
 _JS_CHECK_LOGGED_IN = """
 () => {
     const inChatUrl = typeof location?.href === 'string' && location.href.includes('chat.zalo.me');
+    if (!inChatUrl) return 'waiting:notChatUrl';
 
     const loggedInSelectors = [
         '#chatView',
@@ -136,7 +151,6 @@ _JS_CHECK_LOGGED_IN = """
     if (chatComposer) return 'confirmed:composer';
 
     if (appEl) return 'confirmed:appElement';
-    if (inChatUrl) return 'confirmed:chatUrl';
 
     const qrSelectors = [
         'canvas.qr-img',
@@ -221,7 +235,46 @@ async def _img_src(page: Page) -> str | None:
     return None
 
 
+async def qr_element_screenshot_bytes(page: Page) -> bytes | None:
+    for label, target in _qr_targets(page):
+        for selector in QR_PRIMARY_SCREENSHOT_SELECTORS:
+            try:
+                handle = await target.query_selector(selector)
+                if not handle:
+                    continue
+                box = await handle.bounding_box()
+                if not box or box["width"] < 140 or box["height"] < 140:
+                    continue
+                ratio = box["width"] / box["height"]
+                if ratio <= 0.75 or ratio >= 1.25:
+                    continue
+                shot = await handle.screenshot(type="png")
+                if not shot:
+                    continue
+                logger.info(f"QR captured via visible element screenshot in {label} using selector={selector}")
+                return shot
+            except PlaywrightError as exc:
+                if "Execution context was destroyed" in str(exc):
+                    logger.debug(f"QR screenshot interrupted by navigation in {label}; will retry")
+                    return None
+                logger.debug(f"QR screenshot error in {label} selector={selector}: {exc}")
+            except Exception as exc:
+                logger.debug(f"QR screenshot failed in {label} selector={selector}: {exc}")
+    return None
+
+
+async def _qr_element_screenshot_data_url(page: Page) -> str | None:
+    shot = await qr_element_screenshot_bytes(page)
+    if not shot:
+        return None
+    return "data:image/png;base64," + base64.b64encode(shot).decode()
+
+
 async def _capture_qr(page: Page) -> str:
+    screenshot_data_url = await _qr_element_screenshot_data_url(page)
+    if screenshot_data_url:
+        return screenshot_data_url
+
     data_url = await _canvas_data_url(page)
     if data_url:
         logger.info("QR captured via canvas.toDataURL()")
@@ -271,6 +324,10 @@ async def _capture_qr(page: Page) -> str:
 
 
 async def _capture_qr_if_ready(page: Page) -> str | None:
+    screenshot_data_url = await _qr_element_screenshot_data_url(page)
+    if screenshot_data_url:
+        return screenshot_data_url
+
     data_url = await _canvas_data_url(page)
     if data_url:
         return data_url
@@ -309,11 +366,16 @@ async def _save_qr_failure_artifacts(page: Page, name: str, metadata: dict[str, 
 
 async def _try_continue_from_account_page(page: Page) -> bool:
     """Some Zalo flows stay on the account page after QR scan and require a continue click."""
+    global _last_account_continue_click_at
 
     try:
         if "id.zalo.me/account" not in page.url:
             return False
     except Exception:
+        return False
+
+    now = time.monotonic()
+    if now - _last_account_continue_click_at < 8:
         return False
 
     for selector in ACCOUNT_CONTINUE_SELECTORS:
@@ -325,6 +387,7 @@ async def _try_continue_from_account_page(page: Page) -> bool:
                     await target.scroll_into_view_if_needed(timeout=1000)
                 except Exception:
                     pass
+                _last_account_continue_click_at = time.monotonic()
                 await target.click(timeout=2000, force=True)
                 await page.wait_for_timeout(1500)
                 logger.info(f"Clicked continue on Zalo account page: {selector}")
@@ -410,6 +473,9 @@ async def check_login_status(page: Page) -> str:
         title = await page.title()
         result: str = await page.evaluate(_JS_CHECK_LOGGED_IN)
         logger.debug(f"Status check - url={url!r} title={title!r} js={result!r}")
+        if "id.zalo.me/account" in url or "Đăng nhập" in title or "Dang nhap" in title:
+            logger.info(f"Zalo account/login page is not crawl-ready yet (url={url!r}, title={title!r})")
+            return "waiting_scan"
         if result == "qr_expired":
             logger.info("QR expired")
             return "qr_expired"

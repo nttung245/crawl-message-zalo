@@ -10,18 +10,21 @@ services:
     env_file:
       - .env
     environment:
-      API_KEY: ${API_KEY:-secret_api_key}
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo API}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
       ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
       ZALO_BROWSER_HEADLESS: "false"
       ZALO_BROWSER_PERSISTENT_PROFILE: "true"
       ZALO_BROWSER_USER_DATA_DIR: /app/storage/chromium-profile
       ZALO_BROWSER_REMOTE_VIEWER_URL: ${ZALO_BROWSER_REMOTE_VIEWER_URL:-http://localhost:6080/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true}
+      ZALO_VNC_PASSWORD: ${ZALO_VNC_PASSWORD:?Set ZALO_VNC_PASSWORD in .env before starting Zalo VNC}
+      ZALO_VNC_ENABLED: "true"
+      ZALO_AUTO_OPEN_ON_START: "false"
       DISPLAY: ":99"
     ports:
-      - "8000:8000"
-      - "5900:5900"
-      - "6080:6080"
+      - "${ZALO_API_BIND:-127.0.0.1}:8000:8000"
+      - "${ZALO_VNC_BIND:-127.0.0.1}:5900:5900"
+      - "${ZALO_NOVNC_BIND:-127.0.0.1}:6080:6080"
     volumes:
       - ./storage:/app/storage
       - ./data:/app/data

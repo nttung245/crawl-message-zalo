@@ -1,0 +1,24 @@
+services:
+  zalo-browser-a:
+    environment:
+      ZALO_VNC_ENABLED: "true"
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ${ZALO_BROWSER_A_REMOTE_VIEWER_URL:-http://127.0.0.1:6081/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true}
+    ports:
+      - "${ZALO_VNC_A_BIND:-127.0.0.1}:5901:5900"
+      - "${ZALO_NOVNC_A_BIND:-127.0.0.1}:6081:6080"
+
+  zalo-browser-b:
+    environment:
+      ZALO_VNC_ENABLED: "true"
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ${ZALO_BROWSER_B_REMOTE_VIEWER_URL:-http://127.0.0.1:6082/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true}
+    ports:
+      - "${ZALO_VNC_B_BIND:-127.0.0.1}:5902:5900"
+      - "${ZALO_NOVNC_B_BIND:-127.0.0.1}:6082:6080"
+
+  zalo-browser-c:
+    environment:
+      ZALO_VNC_ENABLED: "true"
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ${ZALO_BROWSER_C_REMOTE_VIEWER_URL:-http://127.0.0.1:6083/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true}
+    ports:
+      - "${ZALO_VNC_C_BIND:-127.0.0.1}:5903:5900"
+      - "${ZALO_NOVNC_C_BIND:-127.0.0.1}:6083:6080"

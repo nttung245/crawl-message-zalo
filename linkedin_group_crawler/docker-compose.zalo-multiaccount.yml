@@ -1,0 +1,113 @@
+x-zalo-browser-base: &zalo-browser-base
+  build:
+    context: .
+    dockerfile: Dockerfile.vnc
+  restart: unless-stopped
+  env_file:
+    - .env
+  environment:
+    API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo}
+    CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
+    ZALO_BROWSER_HEADLESS: "false"
+    ZALO_BROWSER_PERSISTENT_PROFILE: "true"
+    ZALO_BROWSER_REMOTE_VIEWER_URL: ""
+    ZALO_VNC_ENABLED: "false"
+    ZALO_AUTO_OPEN_ON_START: "false"
+    PLAYWRIGHT_WARMUP_ON_STARTUP: "false"
+    DISPLAY: ":99"
+  command:
+    - /app/scripts/start_zalo_vnc.sh
+  expose:
+    - "8000"
+  volumes:
+    - ./storage:/app/storage
+    - ./data:/app/data
+    - ./credentials:/app/credentials
+  healthcheck:
+    test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health').read()"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 20s
+
+services:
+  zalo-browser-a:
+    <<: *zalo-browser-base
+    container_name: zalo-browser-a
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
+      ZALO_BROWSER_HEADLESS: "false"
+      ZALO_BROWSER_PERSISTENT_PROFILE: "true"
+      ZALO_BROWSER_USER_DATA_DIR: /app/storage/chromium-profile/account-a
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ""
+      ZALO_VNC_ENABLED: "false"
+      ZALO_AUTO_OPEN_ON_START: "false"
+      PLAYWRIGHT_WARMUP_ON_STARTUP: "false"
+      DISPLAY: ":99"
+
+  zalo-browser-b:
+    <<: *zalo-browser-base
+    container_name: zalo-browser-b
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
+      ZALO_BROWSER_HEADLESS: "false"
+      ZALO_BROWSER_PERSISTENT_PROFILE: "true"
+      ZALO_BROWSER_USER_DATA_DIR: /app/storage/chromium-profile/account-b
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ""
+      ZALO_VNC_ENABLED: "false"
+      ZALO_AUTO_OPEN_ON_START: "false"
+      PLAYWRIGHT_WARMUP_ON_STARTUP: "false"
+      DISPLAY: ":99"
+
+  zalo-browser-c:
+    <<: *zalo-browser-base
+    container_name: zalo-browser-c
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ZALO_CORS_ORIGINS: ${ZALO_CORS_ORIGINS:-http://localhost:3000}
+      ZALO_BROWSER_HEADLESS: "false"
+      ZALO_BROWSER_PERSISTENT_PROFILE: "true"
+      ZALO_BROWSER_USER_DATA_DIR: /app/storage/chromium-profile/account-c
+      ZALO_BROWSER_REMOTE_VIEWER_URL: ""
+      ZALO_VNC_ENABLED: "false"
+      ZALO_AUTO_OPEN_ON_START: "false"
+      PLAYWRIGHT_WARMUP_ON_STARTUP: "false"
+      DISPLAY: ":99"
+
+  zalo-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc
+    container_name: zalo-api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      API_KEY: ${API_KEY:?Set API_KEY in .env before starting Zalo}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+      ZALO_BROWSER_SERVICE_URLS: account-a=http://zalo-browser-a:8000,account-b=http://zalo-browser-b:8000,account-c=http://zalo-browser-c:8000
+      PLAYWRIGHT_WARMUP_ON_STARTUP: "false"
+    command:
+      - uvicorn
+      - app.main:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --workers
+      - "${ZALO_API_WORKERS:-1}"
+    ports:
+      - "${ZALO_API_BIND:-127.0.0.1}:8000:8000"
+    depends_on:
+      zalo-browser-a:
+        condition: service_healthy
+      zalo-browser-b:
+        condition: service_healthy
+      zalo-browser-c:
+        condition: service_healthy

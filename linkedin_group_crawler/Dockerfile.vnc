@@ -34,7 +34,8 @@ RUN pip install --upgrade pip setuptools wheel \
 
 COPY . .
 
-RUN chmod +x /app/scripts/start_zalo_vnc.sh \
+RUN sed -i 's/\r$//' /app/scripts/start_zalo_vnc.sh \
+    && chmod +x /app/scripts/start_zalo_vnc.sh \
     && mkdir -p /app/storage/session /app/storage/runtime /app/data/raw /app/data/output \
     && chown -R pwuser:pwuser /app
 

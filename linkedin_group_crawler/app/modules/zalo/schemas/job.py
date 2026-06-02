@@ -13,12 +13,12 @@ class JobData(BaseModel):
     job_id: str
     group_id: str
     group_name: str
-    sheet_id: str
-    sheet_tab: str
+    sheet_id: Optional[str] = None
+    sheet_tab: Optional[str] = None
     status: str = "running"  # "queued" | "running" | "completed" | "failed"
     progress: JobProgress = JobProgress()
     started_at: datetime
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
-    sheet_url: str
+    sheet_url: Optional[str] = None
 

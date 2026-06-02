@@ -1,14 +1,26 @@
-﻿import re
+import base64
+import re
 from typing import Any, List, Set
 from urllib.parse import urlparse
 
 from loguru import logger
-from playwright.async_api import Frame, Page
+from playwright.async_api import Frame, Locator, Page
 
 from app.modules.zalo.schemas.message import Message
 
 ZALO_CDN_PATTERNS = ["zalo.me", "zalostatic", "zalostg", "zadn.vn", "cdn.zalo"]
 THUMB_PATTERNS = ["_thumb", "_small", "_icon", "thumbnail"]
+NON_MESSAGE_IMAGE_HINTS = [
+    "avatar",
+    "profile",
+    "group_avatar",
+    "oa_avatar",
+    "ava_",
+    "/ava/",
+    "sticker",
+    "emoji",
+    "reaction",
+]
 
 MSG_CONTAINER_SELECTORS = [
     "#messageViewScroll .chat-message[data-component='bubble-message']",
@@ -25,7 +37,7 @@ MSG_CONTAINER_SELECTORS = [
 ]
 
 _JS_EXTRACT_MESSAGE = r"""
-(element) => {
+async (element) => {
     const normalize = (value) =>
         (value || "")
             .replace(/\u00a0/g, " ")
@@ -91,16 +103,26 @@ _JS_EXTRACT_MESSAGE = r"""
     let textContent = "";
     const textContainer = element.querySelector(".text-message__container [data-component='text-container']");
     if (textContainer) {
-        textContent = uniqueLines(textContainer.textContent || "");
+        textContent = uniqueLines(textContainer.innerText || textContainer.textContent || "");
     } else {
         const rtfNodes = Array.from(
-            element.querySelectorAll(".editor-input [data-z-element-type='rtf-text']")
+            element.querySelectorAll(
+                ".editor-input [data-z-element-type='rtf-text'], " +
+                "[data-component='text-container'], " +
+                "[data-component='message-text-content'], " +
+                ".text-message__container span, " +
+                ".text-message__container div"
+            )
         );
         if (rtfNodes.length) {
-            textContent = uniqueLines(rtfNodes.map((node) => node.textContent || "").join("\n"));
+            textContent = uniqueLines(
+                rtfNodes
+                    .map((node) => node.innerText || node.textContent || "")
+                    .join("\n")
+            );
         } else {
             const genericText = element.querySelector(".overflow-hidden [data-component='message-text-content']");
-            textContent = uniqueLines(genericText ? genericText.textContent || "" : "");
+            textContent = uniqueLines(genericText ? genericText.innerText || genericText.textContent || "" : "");
         }
     }
 
@@ -114,9 +136,120 @@ _JS_EXTRACT_MESSAGE = r"""
     const fileName =
         normalize(element.querySelector(".file-message__content-title")?.textContent || "") || null;
 
-    const imageBlobUrls = Array.from(
-        element.querySelectorAll("img[src^='blob:'], .img-msg-v2 img[src]")
-    ).map((img) => img.getAttribute("src") || "").filter(Boolean);
+    // Only collect images from known message-photo containers. Generic img/blob selectors
+    // can catch avatars, reactions, icons, or profile thumbnails near the bubble.
+    const messageImageSelector = [
+        "[id^='image-mCntr_'] img[src]",
+        "[id^='image-mCntr_'] img",
+        ".img-msg-v2 img[src]",
+        ".img-msg-v2 img",
+        ".photo-message-v2 img[src]",
+        ".photo-message-v2 img",
+        "[data-component='message-content-view'] [id^='image-mCntr_'] img[src]",
+        "[data-component='message-content-view'] [id^='image-mCntr_'] img",
+        "[data-component='message-content-view'] .img-msg-v2 img[src]",
+        "[data-component='message-content-view'] .img-msg-v2 img",
+        "[data-component='message-content-view'] .photo-message-v2 img[src]",
+        "[data-component='message-content-view'] .photo-message-v2 img",
+        "[data-component='message-content-view'] img[src]",
+        "[data-component='message-content-view'] img[data-src]",
+        "[data-component='message-content-view'] img",
+    ].join(",");
+    const isNonMessageImage = (img) => {
+        const classSignals = [
+            img.className || "",
+            img.parentElement?.className || "",
+            img.closest("[class]")?.className || "",
+        ].join(" ").toLowerCase();
+        const src = (img.getAttribute("src") || "").toLowerCase();
+        const nearbyNonMessage = img.closest(
+            "[class*='avatar'], [class*='Avatar'], [class*='profile'], [class*='sticker'], [class*='emoji'], [class*='reaction']"
+        );
+        const rect = img.getBoundingClientRect();
+        const tooSmallForMessageImage =
+            rect.width > 0 && rect.height > 0 && (rect.width < 40 || rect.height < 40);
+        return (
+            !!nearbyNonMessage ||
+            /avatar|profile|sticker|emoji|reaction/.test(classSignals) ||
+            /avatar|profile|group_avatar|oa_avatar|sticker|emoji|reaction/.test(src) ||
+            tooSmallForMessageImage
+        );
+    };
+    const imageSrcs = [];
+    const addImageUrl = (url) => {
+        if (url && !imageSrcs.includes(url)) imageSrcs.push(url);
+    };
+    const largestFromSrcset = (srcset) => {
+        const candidates = (srcset || "")
+            .split(",")
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .map((part) => {
+                const [url, descriptor] = part.split(/\s+/);
+                const score = descriptor?.endsWith("w")
+                    ? Number(descriptor.slice(0, -1)) || 0
+                    : descriptor?.endsWith("x")
+                        ? (Number(descriptor.slice(0, -1)) || 0) * 1000
+                        : 0;
+                return { url, score };
+            })
+            .filter((item) => item.url);
+        candidates.sort((left, right) => right.score - left.score);
+        return candidates[0]?.url || "";
+    };
+    for (const img of Array.from(element.querySelectorAll(messageImageSelector)).filter((img) => !isNonMessageImage(img))) {
+        const carrier = img.closest("[id^='image-mCntr_'], .img-msg-v2, .photo-message-v2, a, [data-href], [data-url], [data-original], [data-full-src]");
+        addImageUrl(largestFromSrcset(img.getAttribute("srcset") || ""));
+        addImageUrl(largestFromSrcset(img.getAttribute("data-srcset") || ""));
+        addImageUrl(img.getAttribute("data-original"));
+        addImageUrl(img.getAttribute("data-full-src"));
+        addImageUrl(img.getAttribute("data-preview-src"));
+        addImageUrl(img.closest("a")?.getAttribute("href") || "");
+        addImageUrl(carrier?.getAttribute("href") || "");
+        addImageUrl(carrier?.getAttribute("data-href") || "");
+        addImageUrl(carrier?.getAttribute("data-url") || "");
+        addImageUrl(carrier?.getAttribute("data-original") || "");
+        addImageUrl(carrier?.getAttribute("data-full-src") || "");
+        addImageUrl(carrier?.getAttribute("data-preview-src") || "");
+        addImageUrl(img.currentSrc || img.getAttribute("src") || img.getAttribute("data-src") || "");
+    }
+    const backgroundImageUrls = Array.from(
+        element.querySelectorAll("[data-component='message-content-view'] [style*='background-image'], [id^='image-mCntr_'] [style*='background-image'], .img-msg-v2 [style*='background-image'], .photo-message-v2 [style*='background-image']")
+    ).map((node) => {
+        const value = window.getComputedStyle(node).backgroundImage || "";
+        const match = value.match(/url\\(["']?(.+?)["']?\\)/);
+        return match ? match[1] : "";
+    }).filter(Boolean);
+    for (const url of backgroundImageUrls) {
+        if (!imageSrcs.includes(url)) imageSrcs.push(url);
+    }
+    const imageCdnUrls = imageSrcs.filter((s) => s.startsWith("http"));
+    const imageBlobUrls = imageSrcs.filter((s) => s.startsWith("blob:"));
+    const imageUrlToDataUrl = async (url) => {
+        try {
+            if (url.startsWith("data:image/")) return url;
+            const response = await fetch(url, { credentials: "include" });
+            if (!response.ok) return null;
+            const blob = await response.blob();
+            if (!blob.type.startsWith("image/") || blob.size > 8 * 1024 * 1024) return null;
+            return await new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onloadend = () => resolve(reader.result);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(blob);
+            });
+        } catch {
+            return null;
+        }
+    };
+    const imageDataUrls = [];
+    for (const imageUrl of imageSrcs) {
+        if (!imageUrl.startsWith("http") && !imageUrl.startsWith("blob:") && !imageUrl.startsWith("data:image/")) {
+            continue;
+        }
+        const dataUrl = await imageUrlToDataUrl(imageUrl);
+        if (dataUrl && !imageDataUrls.includes(dataUrl)) imageDataUrls.push(dataUrl);
+    }
 
     const fullText = normalize(element.textContent || "");
     const frameEl = element.querySelector("[data-component='message-content-view']");
@@ -150,11 +283,13 @@ _JS_EXTRACT_MESSAGE = r"""
         link_url: linkUrl,
         link_title: linkTitle,
         file_name: fileName,
-        has_image: !!element.querySelector("[id^='image-mCntr_'], .img-msg-v2, .photo-message-v2"),
+        has_image: imageSrcs.length > 0 || !!element.querySelector("[id^='image-mCntr_'], .img-msg-v2, .photo-message-v2"),
         has_file: !!element.querySelector(".file-message__container"),
         has_link: !!element.querySelector(".link-message"),
         has_sticker: !!element.querySelector("[class*='sticker'], img[class*='sticker']"),
+        image_cdn_urls: imageCdnUrls,
         image_blob_urls: imageBlobUrls,
+        image_data_urls: imageDataUrls,
         full_text: fullText,
         is_sent: isSent,
     };
@@ -174,11 +309,24 @@ def _is_full_res(url: str) -> bool:
     return not any(t in url.lower() for t in THUMB_PATTERNS)
 
 
+def _is_likely_message_image_url(url: str) -> bool:
+    lowered = (url or "").lower()
+    if not lowered:
+        return False
+    if any(hint in lowered for hint in NON_MESSAGE_IMAGE_HINTS):
+        return False
+    return (
+        lowered.startswith("blob:")
+        or lowered.startswith("data:image/")
+        or (_is_zalo_cdn_image(url) and _is_full_res(url))
+    )
+
+
 def _normalize_timestamp(date_text: str | None, time_text: str | None) -> str | None:
     date_text = (date_text or "").strip()
     time_text = (time_text or "").strip()
     if date_text and time_text and time_text not in date_text:
-        return f"{time_text} {date_text}"
+        return f"{date_text} {time_text}"
     return date_text or time_text or None
 
 
@@ -195,37 +343,93 @@ def _image_urls_from_capture(captured_image_urls: Set[str]) -> List[str]:
     return [url for url in captured_image_urls if _is_zalo_cdn_image(url) and _is_full_res(url)]
 
 
-async def parse_messages(page: Page, captured_image_urls: Set[str]) -> List[Message]:
+async def _screenshot_message_image_data_url(item) -> str | None:
+    selectors = [
+        "[id^='image-mCntr_']",
+        ".img-msg-v2",
+        ".photo-message-v2",
+        "[data-component='message-content-view'] [id^='image-mCntr_']",
+        "[data-component='message-content-view'] .img-msg-v2",
+        "[data-component='message-content-view'] .photo-message-v2",
+        "[data-component='message-content-view'] img[src]",
+        "[data-component='message-content-view'] img",
+    ]
+    for selector in selectors:
+        try:
+            handle = await item.query_selector(selector)
+            if not handle:
+                continue
+            box = await handle.bounding_box()
+            if not box or box["width"] < 40 or box["height"] < 40:
+                continue
+            shot = await handle.screenshot(type="png")
+            if shot:
+                return "data:image/png;base64," + base64.b64encode(shot).decode()
+        except Exception:
+            continue
+    return None
+
+
+async def parse_messages(root: Page | Frame | Locator, captured_image_urls: Set[str]) -> List[Message]:
     messages: List[Message] = []
     last_named_sender: str | None = None
 
     items = []
     selector_used = None
     selector_counts: dict[str, dict[str, int]] = {}
-    target_label = "main"
-    targets: list[tuple[str, Page | Frame]] = [("main", page)]
-    for index, frame in enumerate(page.frames):
-        if frame is page.main_frame:
-            continue
-        frame_url = (frame.url or "").strip()
-        targets.append((f"frame[{index}] {frame_url or '(about:blank)'}", frame))
+    target_label = "message-root"
+    targets: list[tuple[str, Page | Frame | Locator]] = [("message-root", root)]
+    if isinstance(root, Page):
+        for index, frame in enumerate(root.frames):
+            if frame is root.main_frame:
+                continue
+            frame_url = (frame.url or "").strip()
+            targets.append((f"frame[{index}] {frame_url or '(about:blank)'}", frame))
 
+    best_match: tuple[int, str, str, list] | None = None
     for label, target in targets:
         per_target_counts: dict[str, int] = {}
         for selector in MSG_CONTAINER_SELECTORS:
-            found = await target.query_selector_all(selector)
-            per_target_counts[selector] = len(found)
-            if found:
-                items = found
-                selector_used = selector
-                target_label = label
+            if isinstance(target, Locator):
+                found = await target.locator(selector).element_handles()
+            else:
+                found = await target.query_selector_all(selector)
+            visible_found = []
+            for handle in found:
+                try:
+                    is_current_visible = await handle.evaluate(
+                        """
+                        (el) => {
+                            const rect = el.getBoundingClientRect();
+                            const style = window.getComputedStyle(el);
+                            if (rect.width <= 0 || rect.height <= 0) return false;
+                            if (style.display === 'none' || style.visibility === 'hidden') return false;
+                            if (Number(style.opacity || '1') <= 0) return false;
+                            const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+                            const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
+                            if (rect.bottom < -200 || rect.top > viewportHeight + 200) return false;
+                            if (rect.right < 0 || rect.left > viewportWidth) return false;
+                            const hiddenAncestor = el.closest('[aria-hidden="true"], [hidden]');
+                            if (hiddenAncestor) return false;
+                            return true;
+                        }
+                        """
+                    )
+                    if is_current_visible:
+                        visible_found.append(handle)
+                except Exception:
+                    continue
+            per_target_counts[selector] = len(visible_found)
+            if visible_found:
                 logger.debug(
-                    f"Found {len(found)} message elements with selector: {selector} in {label}"
+                    f"Found {len(visible_found)} visible message elements with selector: {selector} in {label}"
                 )
-                break
+                if best_match is None or len(visible_found) > best_match[0]:
+                    best_match = (len(visible_found), selector, label, visible_found)
         selector_counts[label] = per_target_counts
-        if items:
-            break
+
+    if best_match:
+        _, selector_used, target_label, items = best_match
 
     if not items:
         logger.warning(f"No message elements found in DOM; selector_counts={selector_counts}")
@@ -264,7 +468,14 @@ async def _parse_message(item, captured_image_urls: Set[str]) -> Message | None:
 
     full_text = (data.get("full_text") or "").strip()
     lowered = full_text.lower()
-    is_deleted = "Ä‘Ã£ bá»‹ thu há»“i" in lowered or "message was unsent" in lowered
+    # BUG FIX: Trước đây so sánh với chuỗi mojibake (UTF-8 bytes bị decode sai thành Latin-1).
+    # Playwright trả về chuỗi Unicode chuẩn, cần so sánh đúng tiếng Việt có dấu.
+    is_deleted = (
+        "đã bị thu hồi" in lowered
+        or "tin nhắn đã bị thu hồi" in lowered
+        or "message was unsent" in lowered
+        or "this message was deleted" in lowered
+    )
 
     is_sent = bool(data.get("is_sent"))
     sender_name = data.get("sender_name")
@@ -282,9 +493,32 @@ async def _parse_message(item, captured_image_urls: Set[str]) -> Message | None:
 
     if data.get("has_image"):
         msg_type = "image"
-        image_urls = _image_urls_from_capture(captured_image_urls)
-        if not image_urls and data.get("image_blob_urls"):
-            image_urls = list(data["image_blob_urls"])
+        content = data.get("text_content") or None
+        # BUG FIX: Trước đây dùng captured_image_urls (global pool) → tất cả message ảnh
+        # đều nhận cùng một danh sách ảnh của toàn bộ group. Nay ưu tiên CDN URL từ DOM
+        # của bubble cụ thể này. Chỉ fallback sang global pool khi bubble không có CDN src.
+        bubble_cdn_urls = [
+            url for url in (data.get("image_cdn_urls") or [])
+            if isinstance(url, str) and _is_likely_message_image_url(url) and _is_zalo_cdn_image(url)
+        ]
+        if bubble_cdn_urls:
+            # Prefer real CDN URLs. Data URLs are often generated from the visible
+            # bubble thumbnail, which makes Supabase and resend output blurry.
+            image_urls = bubble_cdn_urls
+        elif data.get("image_blob_urls"):
+            image_urls = [
+                url for url in data["image_blob_urls"]
+                if isinstance(url, str) and _is_likely_message_image_url(url)
+            ]
+        elif data.get("image_data_urls"):
+            image_urls = [
+                url for url in data["image_data_urls"]
+                if isinstance(url, str) and _is_likely_message_image_url(url)
+            ]
+        if not image_urls:
+            screenshot_data_url = await _screenshot_message_image_data_url(item)
+            if screenshot_data_url:
+                image_urls = [screenshot_data_url]
     elif is_deleted:
         msg_type = "system"
         content = "Tin nhan da bi thu hoi"

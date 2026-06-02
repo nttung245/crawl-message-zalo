@@ -26,6 +26,7 @@ export interface ZaloCurrentStatusResponse {
   can_crawl: boolean;
   login_url: string | null;
   manual_viewer_url?: string | null;
+  qr_base64?: string | null;
 }
 
 export interface ZaloManualLoginResponse {
@@ -43,13 +44,14 @@ export interface ZaloStartCrawlRequest {
   sessionId?: string | null;
   userId?: string;
   group_name: string;
+  group_id?: string | null;
   sheet_tab?: string;
 }
 
 export interface ZaloStartCrawlResponse {
   job_id: string;
   status: "queued" | "running";
-  sheet_url: string;
+  sheet_url: string | null;
 }
 
 export interface ZaloCrawledGroupItem {
@@ -93,4 +95,156 @@ export interface ZaloJobData {
   error?: string | null;
   sheet_url?: string | null;
   messages?: ZaloMessage[] | null;
+}
+
+export interface ZaloStoredAsset {
+  id?: string;
+  message_id?: string | null;
+  source_url?: string | null;
+  storage_path?: string | null;
+  storage_url?: string | null;
+  status: "pending" | "uploaded" | "failed" | string;
+  error?: string | null;
+}
+
+export interface ZaloLibraryMessage {
+  id: string;
+  user_id: string;
+  job_id?: string | null;
+  group_id?: string | null;
+  group_name?: string | null;
+  source_message_id?: string | null;
+  sender_id?: string | null;
+  sender_name?: string | null;
+  timestamp_text?: string | null;
+  time_text?: string | null;
+  type: string;
+  content?: string | null;
+  is_sent: boolean;
+  is_deleted: boolean;
+  assets: ZaloStoredAsset[];
+}
+
+export interface ZaloLibraryListResponse {
+  messages: ZaloLibraryMessage[];
+}
+
+export interface ZaloLibraryBulkDeleteRequest {
+  message_ids?: string[];
+  group_name?: string;
+  delete_all_matching?: boolean;
+}
+
+export interface ZaloLibraryBulkDeleteResponse {
+  deleted_count: number;
+}
+
+export interface ZaloLibraryMessageCreateRequest {
+  group_name?: string;
+  sender_name?: string;
+  time_text?: string;
+  type?: string;
+  content?: string;
+  asset_urls?: string[];
+}
+
+export interface ZaloLibraryMessageUpdateRequest {
+  group_name?: string;
+  sender_name?: string;
+  time_text?: string;
+  type?: string;
+  content?: string;
+  is_deleted?: boolean;
+}
+
+export interface ZaloLiveGroup {
+  group_id: string;
+  name: string;
+  avatar_url?: string | null;
+  last_message?: string | null;
+  unread_count: number;
+}
+
+export type ZaloGroupVerifyStatus =
+  | "unchecked"
+  | "verified"
+  | "not_found"
+  | "personal_chat"
+  | "zalo_not_ready"
+  | "message_panel_missing"
+  | "duplicate"
+  | "failed";
+
+export interface ZaloVerifyGroupRequestItem {
+  group_name: string;
+  group_id?: string | null;
+  sheet_tab?: string | null;
+}
+
+export interface ZaloVerifiedGroupItem {
+  group_name: string;
+  group_id?: string | null;
+  sheet_tab?: string | null;
+  current_title?: string | null;
+  member_count?: number | null;
+  message_count: number;
+  warnings: string[];
+}
+
+export interface ZaloRejectedGroupItem {
+  group_name: string;
+  group_id?: string | null;
+  reason: ZaloGroupVerifyStatus | string;
+  detail: string;
+  current_title?: string | null;
+  member_count?: number | null;
+  warnings: string[];
+}
+
+export interface ZaloVerifyGroupsResponse {
+  verified: ZaloVerifiedGroupItem[];
+  rejected: ZaloRejectedGroupItem[];
+}
+
+export type ZaloBroadcastContentMode = "text" | "image" | "both";
+
+export interface ZaloBroadcastTarget {
+  group_id?: string | null;
+  group_name: string;
+}
+
+export interface ZaloBroadcastRequest {
+  user_id?: string;
+  message_ids: string[];
+  targets: ZaloBroadcastTarget[];
+  content_mode: ZaloBroadcastContentMode;
+}
+
+export interface ZaloBroadcastPreviewItem {
+  message_id: string;
+  content?: string | null;
+  image_count: number;
+  image_urls?: string[];
+  send_text: boolean;
+  send_images: boolean;
+  warnings: string[];
+}
+
+export interface ZaloBroadcastPreviewResponse {
+  target_count: number;
+  message_count: number;
+  items: ZaloBroadcastPreviewItem[];
+  warnings: string[];
+}
+
+export interface ZaloBroadcastResponse {
+  campaign_id: string;
+  status: string;
+}
+
+export interface ZaloBroadcastStatusResponse {
+  campaign: Record<string, unknown>;
+  targets: Record<string, unknown>[];
+  items: Record<string, unknown>[];
+  logs: Record<string, unknown>[];
 }

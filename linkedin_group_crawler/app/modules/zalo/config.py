@@ -60,6 +60,45 @@ class Settings(BaseSettings):
             "BROWSER_REMOTE_VIEWER_URL",
         ),
     )
+    supabase_url: str = Field(
+        default="",
+        validation_alias=AliasChoices("SUPABASE_URL", "ZALO_SUPABASE_URL"),
+    )
+    supabase_service_role_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("SUPABASE_SERVICE_ROLE_KEY", "ZALO_SUPABASE_SERVICE_ROLE_KEY"),
+    )
+    supabase_storage_bucket: str = Field(
+        default="zalo-assets",
+        validation_alias=AliasChoices("SUPABASE_STORAGE_BUCKET", "ZALO_SUPABASE_STORAGE_BUCKET"),
+    )
+    save_to_supabase: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ZALO_SAVE_TO_SUPABASE", "SAVE_TO_SUPABASE"),
+    )
+    write_google_sheet: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("ZALO_WRITE_GOOGLE_SHEET", "WRITE_GOOGLE_SHEET"),
+    )
+    broadcast_delay_seconds: float = Field(
+        default=3.0,
+        validation_alias=AliasChoices("ZALO_BROADCAST_DELAY_SECONDS", "BROADCAST_DELAY_SECONDS"),
+    )
+    broadcast_composer_timeout_seconds: int = Field(
+        default=60,
+        validation_alias=AliasChoices(
+            "ZALO_BROADCAST_COMPOSER_TIMEOUT_SECONDS",
+            "BROADCAST_COMPOSER_TIMEOUT_SECONDS",
+        ),
+    )
+    asset_retention_days: int = Field(
+        default=7,
+        validation_alias=AliasChoices("ZALO_ASSET_RETENTION_DAYS", "ASSET_RETENTION_DAYS"),
+    )
+    asset_cleanup_batch_size: int = Field(
+        default=200,
+        validation_alias=AliasChoices("ZALO_ASSET_CLEANUP_BATCH_SIZE", "ASSET_CLEANUP_BATCH_SIZE"),
+    )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 

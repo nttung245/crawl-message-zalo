@@ -1,11 +1,16 @@
 ﻿from typing import List
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.modules.zalo.schemas.job import JobData
 from app.modules.zalo.services.job_store import get_job, list_jobs
+from app.modules.zalo.api.security import verify_zalo_api_key
 
-router = APIRouter(prefix="/api/zalo/jobs", tags=["zalo-jobs"])
+router = APIRouter(
+    prefix="/api/zalo/jobs",
+    tags=["zalo-jobs"],
+    dependencies=[Depends(verify_zalo_api_key)],
+)
 
 
 @router.get("", response_model=List[JobData])

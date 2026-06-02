@@ -1735,7 +1735,7 @@ def linkedin_app_stats(payload: LinkedinAppStatsRequest) -> LinkedinAppStatsResp
                             comm_count = len(json.loads(val))
                         else:
                             comm_count = 1
-                    except:
+                    except (json.JSONDecodeError, TypeError, ValueError):
                         comm_count = 1
                     break
             total_comments += comm_count
@@ -2311,7 +2311,7 @@ def check_permission(payload: CheckPermissionRequest) -> CheckPermissionResponse
                 first = resp_data[0]
                 if isinstance(first, dict):
                     permission = bool(first.get("permission", False))
-        except:
+        except json.JSONDecodeError:
             pass
 
         return CheckPermissionResponse(

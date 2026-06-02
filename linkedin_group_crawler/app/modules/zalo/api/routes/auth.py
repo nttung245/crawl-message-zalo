@@ -1,11 +1,13 @@
-﻿import asyncio
+import asyncio
+import base64
 import re
 import uuid
 from datetime import datetime
+import time
 
 import json
 
-from fastapi import APIRouter, Header, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from fastapi.responses import Response, StreamingResponse
 from loguru import logger
 from playwright.async_api import Error as PlaywrightError
@@ -17,6 +19,8 @@ from app.modules.zalo.crawler.qr_login import (
     ZaloAlreadyLoggedInError,
     navigate_and_get_qr,
     qr_signature,
+    qr_element_screenshot_bytes,
+    refresh_qr,
     refresh_qr_with_previous,
 )
 from app.modules.zalo.schemas.session import SessionData
@@ -28,11 +32,19 @@ from app.modules.zalo.services.session_store import (
     get_session,
     save_session,
 )
+from app.modules.zalo.api.security import verify_zalo_api_key
 
-router = APIRouter(prefix="/api/zalo/auth", tags=["zalo-auth"])
+router = APIRouter(
+    prefix="/api/zalo/auth",
+    tags=["zalo-auth"],
+    dependencies=[Depends(verify_zalo_api_key)],
+)
 
 _QR_REFRESH_TASKS: dict[str, asyncio.Task[None]] = {}
-_QR_AUTO_REFRESH_SECONDS = 60
+_QR_AUTO_REFRESH_SECONDS = 110
+_PROFILE_RESUME_MISS_AT: dict[str, float] = {}
+_PROFILE_RESUME_MISS_COOLDOWN_SECONDS = 30
+_QR_INIT_TIMEOUT_SECONDS = 90
 
 
 def _cancel_qr_refresh_task(session_id: str) -> None:
@@ -64,7 +76,7 @@ async def _auto_refresh_qr_loop(session_id: str) -> None:
     while True:
         await asyncio.sleep(_QR_AUTO_REFRESH_SECONDS)
 
-        session = get_session(session_id)
+        session = await get_session(session_id)
         if not session:
             _cancel_qr_refresh_task(session_id)
             return
@@ -72,17 +84,17 @@ async def _auto_refresh_qr_loop(session_id: str) -> None:
         status = await check_login_status(session.page)
         session.status = status
         session.last_used = datetime.utcnow()
-        save_session(session)
+        await save_session(session)
 
         if status == "confirmed":
             _cancel_qr_refresh_task(session_id)
             return
 
-        if status not in {"waiting_scan", "qr_expired"}:
+        if status != "qr_expired":
             continue
 
         try:
-            profile_lock = get_profile_lock(session.user_id)
+            profile_lock = await get_profile_lock(session.user_id)
             async with profile_lock:
                 qr_base64 = await refresh_qr_with_previous(
                     session.page,
@@ -92,7 +104,7 @@ async def _auto_refresh_qr_loop(session_id: str) -> None:
             session.qr_base64 = qr_base64
             session.qr_signature = qr_signature(qr_base64)
             session.last_used = datetime.utcnow()
-            save_session(session)
+            await save_session(session)
             logger.info(f"Auto-refreshed QR for session {session_id}")
         except asyncio.CancelledError:
             raise
@@ -123,15 +135,66 @@ def _serialize_login_state(request: Request, user_id: str, session: SessionData 
     }
 
 
+async def _resume_confirmed_profile_session(user_id: str) -> SessionData | None:
+    """Re-open a persistent Chromium profile when the in-memory session was lost."""
+    if not settings.browser_persistent_profile:
+        return None
+    last_miss_at = _PROFILE_RESUME_MISS_AT.get(user_id, 0)
+    if time.monotonic() - last_miss_at < _PROFILE_RESUME_MISS_COOLDOWN_SECONDS:
+        return None
+
+    profile_lock = await get_profile_lock(user_id)
+    browser = None
+    context = None
+    page = None
+    async with profile_lock:
+        existing = await get_latest_session_for_user(user_id)
+        if existing:
+            return existing
+
+        try:
+            browser, context, page = await create_browser(user_id=user_id)
+            await _open_manual_login_page(page)
+            status = await check_login_status(page)
+            if status != "confirmed":
+                await _close_browser_resources(browser, context)
+                _PROFILE_RESUME_MISS_AT[user_id] = time.monotonic()
+                return None
+
+            session = SessionData(
+                session_id=_build_session_id(user_id),
+                user_id=user_id,
+                browser=browser,
+                context=context,
+                page=page,
+                status="confirmed",
+                qr_base64=None,
+                qr_signature=None,
+                created_at=datetime.utcnow(),
+                last_used=datetime.utcnow(),
+            )
+            await save_session(session)
+            _PROFILE_RESUME_MISS_AT.pop(user_id, None)
+            logger.info(f"Resumed confirmed Zalo profile session for user={user_id}")
+            return session
+        except Exception as exc:
+            await _close_browser_resources(browser, context)
+            _PROFILE_RESUME_MISS_AT[user_id] = time.monotonic()
+            logger.warning(f"Could not resume Zalo profile session for user={user_id}: {exc}")
+            return None
+
+
 async def _build_current_status_payload(request: Request, user_id: str) -> dict:
-    session = get_latest_session_for_user(user_id)
+    session = await get_latest_session_for_user(user_id)
+    if not session:
+        session = await _resume_confirmed_profile_session(user_id)
     if not session:
         return _serialize_login_state(request, user_id, None, "not_logged_in")
 
     status = await check_login_status(session.page)
     session.status = status
     session.last_used = datetime.utcnow()
-    save_session(session)
+    await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session.session_id)
     return _serialize_login_state(request, user_id, session, status)
@@ -160,16 +223,16 @@ async def _close_browser_resources(browser, context) -> None:
 
 async def _create_or_reuse_manual_session(user_id: str) -> dict:
     manual_viewer_url = (settings.browser_remote_viewer_url or "").strip() or None
-    profile_lock = get_profile_lock(user_id)
+    profile_lock = await get_profile_lock(user_id)
 
     try:
         async with profile_lock:
-            existing = get_latest_session_for_user(user_id)
+            existing = await get_latest_session_for_user(user_id)
             if existing:
                 status = await check_login_status(existing.page)
                 existing.status = status
                 existing.last_used = datetime.utcnow()
-                save_session(existing)
+                await save_session(existing)
                 return {
                     "user_id": user_id,
                     "session_id": existing.session_id,
@@ -195,7 +258,7 @@ async def _create_or_reuse_manual_session(user_id: str) -> dict:
                 created_at=datetime.utcnow(),
                 last_used=datetime.utcnow(),
             )
-            save_session(session)
+            await save_session(session)
             return {
                 "user_id": user_id,
                 "session_id": session_id,
@@ -213,10 +276,16 @@ async def _create_or_reuse_manual_session(user_id: str) -> dict:
 
 
 async def _create_or_reuse_waiting_session(user_id: str) -> dict:
-    profile_lock = get_profile_lock(user_id)
+    profile_lock = await get_profile_lock(user_id)
+    # FIX C-1 & C-2: Khai báo tất cả biến trước try block để tránh NameError
+    # trong ZaloAlreadyLoggedInError handler và tránh dùng locals() không tin cậy.
+    session_id: str = _build_session_id(user_id)
+    browser = None
+    context = None
+    page = None
     try:
         async with profile_lock:
-            existing = get_latest_waiting_session(user_id=user_id, max_age_seconds=120)
+            existing = await get_latest_waiting_session(user_id=user_id, max_age_seconds=120)
             if existing:
                 try:
                     live_status = await check_login_status(existing.page)
@@ -225,7 +294,7 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                     if live_status == "confirmed":
                         existing.qr_base64 = None
                         existing.qr_signature = None
-                        save_session(existing)
+                        await save_session(existing)
                         _cancel_qr_refresh_task(existing.session_id)
                         logger.info(
                             f"Reused active waiting session already confirmed: {existing.session_id} for user={user_id}"
@@ -237,17 +306,21 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                             "status": "confirmed",
                             "expires_in": 120,
                         }
-                    qr_base64 = await refresh_qr_with_previous(
-                        existing.page,
-                        previous_signature=existing.qr_signature,
-                    )
-                    existing.status = "waiting_scan"
-                    existing.qr_base64 = qr_base64
-                    existing.qr_signature = qr_signature(qr_base64)
-                    existing.last_used = datetime.utcnow()
-                    save_session(existing)
+                    if live_status == "qr_expired" or not existing.qr_base64:
+                        qr_base64 = await refresh_qr_with_previous(
+                            existing.page,
+                            previous_signature=existing.qr_signature,
+                        )
+                        existing.status = "waiting_scan"
+                        existing.qr_base64 = qr_base64
+                        existing.qr_signature = qr_signature(qr_base64)
+                        existing.last_used = datetime.utcnow()
+                        logger.info(f"Refreshed expired waiting session QR: {existing.session_id} for user={user_id}")
+                    else:
+                        qr_base64 = existing.qr_base64
+                        logger.info(f"Reused active waiting QR without refresh: {existing.session_id} for user={user_id}")
+                    await save_session(existing)
                     _ensure_qr_refresh_task(existing.session_id)
-                    logger.info(f"Reused active waiting session: {existing.session_id} for user={user_id}")
                     return {
                         "user_id": user_id,
                         "session_id": existing.session_id,
@@ -258,9 +331,6 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                 except Exception as exc:
                     logger.warning(f"Could not reuse waiting session {existing.session_id} for user={user_id}: {exc}")
 
-            session_id = _build_session_id(user_id)
-            browser = None
-            context = None
             browser, context, page = await create_browser(user_id=user_id)
             live_status = await check_login_status(page)
             if live_status == "confirmed":
@@ -276,7 +346,7 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                     created_at=datetime.utcnow(),
                     last_used=datetime.utcnow(),
                 )
-                save_session(session)
+                await save_session(session)
                 logger.info(f"Auth init found existing logged-in Zalo session for user={user_id}")
                 return {
                     "user_id": user_id,
@@ -299,7 +369,7 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                 created_at=datetime.utcnow(),
                 last_used=datetime.utcnow(),
             )
-            save_session(session)
+            await save_session(session)
             _ensure_qr_refresh_task(session_id)
 
             return {
@@ -310,38 +380,35 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
                 "expires_in": 120,
             }
     except ZaloAlreadyLoggedInError:
-        session = SessionData(
-            session_id=session_id,
-            user_id=user_id,
-            browser=browser,
-            context=context,
-            page=page,
-            status="confirmed",
-            qr_base64=None,
-            qr_signature=None,
-            created_at=datetime.utcnow(),
-            last_used=datetime.utcnow(),
-        )
-        save_session(session)
-        logger.info(f"Auth init detected confirmed Zalo session after wait for user={user_id}")
-        return {
-            "user_id": user_id,
-            "session_id": session_id,
-            "qr_base64": "",
-            "status": "confirmed",
-            "expires_in": 120,
-        }
+        # FIX C-1: session_id/browser/context/page đã được khai báo ở trên,
+        # không còn bị NameError dù exception xảy ra sớm.
+        if browser and context and page:
+            session = SessionData(
+                session_id=session_id,
+                user_id=user_id,
+                browser=browser,
+                context=context,
+                page=page,
+                status="confirmed",
+                qr_base64=None,
+                qr_signature=None,
+                created_at=datetime.utcnow(),
+                last_used=datetime.utcnow(),
+            )
+            await save_session(session)
+            logger.info(f"Auth init detected confirmed Zalo session after wait for user={user_id}")
+            return {
+                "user_id": user_id,
+                "session_id": session_id,
+                "qr_base64": "",
+                "status": "confirmed",
+                "expires_in": 120,
+            }
+        # browser chưa được khởi tạo khi exception xảy ra
+        raise HTTPException(status_code=503, detail="Zalo session init failed unexpectedly")
     except PlaywrightError as exc:
-        if context:
-            try:
-                await context.close()
-            except Exception:
-                pass
-        if browser:
-            try:
-                await browser.close()
-            except Exception:
-                pass
+        # FIX C-2: Dùng biến trực tiếp thay vì locals() không đáng tin cậy
+        await _close_browser_resources(browser, context)
         message = str(exc).strip()
         logger.exception(f"Auth init failed: {type(exc).__name__}: {message}")
         raise HTTPException(
@@ -349,7 +416,8 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
             detail=f"Zalo page load failed: {message or type(exc).__name__}",
         )
     except Exception as exc:
-        await _close_browser_resources(locals().get("browser"), locals().get("context"))
+        # FIX C-2: Dùng biến trực tiếp thay vì locals()
+        await _close_browser_resources(browser, context)
         logger.exception(f"Auth init failed: {type(exc).__name__}: {exc!r}")
         raise HTTPException(
             status_code=503,
@@ -359,7 +427,67 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
 
 @router.post("/init")
 async def init_session(x_user_id: str = Header("default", alias="X-User-ID")):
-    return await _create_or_reuse_waiting_session(_normalize_user_id(x_user_id))
+    try:
+        return await asyncio.wait_for(
+            _create_or_reuse_waiting_session(_normalize_user_id(x_user_id)),
+            timeout=_QR_INIT_TIMEOUT_SECONDS,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Zalo QR init timed out. Close stale Zalo/Chrome sessions and try again.",
+        )
+
+
+@router.post("/qr/refresh")
+async def refresh_login_qr(x_user_id: str = Header("default", alias="X-User-ID")):
+    user_id = _normalize_user_id(x_user_id)
+    profile_lock = await get_profile_lock(user_id)
+    async with profile_lock:
+        existing = await get_latest_session_for_user(user_id)
+    if not existing:
+        try:
+            return await asyncio.wait_for(
+                _create_or_reuse_waiting_session(user_id),
+                timeout=_QR_INIT_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            raise HTTPException(
+                status_code=504,
+                detail="Zalo QR init timed out. Close stale Zalo/Chrome sessions and try again.",
+            )
+
+    async with profile_lock:
+        status = await check_login_status(existing.page)
+        existing.status = status
+        existing.last_used = datetime.utcnow()
+        if status == "confirmed":
+            existing.qr_base64 = None
+            existing.qr_signature = None
+            await save_session(existing)
+            _cancel_qr_refresh_task(existing.session_id)
+            return {
+                "user_id": user_id,
+                "session_id": existing.session_id,
+                "qr_base64": "",
+                "status": "confirmed",
+                "expires_in": 120,
+            }
+
+        qr_base64 = await refresh_qr(existing.page)
+        existing.status = "waiting_scan"
+        existing.qr_base64 = qr_base64
+        existing.qr_signature = qr_signature(qr_base64)
+        existing.last_used = datetime.utcnow()
+        await save_session(existing)
+        _ensure_qr_refresh_task(existing.session_id)
+        return {
+            "user_id": user_id,
+            "session_id": existing.session_id,
+            "qr_base64": qr_base64,
+            "status": "waiting_scan",
+            "expires_in": 120,
+        }
 
 
 @router.post("/manual-login/start")
@@ -370,14 +498,14 @@ async def start_manual_login(x_user_id: str = Header("default", alias="X-User-ID
 @router.post("/manual-login/resume")
 async def resume_manual_login(x_user_id: str = Header("default", alias="X-User-ID")):
     user_id = _normalize_user_id(x_user_id)
-    session = get_latest_session_for_user(user_id)
+    session = await get_latest_session_for_user(user_id)
     if not session:
         raise HTTPException(status_code=401, detail="No active session found for manual login")
 
     status = await check_login_status(session.page)
     session.status = status
     session.last_used = datetime.utcnow()
-    save_session(session)
+    await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session.session_id)
 
@@ -405,11 +533,16 @@ async def auth_status_events(
     user_id: str = Query("default"),
 ):
     normalized_user_id = _normalize_user_id(user_id)
+    # FIX H-2: Đặt deadline 10 phút để tránh SSE stream chạy vĩnh viễn
+    # sau khi client ngắt kết nối hoặc sau khi đã xác nhận đăng nhập.
+    _SSE_MAX_SECONDS = 600
 
     async def _event_stream():
         last_payload = ""
-        while True:
+        deadline = asyncio.get_event_loop().time() + _SSE_MAX_SECONDS
+        while asyncio.get_event_loop().time() < deadline:
             if await request.is_disconnected():
+                logger.info(f"SSE client disconnected for user={normalized_user_id}")
                 break
             try:
                 payload = await _build_current_status_payload(request, normalized_user_id)
@@ -417,12 +550,19 @@ async def auth_status_events(
                 if payload_json != last_payload:
                     last_payload = payload_json
                     yield f"event: auth-status\ndata: {payload_json}\n\n"
+                    # FIX H-2: Dừng stream ngay khi đã xác nhận đăng nhập
+                    if payload.get("is_logged_in"):
+                        logger.info(f"SSE stream closing — user={normalized_user_id} confirmed login")
+                        yield "event: close\ndata: {}\n\n"
+                        return
                 else:
                     yield "event: heartbeat\ndata: {}\n\n"
             except Exception as exc:
                 logger.warning(f"SSE auth status stream error for user={normalized_user_id}: {exc}")
                 yield "event: error\ndata: {\"message\":\"status_stream_error\"}\n\n"
             await asyncio.sleep(2)
+        # Hết deadline hoặc thoát vòng lặp
+        yield "event: close\ndata: {\"reason\":\"timeout\"}\n\n"
 
     return StreamingResponse(
         _event_stream(),
@@ -436,20 +576,34 @@ async def auth_status_events(
 
 
 @router.get("/qr-image/{session_id}")
-async def qr_image(session_id: str, x_user_id: str = Header("default", alias="X-User-ID")):
-    session = get_session(session_id)
+async def qr_image(
+    session_id: str,
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    user_id: str | None = Query(default=None),
+):
+    session = await get_session(session_id)
     if not session:
         raise HTTPException(status_code=401, detail="Session not found")
-    if session.user_id != _normalize_user_id(x_user_id):
+    normalized_user_id = _normalize_user_id(user_id or x_user_id)
+    if session.user_id != normalized_user_id:
         raise HTTPException(status_code=403, detail="Session does not belong to current user")
 
-    screenshot_bytes = await session.page.screenshot(full_page=False)
+    if session.qr_base64:
+        try:
+            _, encoded = session.qr_base64.split(",", 1)
+            return Response(content=base64.b64decode(encoded), media_type="image/png")
+        except Exception as exc:
+            logger.warning(f"Could not decode cached QR for session {session_id}: {exc}")
+
+    screenshot_bytes = await qr_element_screenshot_bytes(session.page)
+    if not screenshot_bytes:
+        raise HTTPException(status_code=404, detail="QR image is not ready")
     return Response(content=screenshot_bytes, media_type="image/png")
 
 
 @router.get("/status/{session_id}")
 async def get_status(session_id: str, x_user_id: str = Header("default", alias="X-User-ID")):
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session:
         raise HTTPException(status_code=401, detail="Session not found, please login")
     if session.user_id != _normalize_user_id(x_user_id):
@@ -457,7 +611,7 @@ async def get_status(session_id: str, x_user_id: str = Header("default", alias="
 
     status = await check_login_status(session.page)
     session.status = status
-    save_session(session)
+    await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session_id)
     return {"user_id": _normalize_user_id(x_user_id), "session_id": session_id, "status": status}
@@ -465,7 +619,7 @@ async def get_status(session_id: str, x_user_id: str = Header("default", alias="
 
 @router.delete("/session/{session_id}")
 async def logout(session_id: str, x_user_id: str = Header("default", alias="X-User-ID")):
-    session = get_session(session_id)
+    session = await get_session(session_id)
     if not session:
         raise HTTPException(status_code=401, detail="Session not found")
     if session.user_id != _normalize_user_id(x_user_id):
@@ -477,7 +631,7 @@ async def logout(session_id: str, x_user_id: str = Header("default", alias="X-Us
 
     profile_cleared = False
     try:
-        profile_lock = get_profile_lock(user_id)
+        profile_lock = await get_profile_lock(user_id)
         async with profile_lock:
             profile_cleared = clear_user_profile_data(user_id)
     except Exception as exc:
@@ -497,7 +651,7 @@ async def logout_all_sessions(x_user_id: str = Header("default", alias="X-User-I
     removed = await delete_sessions_for_user(user_id)
     profile_cleared = False
     try:
-        profile_lock = get_profile_lock(user_id)
+        profile_lock = await get_profile_lock(user_id)
         async with profile_lock:
             profile_cleared = clear_user_profile_data(user_id)
     except Exception as exc:

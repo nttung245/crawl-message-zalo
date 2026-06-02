@@ -36,7 +36,11 @@ Trong `.env` của backend:
 ZALO_BROWSER_HEADLESS=false
 ZALO_BROWSER_PERSISTENT_PROFILE=true
 ZALO_BROWSER_USER_DATA_DIR=/app/storage/chromium-profile
-ZALO_BROWSER_REMOTE_VIEWER_URL=http://<vps-ip-or-domain>:6080/vnc.html
+ZALO_BROWSER_REMOTE_VIEWER_URL=http://127.0.0.1:6080/vnc.html?autoconnect=true&reconnect=true&resize=scale&show_dot=true
+ZALO_VNC_PASSWORD=<strong-vnc-password>
+ZALO_API_BIND=127.0.0.1
+ZALO_VNC_BIND=127.0.0.1
+ZALO_NOVNC_BIND=127.0.0.1
 ```
 
 Ghi chú:
@@ -50,10 +54,10 @@ Tại thư mục `linkedin_group_crawler`:
 docker compose -f docker-compose.zalo-vnc.yml up -d --build
 ```
 
-Port:
-- API: `8000`
-- noVNC: `6080`
-- VNC raw: `5900`
+Default bind:
+- API: `127.0.0.1:8000`
+- noVNC: `127.0.0.1:6080`
+- VNC raw: `127.0.0.1:5900`
 
 ## Flow test trên FE
 1. Vào trang Zalo crawl trên FE.

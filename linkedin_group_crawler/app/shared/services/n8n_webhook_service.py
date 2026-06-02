@@ -84,8 +84,17 @@ def _post_with_retry(
 
 
 
-def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int) -> tuple[int, str]:
+def push_credentials_to_n8n_webhook(
+    *,
+    email: str,
+    password: str | None = None,
+    api_token: str | None = None,
+    max_post: int = 0,
+) -> tuple[int, str]:
     """POST JSON payload to configured n8n webhook URL.
+
+    SECURITY: Prefer api_token over password. If both provided, api_token takes precedence.
+    Passwords in plaintext payloads are a security risk and should be replaced with API tokens.
 
     Returns HTTP status code and response text snippet (truncated). Does not log credentials.
     """
@@ -96,14 +105,27 @@ def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int)
             "N8N_WEBHOOK_URL chưa được cấu hình trong biến môi trường (.env).",
         )
 
+    if not password and not api_token:
+        raise ValueError("Either 'password' or 'api_token' must be provided for authentication.")
+
     payload: dict[str, Any] = {
         "email": email,
-        # Tài khoản LinkedIn thường là email — để workflow n8n dễ map
         "tai_khoan": email,
-        "password": password,
-        "mat_khau": password,
         "max_post": max_post,
     }
+
+    if api_token:
+        payload["api_token"] = api_token
+        payload["auth_method"] = "token"
+    else:
+        # Legacy password-based auth (deprecated, use api_token instead)
+        logger.warning(
+            "Using plaintext password authentication is insecure. "
+            "Consider using API token-based authentication instead."
+        )
+        payload["password"] = password
+        payload["mat_khau"] = password
+        payload["auth_method"] = "password"
 
     timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
@@ -127,18 +149,22 @@ def push_credentials_to_n8n_webhook(*, email: str, password: str, max_post: int)
 def push_start_to_n8n_webhook(
     *,
     email: str,
-    password: str,
     force_relogin: bool,
     id_session_crawl: str,
+    password: str | None = None,
+    api_token: str | None = None,
     max_posts: int | None = None,
     target_date: str | None = None,
     mode: str | None = None,
     delay_sec: int | None = None,
     group_urls: list[str] | None = None,
 ) -> tuple[int, str]:
-    """POST ``email``, ``password``, ``force_relogin``, ``id_session_crawl`` tới webhook (``N8N_WEBHOOK_START``).
+    """POST to webhook with email and authentication (token preferred over password).
 
-    Không log mật khẩu. Trả về HTTP status và đoạn body rút gọn.
+    SECURITY: Prefer api_token over password. If both provided, api_token takes precedence.
+    Passwords in plaintext payloads are a security risk and should be replaced with API tokens.
+
+    Returns HTTP status and response text snippet.
     """
 
     url = (settings.n8n_webhook_start_url or "").strip()
@@ -147,12 +173,27 @@ def push_start_to_n8n_webhook(
             "N8N_WEBHOOK_START chưa được cấu hình trong biến môi trường (.env).",
         )
 
+    if not password and not api_token:
+        raise ValueError("Either 'password' or 'api_token' must be provided for authentication.")
+
     payload: dict[str, Any] = {
         "email": email,
-        "password": password,
         "force_relogin": force_relogin,
         "id_session_crawl": id_session_crawl,
     }
+
+    if api_token:
+        payload["api_token"] = api_token
+        payload["auth_method"] = "token"
+    else:
+        # Legacy password-based auth (deprecated, use api_token instead)
+        logger.warning(
+            "Using plaintext password authentication is insecure. "
+            "Consider using API token-based authentication instead."
+        )
+        payload["password"] = password
+        payload["auth_method"] = "password"
+
     if max_posts is not None:
         payload["max_posts"] = int(max_posts)
     if target_date:

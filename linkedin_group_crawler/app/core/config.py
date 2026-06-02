@@ -208,6 +208,27 @@ def _leader_code_from_env() -> str:
     return (os.getenv("LEADER_CODE") or "8888").strip()
 
 
+def _n8n_api_token_from_env() -> str:
+    """API token for n8n webhook authentication (preferred over passwords).
+
+    SECURITY: Use API tokens instead of plaintext passwords for n8n webhooks.
+    If configured, api_token takes precedence over password-based auth.
+    """
+    return (os.getenv("N8N_API_TOKEN") or "").strip()
+
+
+def _redis_url_from_env() -> str:
+    """Redis connection URL for session storage backend.
+
+    SCALABILITY: If configured, session storage uses Redis instead of in-process memory.
+    This enables multi-worker and multi-replica deployments.
+
+    Example: redis://localhost:6379/0
+    Leave empty to use in-process memory (single-worker only).
+    """
+    return (os.getenv("REDIS_URL") or "").strip()
+
+
 def _n8n_webhook_add_profile_slug_timeout_sec_from_env() -> float:
     raw = os.getenv("N8N_WEBHOOK_ADD_PROFILE_SLUG_TIMEOUT_SEC") or "300"
     try:
@@ -217,11 +238,18 @@ def _n8n_webhook_add_profile_slug_timeout_sec_from_env() -> float:
 
 
 def _google_service_account_json_from_env() -> Path:
-    """Đường dẫn file JSON service account (tương đối BASE_DIR hoặc absolute)."""
+    """Đường dẫn file JSON service account (tương đối BASE_DIR hoặc absolute).
+
+    MUST be configured via GOOGLE_SERVICE_ACCOUNT_JSON environment variable.
+    No code-level defaults for security — credentials should only come from .env.
+    """
 
     raw = (os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON") or "").strip()
     if not raw:
-        raw = "storage/permission/crawllinkedinapp-2e203d199c52.json"
+        raise ValueError(
+            "GOOGLE_SERVICE_ACCOUNT_JSON environment variable is required but not set. "
+            "Please provide the path to your Google service account JSON file."
+        )
     path = Path(raw)
     if not path.is_absolute():
         path = BASE_DIR / path
@@ -229,9 +257,18 @@ def _google_service_account_json_from_env() -> Path:
 
 
 def _google_spreadsheet_id_from_env() -> str:
-    return (
-        os.getenv("GOOGLE_SPREADSHEET_ID") or "1rfep85y5_97gnm2uIarsc6yVQIkZJYK4ALuPgzM939I"
-    ).strip()
+    """Google Spreadsheet ID for data export.
+
+    MUST be configured via GOOGLE_SPREADSHEET_ID environment variable.
+    No code-level defaults for security — should only come from .env.
+    """
+    sheet_id = (os.getenv("GOOGLE_SPREADSHEET_ID") or "").strip()
+    if not sheet_id:
+        raise ValueError(
+            "GOOGLE_SPREADSHEET_ID environment variable is required but not set. "
+            "Please provide your Google Spreadsheet ID."
+        )
+    return sheet_id
 
 
 def _google_sheet_group_urls_tab_from_env() -> str:
@@ -374,6 +411,12 @@ class Settings:
     )
     n8n_webhook_add_member_url: str = field(
         default_factory=_n8n_webhook_add_member_from_env,
+    )
+    n8n_api_token: str = field(
+        default_factory=_n8n_api_token_from_env,
+    )
+    redis_url: str = field(
+        default_factory=_redis_url_from_env,
     )
     leader_code: str = field(
         default_factory=_leader_code_from_env,

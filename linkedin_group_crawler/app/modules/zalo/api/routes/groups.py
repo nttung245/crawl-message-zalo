@@ -1,20 +1,133 @@
-﻿import asyncio
+import asyncio
 from typing import List
 
 import gspread
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
+from pydantic import BaseModel, Field
 
 from app.modules.zalo.config import settings
 from app.modules.zalo.crawler.group_parser import collect_group_debug_info, parse_groups, wait_for_group_list_ready
 from app.modules.zalo.crawler.qr_login import check_login_status
+from app.modules.zalo.crawler.scroll_handler import verify_group_for_crawl
 from app.modules.zalo.schemas.group import Group
 from app.modules.zalo.services.debug_artifacts import save_page_artifacts
 from app.modules.zalo.services.gsheet_service import list_crawled_groups
-from app.modules.zalo.services.session_store import get_latest_session_for_user, get_session, save_session
+from app.modules.zalo.services.supabase_service import is_supabase_configured, list_saved_groups, upsert_groups
+from app.modules.zalo.services.session_store import get_latest_session_for_user, get_session, get_session_lock, save_session
+from app.modules.zalo.services.browser_operation_lock import zalo_browser_operation_lock
+from app.modules.zalo.api.security import verify_zalo_api_key
 
-router = APIRouter(prefix="/api/groups", tags=["groups"])
-zalo_groups_router = APIRouter(prefix="/api/zalo/groups", tags=["zalo-groups"])
+router = APIRouter(
+    prefix="/api/groups",
+    tags=["groups"],
+    dependencies=[Depends(verify_zalo_api_key)],
+)
+zalo_groups_router = APIRouter(
+    prefix="/api/zalo/groups",
+    tags=["zalo-groups"],
+    dependencies=[Depends(verify_zalo_api_key)],
+)
+
+
+class VerifyGroupItem(BaseModel):
+    group_name: str = Field(..., min_length=1)
+    group_id: str | None = None
+    sheet_tab: str | None = None
+
+
+class VerifyGroupsRequest(BaseModel):
+    groups: list[VerifyGroupItem]
+
+
+class VerifiedGroupItem(BaseModel):
+    group_name: str
+    group_id: str | None = None
+    sheet_tab: str | None = None
+    current_title: str | None = None
+    member_count: int | None = None
+    message_count: int = 0
+    warnings: list[str] = []
+
+
+class RejectedGroupItem(BaseModel):
+    group_name: str
+    group_id: str | None = None
+    reason: str
+    detail: str
+    current_title: str | None = None
+    member_count: int | None = None
+    warnings: list[str] = []
+
+
+class VerifyGroupsResponse(BaseModel):
+    verified: list[VerifiedGroupItem]
+    rejected: list[RejectedGroupItem]
+
+
+async def _live_group_fallback(user_id: str, session, selector_counts: dict | None, reason: str) -> list[Group]:
+    if is_supabase_configured():
+        try:
+            saved_groups = await list_saved_groups(user_id)
+            if saved_groups:
+                logger.warning(
+                    f"Live Zalo group suggestions unavailable ({reason}); returning {len(saved_groups)} saved groups"
+                )
+                return [
+                    Group(
+                        group_id=item.get("group_name") or item.get("sheet_tab") or "saved",
+                        name=item.get("group_name") or item.get("sheet_tab") or "Saved group",
+                        avatar_url=None,
+                        last_message=f"{item.get('message_count', 0)} tin da luu",
+                        unread_count=0,
+                    )
+                    for item in saved_groups
+                ]
+        except Exception as exc:
+            logger.warning(f"Could not load saved group fallback: {exc}")
+
+    try:
+        debug_info = await collect_group_debug_info(session.page)
+        debug_info["session_id"] = session.session_id
+        debug_info["wait_selector_counts"] = selector_counts or {}
+        debug_info["reason"] = reason
+        artifacts = await save_page_artifacts(
+            session.page,
+            f"groups-{session.session_id}",
+            metadata=debug_info,
+        )
+        logger.warning(
+            "Returning empty Zalo group suggestions for session {}. reason={} url={} title={} artifacts={}",
+            session.session_id,
+            reason,
+            debug_info["url"],
+            debug_info["title"],
+            artifacts,
+        )
+    except Exception as exc:
+        logger.warning(f"Could not save live group debug artifacts: {exc}")
+
+    return []
+
+
+async def _get_confirmed_session_for_user(user_id: str, session_id: str | None):
+    session = await get_session(session_id) if session_id else None
+    if not session:
+        session = await get_latest_session_for_user(user_id, preferred_statuses={"confirmed"})
+    if not session:
+        raise HTTPException(status_code=401, detail="No confirmed session found, please login first")
+    if session.user_id != user_id:
+        raise HTTPException(status_code=403, detail="Session does not belong to current user")
+
+    live_status = await check_login_status(session.page)
+    session.status = live_status
+    await save_session(session)
+    if live_status != "confirmed":
+        raise HTTPException(
+            status_code=403,
+            detail=f"Login not completed yet (status={live_status})",
+        )
+    return session
 
 
 @router.get("", response_model=List[Group])
@@ -23,9 +136,9 @@ async def list_groups(
     x_user_id: str = Header("default", alias="X-User-ID"),
 ):
     user_id = (x_user_id or "default").strip() or "default"
-    session = get_session(x_session_id) if x_session_id else None
+    session = await get_session(x_session_id) if x_session_id else None
     if not session:
-        session = get_latest_session_for_user(user_id, preferred_statuses={"confirmed"})
+        session = await get_latest_session_for_user(user_id, preferred_statuses={"confirmed"})
     if not session:
         raise HTTPException(status_code=401, detail="No confirmed session found, please login first")
     if session.user_id != user_id:
@@ -33,54 +146,193 @@ async def list_groups(
 
     live_status = await check_login_status(session.page)
     session.status = live_status
-    save_session(session)
+    await save_session(session)
     if live_status != "confirmed":
         raise HTTPException(
             status_code=403,
             detail=f"Login not completed yet (status={live_status})",
         )
 
+    selector_counts = {}
     try:
-        selector_counts = await wait_for_group_list_ready(session.page)
-        groups = await parse_groups(session.page)
-        if not groups:
-            debug_info = await collect_group_debug_info(session.page)
-            debug_info["session_id"] = session.session_id
-            debug_info["wait_selector_counts"] = selector_counts
+        async with zalo_browser_operation_lock:
+            session_lock = await get_session_lock(session.session_id)
+            async with session_lock:
+                groups: list[Group] = []
+                for attempt in range(1, 3):
+                    try:
+                        if attempt > 1:
+                            logger.warning("Retrying live group suggestions after Zalo navigation/parser failure")
+                            await session.page.goto("https://chat.zalo.me", wait_until="domcontentloaded", timeout=60000)
+                            await session.page.wait_for_timeout(3000)
+                        selector_counts = await wait_for_group_list_ready(session.page, timeout_ms=30000)
+                        groups = await parse_groups(session.page)
+                        break
+                    except Exception as parse_exc:
+                        logger.warning(f"Live group parse attempt {attempt} failed: {parse_exc}")
+                        if attempt >= 2:
+                            return await _live_group_fallback(
+                                user_id,
+                                session,
+                                selector_counts,
+                                f"live_parse_failed: {parse_exc}",
+                            )
+                if not groups:
+                    logger.warning("First live group parse returned empty; retrying after reload/recovery")
+                    try:
+                        await session.page.goto("https://chat.zalo.me", wait_until="domcontentloaded", timeout=60000)
+                        await session.page.wait_for_timeout(3000)
+                        selector_counts = await wait_for_group_list_ready(session.page, timeout_ms=30000)
+                        groups = await parse_groups(session.page)
+                    except Exception as retry_exc:
+                        logger.warning(f"Live group retry failed: {retry_exc}")
+                if not groups:
+                    if is_supabase_configured():
+                        saved_groups = await list_saved_groups(user_id)
+                        if saved_groups:
+                            logger.warning(
+                                f"Live Zalo group list unavailable; returning {len(saved_groups)} saved crawled groups"
+                            )
+                            return [
+                                Group(
+                                    group_id=item.get("group_name") or item.get("sheet_tab") or "saved",
+                                    name=item.get("group_name") or item.get("sheet_tab") or "Saved group",
+                                    avatar_url=None,
+                                    last_message=f"{item.get('message_count', 0)} tin da luu",
+                                    unread_count=0,
+                                )
+                                for item in saved_groups
+                            ]
+                    debug_info = await collect_group_debug_info(session.page)
+                    debug_info["session_id"] = session.session_id
+                    debug_info["wait_selector_counts"] = selector_counts
 
-            artifacts = await save_page_artifacts(
-                session.page,
-                f"groups-{session.session_id}",
-                metadata=debug_info,
-            )
+                    artifacts = await save_page_artifacts(
+                        session.page,
+                        f"groups-{session.session_id}",
+                        metadata=debug_info,
+                    )
 
-            logger.error(
-                "Group list is empty for session {}. url={} title={} artifacts={}",
-                session.session_id,
-                debug_info["url"],
-                debug_info["title"],
-                artifacts,
-            )
-            raise HTTPException(
-                status_code=502,
-                detail={
-                    "message": "Khong tim thay danh sach group tren giao dien Zalo sau khi dang nhap",
-                    "url": debug_info["url"],
-                    "title": debug_info["title"],
-                    "selector_counts": debug_info["selector_counts"],
-                    "artifacts": artifacts,
-                },
-            )
-        return groups
+                    logger.error(
+                        "Group list is empty for session {}. url={} title={} artifacts={}",
+                        session.session_id,
+                        debug_info["url"],
+                        debug_info["title"],
+                        artifacts,
+                    )
+                    return await _live_group_fallback(
+                        user_id,
+                        session,
+                        selector_counts,
+                        "live_group_suggestions_empty",
+                    )
+                if is_supabase_configured():
+                    try:
+                        cached_count = await upsert_groups(
+                            user_id,
+                            [group.model_dump() for group in groups],
+                        )
+                        logger.info(f"Cached {cached_count} Zalo live groups for user_id={user_id}")
+                    except Exception as exc:
+                        logger.warning(f"Could not cache live Zalo groups for user_id={user_id}: {exc}")
+                return groups
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to parse groups for session {session.session_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to fetch groups: {e}")
+        return await _live_group_fallback(
+            user_id,
+            session,
+            selector_counts,
+            f"unexpected_live_group_error: {e}",
+        )
+
+
+@zalo_groups_router.post("/verify", response_model=VerifyGroupsResponse)
+async def verify_groups_for_crawl(
+    body: VerifyGroupsRequest,
+    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+    x_user_id: str = Header("default", alias="X-User-ID"),
+):
+    user_id = (x_user_id or "default").strip() or "default"
+    session = await _get_confirmed_session_for_user(user_id, x_session_id)
+    session_lock = await get_session_lock(session.session_id)
+
+    verified: list[VerifiedGroupItem] = []
+    rejected: list[RejectedGroupItem] = []
+    seen: set[str] = set()
+
+    async with zalo_browser_operation_lock:
+        async with session_lock:
+            for item in body.groups:
+                group_name = " ".join(item.group_name.split())
+                if not group_name:
+                    continue
+                key = group_name.lower()
+                if key in seen:
+                    rejected.append(
+                        RejectedGroupItem(
+                            group_name=group_name,
+                            group_id=item.group_id,
+                            reason="duplicate",
+                            detail="Ten nhom bi trung trong danh sach kiem tra.",
+                        )
+                    )
+                    continue
+                seen.add(key)
+
+                result = await verify_group_for_crawl(
+                    session.page,
+                    group_name=group_name,
+                    group_id=item.group_id,
+                )
+                warnings = list(result.get("warnings") or [])
+                if result.get("ok"):
+                    verified.append(
+                        VerifiedGroupItem(
+                            group_name=group_name,
+                            group_id=result.get("resolved_group_id") or item.group_id or group_name,
+                            sheet_tab=item.sheet_tab or group_name,
+                            current_title=result.get("current_title"),
+                            member_count=result.get("member_count"),
+                            message_count=int(result.get("message_count") or 0),
+                            warnings=warnings,
+                        )
+                    )
+                else:
+                    rejected.append(
+                        RejectedGroupItem(
+                            group_name=group_name,
+                            group_id=item.group_id,
+                            reason=str(result.get("reason") or "not_found"),
+                            detail=str(result.get("detail") or "Khong xac minh duoc nhom Zalo."),
+                            current_title=result.get("current_title"),
+                            member_count=result.get("member_count"),
+                            warnings=warnings,
+                        )
+                    )
+
+    return VerifyGroupsResponse(verified=verified, rejected=rejected)
 
 
 @zalo_groups_router.get("/crawled")
-async def list_crawled_groups_from_sheet():
+async def list_crawled_groups_from_sheet(x_user_id: str = Header("default", alias="X-User-ID")):
+    if not settings.write_google_sheet:
+        if not is_supabase_configured():
+            return {
+                "sheet_id": "",
+                "sheet_url": "",
+                "total_groups": 0,
+                "groups": [],
+            }
+        groups = await list_saved_groups((x_user_id or "default").strip() or "default")
+        return {
+            "sheet_id": "",
+            "sheet_url": "",
+            "total_groups": len(groups),
+            "groups": groups,
+        }
+
     sheet_id = settings.default_sheet_id.strip()
     if not sheet_id:
         raise HTTPException(
@@ -88,14 +340,11 @@ async def list_crawled_groups_from_sheet():
             detail="ZALO_DEFAULT_SHEET_ID is missing in backend env",
         )
 
-    loop = asyncio.get_event_loop()
     try:
-        groups = await loop.run_in_executor(
-            None,
-            lambda: list_crawled_groups(
-                credentials_path=settings.google_credentials_path,
-                sheet_id=sheet_id,
-            ),
+        groups = await asyncio.to_thread(
+            list_crawled_groups,
+            settings.google_credentials_path,
+            sheet_id,
         )
         return {
             "sheet_id": sheet_id,
