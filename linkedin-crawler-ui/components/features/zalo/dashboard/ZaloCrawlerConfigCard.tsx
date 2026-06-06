@@ -5,7 +5,6 @@ import { useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
 import type { ZaloCrawlerFlowValue } from "@/hooks/useZaloCrawlerFlow";
-import { ZALO_WORKERS } from "@/lib/env";
 
 import { ZaloGroupInputList } from "./ZaloGroupInputList";
 import { ZaloLiveGroupPicker } from "./ZaloLiveGroupPicker";
@@ -109,7 +108,21 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
               <div className="text-body-sm mt-xs opacity-80">
                 User phiên: <span className="font-mono">{flow.userId}</span>
               </div>
-              <div className="mt-sm flex flex-wrap items-center gap-sm">
+              <div className="text-body-sm mt-xs opacity-80">
+                Worker ha tang:{" "}
+                {flow.isLoadingWorkers
+                  ? "Dang kiem tra"
+                  : (() => {
+                      const worker =
+                        flow.workers.find((item) => item.id === flow.selectedWorkerId) ??
+                        { id: "auto", label: "Tu dong", status: "unknown", queue_state: "unknown" };
+                      if (!worker) return "Tu dong";
+                      return `${worker.label || worker.id} - ${worker.status ?? "unknown"}`;
+                    })()}
+              </div>
+              {false ? null : null}
+              {false ? (
+              <div className="hidden">
                 <label
                   className="text-label-md font-semibold uppercase opacity-80"
                   htmlFor="zalo-worker-select"
@@ -121,15 +134,32 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
                   className="border-outline-variant bg-surface min-h-10 rounded-lg border px-sm py-xs text-body-sm font-semibold text-on-surface disabled:cursor-not-allowed disabled:opacity-60"
                   value={flow.selectedWorkerId}
                   onChange={(event) => flow.switchWorker(event.target.value)}
-                  disabled={hasBlockingAction || flow.isSubmittingGroups}
+                  disabled={hasBlockingAction || flow.isSubmittingGroups || flow.isLoadingWorkers}
                 >
-                  {ZALO_WORKERS.map((workerId) => (
-                    <option key={workerId} value={workerId}>
-                      {workerId}
+                  {flow.workers.map((worker) => (
+                    <option key={worker.id} value={worker.id}>
+                      {worker.label || worker.id}
                     </option>
                   ))}
                 </select>
+                <span className="text-body-sm opacity-80">
+                  {flow.isLoadingWorkers ? (
+                    "Đang tải account..."
+                  ) : (
+                    (() => {
+                      const worker =
+                        flow.workers.find((item) => item.id === flow.selectedWorkerId) ??
+                        { id: "auto", label: "Tu dong", status: "unknown", queue_state: "unknown" };
+                      if (worker === undefined) return "unknown";
+                      return `${worker.status ?? "unknown"} · ${worker.queue_state ?? "unknown"}`;
+                    })()
+                  )}
+                </span>
               </div>
+              ) : null}
+              {flow.workersError ? (
+                <div className="text-body-sm mt-xs text-error">{flow.workersError}</div>
+              ) : null}
             </div>
             {flow.hasConfirmedSession ? (
               <div className="inline-flex items-center gap-1 rounded-full bg-secondary-container px-sm py-xs text-xs font-semibold text-on-secondary-container">
@@ -252,6 +282,48 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
             <div>
               Crawler chỉ lấy nội dung trong group được chọn: text và ảnh gửi trong tin nhắn. Ảnh đại diện, icon, sticker/reaction sẽ bị lọc bỏ.
             </div>
+          </div>
+        </div>
+
+        <div className="border-outline-variant bg-surface mb-md rounded-xl border p-md">
+          <div className="mb-sm flex flex-col gap-xs">
+            <div className="text-label-md font-semibold uppercase text-on-surface-variant">
+              Số tin crawl mỗi group
+            </div>
+            <div className="text-body-sm text-on-surface-variant">
+              Hệ thống lấy từ tin mới nhất lên tin cũ và dừng khi đủ số lượng này.
+            </div>
+          </div>
+          <div className="flex flex-col gap-sm sm:flex-row sm:items-center">
+            <div className="flex flex-wrap gap-sm">
+              {[20, 50, 100, 200].map((value) => (
+                <button
+                  key={value}
+                  type="button"
+                  onClick={() => flow.setMaxMessagesPerGroup(value)}
+                  disabled={flow.isSubmittingGroups || flow.isVerifyingGroups}
+                  className={`rounded-lg border px-md py-xs text-body-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60 ${
+                    flow.maxMessagesPerGroup === value
+                      ? "border-primary bg-primary text-on-primary"
+                      : "border-outline-variant bg-surface hover:bg-surface-container-high"
+                  }`}
+                >
+                  {value} tin
+                </button>
+              ))}
+            </div>
+            <label className="flex items-center gap-sm text-body-sm text-on-surface">
+              <span>Tùy chỉnh</span>
+              <input
+                type="number"
+                min={1}
+                max={500}
+                value={flow.maxMessagesPerGroup}
+                onChange={(event) => flow.setMaxMessagesPerGroup(Number(event.target.value))}
+                disabled={flow.isSubmittingGroups || flow.isVerifyingGroups}
+                className="border-outline-variant bg-surface h-10 w-28 rounded-lg border px-sm text-body-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </label>
           </div>
         </div>
 

@@ -6,6 +6,7 @@ from app.modules.zalo.api.security import verify_zalo_api_key
 from app.modules.zalo.services.worker_pool import (
     get_zalo_browser_workers,
     resolve_zalo_browser_worker,
+    _normalize_worker_id,
 )
 
 
@@ -83,13 +84,41 @@ async def _proxy_request(request: Request, upstream_path: str) -> Response:
 async def list_zalo_workers(request: Request) -> dict:
     # This route still sits behind the router-level API key dependency.
     workers = get_zalo_browser_workers()
-    selected_worker = resolve_zalo_browser_worker(request) if workers else None
+    requested_worker_id = _normalize_worker_id(
+        request.headers.get("X-Zalo-Worker-ID")
+        or request.query_params.get("worker_id")
+        or ""
+    )
+    workers_by_id = {worker.worker_id: worker for worker in workers}
+    selected_worker = workers_by_id.get(requested_worker_id) if requested_worker_id else None
+    if selected_worker is None and workers:
+        selected_worker = resolve_zalo_browser_worker(request)
+
+    async def _worker_status(worker) -> str:
+        try:
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                response = await client.get(f"{worker.base_url}/health")
+            return "online" if response.status_code < 500 else "degraded"
+        except httpx.HTTPError:
+            return "offline"
+
+    worker_statuses = {
+        worker.worker_id: await _worker_status(worker)
+        for worker in workers
+    }
     return {
         "workers": [
-            {"id": worker.worker_id, "url": worker.base_url}
-            for worker in workers
+            {
+                "id": worker.worker_id,
+                "label": worker.label,
+                "status": worker_statuses.get(worker.worker_id, "unknown"),
+                "is_default": index == 0,
+                "queue_state": "unknown",
+            }
+            for index, worker in enumerate(workers)
         ],
         "selected_worker_id": selected_worker.worker_id if selected_worker else None,
+        "routing_mode": "auto_user",
     }
 
 

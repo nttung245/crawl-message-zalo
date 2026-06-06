@@ -16,6 +16,8 @@ from app.modules.zalo.services.supabase_service import (
     SupabaseNotConfigured,
     bulk_delete_library_messages,
     create_library_message,
+    group_summaries_from_message_rows,
+    list_library_group_summaries,
     list_library_messages,
     update_library_message,
 )
@@ -37,11 +39,30 @@ def _normalize_user_id(value: str | None) -> str:
 async def get_messages(
     x_user_id: str = Header("default", alias="X-User-ID"),
     group_name: Optional[str] = Query(None),
+    content_kind: str = Query("all", pattern="^(all|text|image)$"),
     limit: int = Query(200, ge=1, le=1000),
+    offset: int = Query(0, ge=0),
 ):
     try:
-        rows = await list_library_messages(_normalize_user_id(x_user_id), group_name=group_name, limit=limit)
-        return {"messages": [ZaloLibraryMessage(**row) for row in rows]}
+        user_id = _normalize_user_id(x_user_id)
+        rows, total = await list_library_messages(
+            user_id,
+            group_name=group_name,
+            limit=limit,
+            offset=offset,
+            content_kind=content_kind,
+        )
+        groups = await list_library_group_summaries(user_id)
+        if not groups:
+            groups = group_summaries_from_message_rows(rows)
+        return {
+            "messages": [ZaloLibraryMessage(**row) for row in rows],
+            "groups": groups,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+            "has_more": offset + len(rows) < total,
+        }
     except SupabaseNotConfigured as exc:
         raise HTTPException(status_code=503, detail=str(exc))
     except Exception as exc:

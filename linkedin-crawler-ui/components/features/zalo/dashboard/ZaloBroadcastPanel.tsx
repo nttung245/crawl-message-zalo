@@ -7,6 +7,7 @@ import { MaterialIcon } from "@/components/ui";
 import {
   createZaloBroadcast,
   getZaloBroadcast,
+  getZaloCrawledGroups,
   getZaloLiveGroups,
   previewZaloBroadcast,
 } from "@/services/zaloCrawlerService";
@@ -15,6 +16,7 @@ import type {
   ZaloBroadcastPreviewResponse,
   ZaloBroadcastStatusResponse,
   ZaloBroadcastTarget,
+  ZaloCrawledGroupItem,
   ZaloLibraryMessage,
   ZaloLiveGroup,
 } from "@/types/zalo-api";
@@ -25,23 +27,77 @@ interface ZaloBroadcastPanelProps {
   selectedMessages: ZaloLibraryMessage[];
 }
 
-function normalizeTargets(groups: ZaloLiveGroup[], manualText: string, selectedIds: string[]): ZaloBroadcastTarget[] {
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
+}
+
+function normalizeTargets(
+  conversations: ZaloLiveGroup[],
+  manualText: string,
+  selectedIds: string[],
+): ZaloBroadcastTarget[] {
   const targets = new Map<string, ZaloBroadcastTarget>();
-  for (const group of groups) {
-    if (selectedIds.includes(group.group_id)) {
-      targets.set(group.name.trim().toLowerCase(), {
-        group_id: group.group_id,
-        group_name: group.name,
-      });
-    }
+
+  for (const item of conversations) {
+    if (!selectedIds.includes(item.group_id)) continue;
+    const name = item.name.trim();
+    const key = normalizeSearchText(name);
+    if (!key) continue;
+    targets.set(key, { group_id: item.group_id, group_name: name });
   }
+
   for (const line of manualText.split("\n")) {
     const name = line.trim();
-    if (name) {
-      targets.set(name.toLowerCase(), { group_name: name });
-    }
+    const key = normalizeSearchText(name);
+    if (!key) continue;
+    targets.set(key, { group_name: name });
   }
+
   return Array.from(targets.values());
+}
+
+function savedToLiveConversation(group: ZaloCrawledGroupItem): ZaloLiveGroup | null {
+  const name = (group.group_name || group.sheet_tab || "").trim();
+  if (!name) return null;
+  return {
+    group_id: name,
+    name,
+    avatar_url: null,
+    last_message: `${group.message_count ?? 0} tin đã lưu`,
+    unread_count: 0,
+  };
+}
+
+function conversationKey(item: Pick<ZaloLiveGroup, "group_id" | "name">): string {
+  return normalizeSearchText(item.name || item.group_id);
+}
+
+function mergeConversations(previous: ZaloLiveGroup[], incoming: ZaloLiveGroup[]): ZaloLiveGroup[] {
+  const byKey = new Map<string, ZaloLiveGroup>();
+
+  for (const item of previous) {
+    const key = conversationKey(item);
+    if (key) byKey.set(key, item);
+  }
+
+  for (const item of incoming) {
+    const key = conversationKey(item);
+    if (!key) continue;
+    const existing = byKey.get(key);
+    byKey.set(key, {
+      ...existing,
+      ...item,
+      group_id: item.group_id || existing?.group_id || item.name,
+      name: item.name || existing?.name || item.group_id,
+      last_message: item.last_message || existing?.last_message || null,
+    });
+  }
+
+  return Array.from(byKey.values()).sort((left, right) => left.name.localeCompare(right.name, "vi"));
 }
 
 function uploadedAssetCount(message: ZaloLibraryMessage | undefined): number {
@@ -56,42 +112,76 @@ function publicAssetUrls(message: ZaloLibraryMessage | undefined): string[] {
     .map((asset) => asset.storage_url as string);
 }
 
-function normalizeSearchText(value: string): string {
-  return value
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase()
-    .trim();
-}
-
 export function ZaloBroadcastPanel({
   userId,
   selectedMessageIds,
   selectedMessages,
 }: ZaloBroadcastPanelProps) {
   const [contentMode, setContentMode] = useState<ZaloBroadcastContentMode>("both");
-  const [liveGroups, setLiveGroups] = useState<ZaloLiveGroup[]>([]);
-  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [liveConversations, setLiveConversations] = useState<ZaloLiveGroup[]>([]);
+  const [selectedConversationIds, setSelectedConversationIds] = useState<string[]>([]);
   const [targetSearchText, setTargetSearchText] = useState("");
   const [manualTargets, setManualTargets] = useState("");
   const [preview, setPreview] = useState<ZaloBroadcastPreviewResponse | null>(null);
   const [campaignId, setCampaignId] = useState<string | null>(null);
   const [campaignStatus, setCampaignStatus] = useState<ZaloBroadcastStatusResponse | null>(null);
-  const [isLoadingGroups, setIsLoadingGroups] = useState(false);
+  const [isLoadingTargets, setIsLoadingTargets] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const selectedMessageKey = selectedMessageIds.join("|");
+
   const targets = useMemo(
-    () => normalizeTargets(liveGroups, manualTargets, selectedGroupIds),
-    [liveGroups, manualTargets, selectedGroupIds],
+    () => normalizeTargets(liveConversations, manualTargets, selectedConversationIds),
+    [liveConversations, manualTargets, selectedConversationIds],
   );
 
-  const visibleLiveGroups = useMemo(() => {
+  const visibleConversations = useMemo(() => {
     const keyword = normalizeSearchText(targetSearchText);
-    if (!keyword) return liveGroups;
-    return liveGroups.filter((group) => normalizeSearchText(group.name).includes(keyword));
-  }, [liveGroups, targetSearchText]);
+    if (!keyword) return liveConversations;
+    return liveConversations.filter((item) => normalizeSearchText(item.name).includes(keyword));
+  }, [liveConversations, targetSearchText]);
+
+  const selectedLiveConversations = useMemo(
+    () => liveConversations.filter((item) => selectedConversationIds.includes(item.group_id)),
+    [liveConversations, selectedConversationIds],
+  );
+
+  const visibleSelectedCount = useMemo(
+    () => visibleConversations.filter((item) => selectedConversationIds.includes(item.group_id)).length,
+    [selectedConversationIds, visibleConversations],
+  );
+
+  const allVisibleSelected =
+    visibleConversations.length > 0 && visibleSelectedCount === visibleConversations.length;
+
+  useEffect(() => {
+    setPreview(null);
+  }, [contentMode, selectedMessageKey, targets]);
+
+  useEffect(() => {
+    let isCancelled = false;
+    async function loadSavedTargets() {
+      try {
+        const response = await getZaloCrawledGroups(userId);
+        if (isCancelled) return;
+        const saved = response.groups
+          .map(savedToLiveConversation)
+          .filter((item): item is ZaloLiveGroup => item !== null);
+        if (saved.length > 0) {
+          setLiveConversations((current) => mergeConversations(current, saved));
+        }
+      } catch {
+        // Saved targets are a convenience fallback; direct manual input still works.
+      }
+    }
+
+    void loadSavedTargets();
+    return () => {
+      isCancelled = true;
+    };
+  }, [userId]);
 
   useEffect(() => {
     if (!campaignId) return;
@@ -100,22 +190,25 @@ export function ZaloBroadcastPanel({
         const status = await getZaloBroadcast(campaignId);
         setCampaignStatus(status);
       } catch {
-        // Keep polling lightweight; explicit errors are shown when creating campaign.
+        // Polling errors are non-blocking; create/send errors are shown directly.
       }
     }, 2500);
     return () => window.clearInterval(timer);
   }, [campaignId]);
 
-  async function loadGroups() {
-    setIsLoadingGroups(true);
+  async function loadTargets() {
+    setIsLoadingTargets(true);
     setError(null);
     try {
-      const groups = await getZaloLiveGroups(userId);
-      setLiveGroups(groups);
+      const conversations = await getZaloLiveGroups(userId);
+      setLiveConversations((current) => mergeConversations(current, conversations));
+      if (conversations.length === 0) {
+        setError("Zalo chưa trả thêm người nhận live. Danh sách đã crawl/lưu vẫn được giữ lại để chọn.");
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Không thể tải danh sách group Zalo.");
+      setError(err instanceof Error ? err.message : "Không thể tải danh sách người nhận từ Zalo.");
     } finally {
-      setIsLoadingGroups(false);
+      setIsLoadingTargets(false);
     }
   }
 
@@ -156,6 +249,15 @@ export function ZaloBroadcastPanel({
     }
   }
 
+  function toggleVisibleTargets() {
+    const visibleIds = visibleConversations.map((item) => item.group_id);
+    if (allVisibleSelected) {
+      setSelectedConversationIds((current) => current.filter((id) => !visibleIds.includes(id)));
+      return;
+    }
+    setSelectedConversationIds((current) => Array.from(new Set([...current, ...visibleIds])));
+  }
+
   const canPreview = selectedMessageIds.length > 0 && targets.length > 0;
   const canSend = canPreview && preview !== null && (preview.warnings?.length ?? 0) === 0;
 
@@ -165,17 +267,17 @@ export function ZaloBroadcastPanel({
         <div>
           <h2 className="text-h2 text-on-surface font-semibold">Chiến dịch gửi</h2>
           <p className="text-body-sm text-on-surface-variant">
-            Chọn tin đã lưu, chọn group đích, xem preview rồi gửi tuần tự qua phiên Zalo hiện tại.
+            Chọn tin đã lưu, chọn group hoặc cá nhân, xem preview rồi gửi tuần tự qua phiên Zalo hiện tại.
           </p>
         </div>
         <button
           type="button"
-          onClick={() => void loadGroups()}
-          disabled={isLoadingGroups}
+          onClick={() => void loadTargets()}
+          disabled={isLoadingTargets}
           className="bg-primary text-on-primary inline-flex items-center justify-center gap-sm rounded-xl px-md py-sm text-body-sm font-semibold disabled:opacity-60"
         >
           <MaterialIcon name="group" className="text-base" />
-          {isLoadingGroups ? "Đang tải" : "Tải group Zalo"}
+          {isLoadingTargets ? "Đang tải" : "Tải người nhận Zalo"}
         </button>
       </div>
 
@@ -216,58 +318,113 @@ export function ZaloBroadcastPanel({
 
           <div className="border-outline-variant bg-surface rounded-xl border p-md">
             <div className="text-label-md text-on-surface-variant mb-sm font-semibold uppercase">
-              Group đích
+              Người nhận
             </div>
             <textarea
               value={manualTargets}
               onChange={(event) => setManualTargets(event.target.value)}
               rows={4}
-              placeholder="Nhập tên group, mỗi dòng một group"
+              placeholder="Nhập tên group hoặc cá nhân, mỗi dòng một người nhận"
               className="border-outline-variant mb-md w-full rounded-lg border px-md py-sm text-body-sm"
             />
-            {liveGroups.length > 0 ? (
+
+            {liveConversations.length > 0 ? (
               <>
                 <div className="mb-sm flex items-center gap-sm">
                   <MaterialIcon name="search" className="text-on-surface-variant text-lg" />
                   <input
                     value={targetSearchText}
                     onChange={(event) => setTargetSearchText(event.target.value)}
-                    placeholder="Tim group dich de gui"
+                    placeholder="Tìm group hoặc cá nhân để gửi"
                     className="border-outline-variant w-full rounded-lg border px-md py-sm text-body-sm"
                   />
                 </div>
-                <div className="text-body-xs text-on-surface-variant mb-sm">
-                  Dang hien {visibleLiveGroups.length}/{liveGroups.length} group, da chon {selectedGroupIds.length}.
+
+                <div className="mb-sm flex flex-wrap items-center justify-between gap-sm">
+                  <div className="text-body-xs text-on-surface-variant">
+                    Đang hiện {visibleConversations.length}/{liveConversations.length} cuộc trò chuyện, đã chọn{" "}
+                    {selectedConversationIds.length}.
+                  </div>
+                  <div className="flex flex-wrap gap-sm">
+                    <button
+                      type="button"
+                      onClick={toggleVisibleTargets}
+                      disabled={visibleConversations.length === 0}
+                      className="border-outline-variant rounded-lg border px-sm py-xs text-xs font-bold uppercase disabled:opacity-50"
+                    >
+                      {allVisibleSelected ? "Bỏ chọn kết quả" : "Chọn kết quả"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedConversationIds([])}
+                      disabled={selectedConversationIds.length === 0}
+                      className="border-outline-variant rounded-lg border px-sm py-xs text-xs font-bold uppercase disabled:opacity-50"
+                    >
+                      Bỏ chọn tất cả
+                    </button>
+                  </div>
                 </div>
+
                 <div className="grid max-h-80 gap-sm overflow-auto sm:grid-cols-2">
-                  {visibleLiveGroups.map((group) => (
-                    <label key={group.group_id} className="border-outline-variant flex gap-sm rounded-lg border px-sm py-xs text-body-sm">
+                  {visibleConversations.map((item) => (
+                    <label
+                      key={item.group_id}
+                      className={`border-outline-variant flex gap-sm rounded-lg border px-sm py-xs text-body-sm ${
+                        selectedConversationIds.includes(item.group_id)
+                          ? "bg-primary-container text-on-primary-container"
+                          : ""
+                      }`}
+                    >
                       <input
                         type="checkbox"
-                        checked={selectedGroupIds.includes(group.group_id)}
+                        checked={selectedConversationIds.includes(item.group_id)}
                         onChange={(event) => {
                           if (event.target.checked) {
-                            setSelectedGroupIds((current) =>
-                              current.includes(group.group_id) ? current : [...current, group.group_id],
+                            setSelectedConversationIds((current) =>
+                              current.includes(item.group_id) ? current : [...current, item.group_id],
                             );
                           } else {
-                            setSelectedGroupIds((current) => current.filter((id) => id !== group.group_id));
+                            setSelectedConversationIds((current) => current.filter((id) => id !== item.group_id));
                           }
                         }}
                       />
-                      <span>{group.name}</span>
+                      <span>{item.name}</span>
                     </label>
                   ))}
                 </div>
-                {visibleLiveGroups.length === 0 ? (
+
+                {selectedLiveConversations.length > 0 ? (
+                  <div className="mt-md rounded-lg bg-surface-container-low px-md py-sm">
+                    <div className="mb-xs text-xs font-bold uppercase text-on-surface-variant">
+                      Đã chọn từ danh sách
+                    </div>
+                    <div className="flex flex-wrap gap-xs">
+                      {selectedLiveConversations.map((item) => (
+                        <button
+                          key={item.group_id}
+                          type="button"
+                          onClick={() =>
+                            setSelectedConversationIds((current) => current.filter((id) => id !== item.group_id))
+                          }
+                          className="border-outline-variant inline-flex items-center gap-1 rounded-full border bg-surface px-sm py-0.5 text-xs font-semibold"
+                        >
+                          {item.name}
+                          <MaterialIcon name="close" className="text-sm" />
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+
+                {visibleConversations.length === 0 ? (
                   <div className="text-body-sm text-on-surface-variant mt-sm">
-                    Khong tim thay group phu hop. Co the nhap ten group thu cong o o ben tren.
+                    Không tìm thấy người nhận phù hợp. Có thể nhập tên thủ công ở ô bên trên.
                   </div>
                 ) : null}
               </>
             ) : (
               <div className="text-body-sm text-on-surface-variant">
-                Có thể nhập group thủ công hoặc tải danh sách group sau khi đã đăng nhập Zalo.
+                Có thể nhập người nhận thủ công hoặc tải danh sách sau khi đã đăng nhập Zalo.
               </div>
             )}
           </div>
@@ -277,11 +434,9 @@ export function ZaloBroadcastPanel({
           <div className="border-outline-variant bg-surface rounded-xl border p-md">
             <div className="mb-sm flex items-center justify-between gap-sm">
               <div>
-                <div className="text-label-md text-on-surface-variant font-semibold uppercase">
-                  Preview
-                </div>
+                <div className="text-label-md text-on-surface-variant font-semibold uppercase">Preview</div>
                 <div className="text-body-sm text-on-surface-variant">
-                  {targets.length} group đích · {selectedMessageIds.length} tin
+                  {targets.length} người nhận · {selectedMessageIds.length} tin
                 </div>
               </div>
               <button
@@ -298,7 +453,10 @@ export function ZaloBroadcastPanel({
             {preview ? (
               <div className="flex flex-col gap-sm">
                 {preview.warnings.map((warning) => (
-                  <div key={warning} className="border-error-container bg-error-container/40 text-error rounded-lg border px-sm py-xs text-body-sm">
+                  <div
+                    key={warning}
+                    className="border-error-container bg-error-container/40 text-error rounded-lg border px-sm py-xs text-body-sm"
+                  >
                     {warning}
                   </div>
                 ))}
@@ -309,7 +467,8 @@ export function ZaloBroadcastPanel({
                   return (
                     <div key={item.message_id} className="border-outline-variant rounded-lg border px-sm py-xs">
                       <div className="text-body-sm text-on-surface font-semibold">
-                        {item.send_text ? "Gửi text" : "Không gửi text"} · {item.send_images ? `${realImageCount} ảnh` : "Không gửi ảnh"}
+                        {item.send_text ? "Gửi text" : "Không gửi text"} ·{" "}
+                        {item.send_images ? `${realImageCount} ảnh` : "Không gửi ảnh"}
                       </div>
                       <div className="text-body-sm text-on-surface-variant whitespace-pre-wrap">
                         {message?.content || item.content || "Không có nội dung text"}
@@ -329,7 +488,8 @@ export function ZaloBroadcastPanel({
                           ))}
                           {previewUrls.length === 0 ? (
                             <div className="border-outline-variant bg-surface-container-low rounded-lg border px-sm py-xs text-body-sm text-on-surface-variant">
-                              Có {realImageCount} ảnh đã lưu và sẽ gửi, nhưng bucket không public nên không có ảnh preview.
+                              Có {realImageCount} ảnh đã lưu và sẽ gửi, nhưng bucket không public nên không có ảnh
+                              preview.
                             </div>
                           ) : null}
                         </div>
@@ -343,7 +503,7 @@ export function ZaloBroadcastPanel({
               </div>
             ) : (
               <div className="text-body-sm text-on-surface-variant">
-                Bấm Preview trước khi gửi để kiểm tra nội dung và group đích.
+                Bấm Preview trước khi gửi để kiểm tra nội dung và người nhận.
               </div>
             )}
           </div>

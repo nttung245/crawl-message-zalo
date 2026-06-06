@@ -573,6 +573,8 @@ async def _search_group_by_name(page: Page, group_name: str) -> str | None:
     if not group_name:
         return None
 
+    await _ensure_chat_tab(page)
+
     visible_match = await _click_visible_group_by_name(page, group_name)
     if visible_match:
         return visible_match
@@ -584,6 +586,11 @@ async def _search_group_by_name(page: Page, group_name: str) -> str | None:
                 continue
 
             await search_input.click()
+            try:
+                await page.keyboard.press("Control+A")
+                await page.keyboard.press("Backspace")
+            except Exception:
+                pass
             await search_input.fill("")
             await search_input.fill(group_name)
             await page.wait_for_timeout(1800)
@@ -604,6 +611,8 @@ async def _open_group(page: Page, group_id: str | None, group_name: str | None) 
     group_id = _sanitize_group_id(group_id)
     resolved_group_id = group_id or group_name or ""
     clicked = False
+
+    await _ensure_chat_tab(page)
 
     if group_id:
         for selector_template in [
@@ -644,25 +653,35 @@ async def _open_group(page: Page, group_id: str | None, group_name: str | None) 
     await page.wait_for_timeout(2000)
     current_title = await _wait_for_group_title(page, group_name)
     if group_name and current_title and not _titles_match(group_name, current_title):
-        logger.warning(
-            f"Title mismatch after open attempt. expected={group_name!r} current={current_title!r}; retrying exact search"
-        )
-        found_group_id = await _search_group_by_name(page, group_name)
-        if found_group_id:
-            resolved_group_id = found_group_id
-            await page.wait_for_timeout(1200)
-            current_title = await _wait_for_group_title(page, group_name)
+        for attempt in range(1, 4):
+            logger.warning(
+                "Title mismatch after open attempt {}. expected={!r} current={!r}; retrying search/open",
+                attempt,
+                group_name,
+                current_title,
+            )
+            await _ensure_chat_tab(page)
+            await page.wait_for_timeout(800 * attempt)
+            found_group_id = await _search_group_by_name(page, group_name)
+            if found_group_id:
+                resolved_group_id = found_group_id
+            await page.wait_for_timeout(1500 + attempt * 500)
+            next_title = await _wait_for_group_title(page, group_name, timeout_ms=5000)
+            if next_title:
+                current_title = next_title
+            if _titles_match(group_name, current_title):
+                break
 
     if group_name and not current_title:
         raise RuntimeError(
-            f"Could not verify the opened Zalo conversation title for {group_name!r}. "
-            "Crawler stopped to avoid mixing messages between groups."
+            f"Không xác nhận được màn hình chat của nhóm '{group_name}'. "
+            "Hãy mở Zalo, chờ danh sách chat tải xong rồi bấm kiểm tra lại."
         )
 
     if group_name and current_title and not _titles_match(group_name, current_title):
         raise RuntimeError(
-            f"Expected group {group_name!r} but current title is {current_title!r}. "
-            "Hint: avoid running multiple crawl jobs in parallel on the same session."
+            f"Zalo vẫn đang mở '{current_title}', chưa chuyển sang nhóm '{group_name}'. "
+            "Hệ thống đã dừng để không crawl nhầm nhóm. Hãy chờ Zalo đồng bộ xong rồi bấm kiểm tra lại."
         )
 
     await _assert_group_conversation(page, group_name)
@@ -889,9 +908,14 @@ async def _get_message_root_after_sync(page: Page) -> tuple[Page | Frame | Locat
 
 
 async def scroll_and_collect(
-    page: Page, group_id: str | None, group_name: str | None, job_id: str
+    page: Page,
+    group_id: str | None,
+    group_name: str | None,
+    job_id: str,
+    max_messages: int = 50,
 ) -> tuple[str, List[Message]]:
     captured_image_urls: Set[str] = set()
+    message_limit = max(1, min(int(max_messages or 50), 500))
 
     async def _on_response(response):
         try:
@@ -907,7 +931,7 @@ async def scroll_and_collect(
 
     try:
         resolved_group_id = await _open_group(page, group_id, group_name)
-        logger.info(f"Starting scroll collection for group {resolved_group_id}")
+        logger.info(f"Starting scroll collection for group {resolved_group_id}; max_messages={message_limit}")
 
         await _wait_for_message_sync(page)
 
@@ -982,8 +1006,14 @@ async def scroll_and_collect(
                     seen_message_ids.add(msg.message_id)
                     ordered_messages.append(msg)
                     new_count += 1
+                    if len(ordered_messages) >= message_limit:
+                        break
 
             logger.info(f"Scroll round {round_index}: +{new_count} messages, total={len(ordered_messages)}")
+
+            if len(ordered_messages) >= message_limit:
+                logger.info(f"Reached requested crawl limit ({message_limit} messages); stopping scroll loop")
+                break
 
             if len(ordered_messages) >= MAX_MESSAGES_PER_JOB:
                 logger.warning(f"Reached MAX_MESSAGES_PER_JOB ({MAX_MESSAGES_PER_JOB}). Force stopping to avoid infinite loop.")
@@ -1049,6 +1079,8 @@ async def scroll_and_collect(
             )
         final_batch = await parse_messages(message_root, captured_image_urls)
         for msg in reversed(final_batch):
+            if len(ordered_messages) >= message_limit:
+                break
             if msg.message_id not in seen_message_ids:
                 seen_message_ids.add(msg.message_id)
                 ordered_messages.append(msg)

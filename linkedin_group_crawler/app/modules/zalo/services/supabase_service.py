@@ -66,6 +66,27 @@ async def _rest(
     return response.json()
 
 
+async def _rest_with_count(
+    path: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> tuple[Any, int]:
+    _require_configured()
+    headers = _headers({"Prefer": "count=exact"})
+    url = f"{_base_url()}/rest/v1/{path.lstrip('/')}"
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.get(url, headers=headers, params=params)
+    if response.status_code >= 400:
+        raise RuntimeError(f"Supabase GET {path} failed: {response.status_code} {response.text}")
+    content_range = response.headers.get("content-range", "")
+    total = 0
+    if "/" in content_range:
+        raw_total = content_range.rsplit("/", 1)[-1]
+        if raw_total.isdigit():
+            total = int(raw_total)
+    return (response.json() if response.content else []), total
+
+
 async def upload_asset_bytes(path: str, content: bytes, content_type: str) -> str:
     _require_configured()
     bucket = quote(settings.supabase_storage_bucket.strip() or "zalo-assets", safe="")
@@ -153,6 +174,39 @@ def _message_payload(user_id: str, job: JobData, group_id: str, group_name: str,
     }
 
 
+async def upsert_zalo_user(
+    user_id: str,
+    *,
+    status: str,
+    assigned_worker_id: str | None = None,
+    display_name: str | None = None,
+) -> None:
+    if not is_supabase_configured():
+        return
+
+    now = datetime.utcnow().isoformat()
+    payload: dict[str, Any] = {
+        "user_id": user_id,
+        "zalo_status": status,
+        "last_seen_at": now,
+        "updated_at": now,
+    }
+    if status == "confirmed":
+        payload["last_login_at"] = now
+    if assigned_worker_id:
+        payload["assigned_worker_id"] = assigned_worker_id
+    if display_name:
+        payload["display_name"] = display_name
+
+    await _rest(
+        "POST",
+        "zalo_users",
+        json=[payload],
+        params={"on_conflict": "user_id"},
+        prefer="resolution=merge-duplicates",
+    )
+
+
 async def upsert_crawl_job(user_id: str, job: JobData) -> None:
     await _rest(
         "POST",
@@ -229,6 +283,8 @@ async def save_crawl_messages(user_id: str, job: JobData, group_id: str, message
     await upsert_group(user_id, group_id, group_name)
 
     saved_count = 0
+    uploaded_images = 0
+    failed_images = 0
     for msg in messages:
         rows = await _rest(
             "POST",
@@ -242,7 +298,17 @@ async def save_crawl_messages(user_id: str, job: JobData, group_id: str, message
         saved_count += 1
         message_row = rows[0]
         message_uuid = message_row["id"]
-        await save_message_assets(message_uuid, user_id, job.job_id, msg.image_urls)
+        asset_stats = await save_message_assets(message_uuid, user_id, job.job_id, msg.image_urls)
+        uploaded_images += asset_stats["uploaded"]
+        failed_images += asset_stats["failed"]
+    logger.info(
+        "Saved Zalo crawl payload: job={} group={!r} messages={} images_uploaded={} images_failed={}",
+        job.job_id,
+        group_name,
+        saved_count,
+        uploaded_images,
+        failed_images,
+    )
     return saved_count
 
 
@@ -251,7 +317,8 @@ async def save_message_assets(
     user_id: str,
     job_id: str | None,
     source_urls: Iterable[str],
-) -> None:
+) -> dict[str, int]:
+    stats = {"uploaded": 0, "failed": 0}
     for source_url in source_urls:
         status = "pending"
         storage_path = None
@@ -273,10 +340,14 @@ async def save_message_assets(
                 )
                 storage_url = await upload_asset_bytes(storage_path, content, content_type)
                 status = "uploaded"
+                stats["uploaded"] += 1
             except Exception as exc:
                 logger.warning(f"Could not persist Zalo image {source_url}: {exc}")
                 status = "failed"
                 error = str(exc)
+                stats["failed"] += 1
+        if status == "failed" and source_url.startswith("blob:"):
+            stats["failed"] += 1
 
         await _rest(
             "POST",
@@ -295,47 +366,278 @@ async def save_message_assets(
             params={"on_conflict": "message_id,source_url"},
             prefer="resolution=merge-duplicates",
         )
+    return stats
 
 
-async def list_library_messages(user_id: str, group_name: str | None = None, limit: int = 200) -> list[dict[str, Any]]:
+async def list_library_messages(
+    user_id: str,
+    group_name: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    content_kind: str = "all",
+) -> tuple[list[dict[str, Any]], int]:
+    safe_limit = max(1, min(limit, 1000))
+    safe_offset = max(0, offset)
+    select_clause = "*,assets:zalo_message_assets(*)"
+    if content_kind == "image":
+        select_clause = "*,assets:zalo_message_assets!inner(*)"
     params: dict[str, Any] = {
-        "select": "*,assets:zalo_message_assets(*)",
+        "select": select_clause,
         "user_id": f"eq.{user_id}",
         "is_deleted": "eq.false",
         "order": "created_at.desc",
-        "limit": str(limit),
+        "limit": str(safe_limit),
+        "offset": str(safe_offset),
     }
     if group_name:
         params["group_name"] = f"ilike.*{group_name}*"
-    return await _rest("GET", "zalo_messages", params=params) or []
+    if content_kind == "text":
+        params["content"] = "not.is.null"
+    if content_kind == "image":
+        params["assets.status"] = "eq.uploaded"
+    rows, total = await _rest_with_count("zalo_messages", params=params)
+    if group_name and not rows:
+        job_rows = await _rest(
+            "GET",
+            "zalo_crawl_jobs",
+            params={
+                "select": "job_id",
+                "user_id": f"eq.{user_id}",
+                "group_name": f"ilike.*{group_name}*",
+                "limit": "200",
+            },
+        ) or []
+        job_ids = [
+            str(job.get("job_id") or "").strip()
+            for job in job_rows
+            if str(job.get("job_id") or "").strip()
+        ]
+        if job_ids:
+            fallback_params = dict(params)
+            fallback_params.pop("group_name", None)
+            fallback_params["job_id"] = "in.(" + ",".join(f'"{job_id}"' for job_id in job_ids) + ")"
+            rows, total = await _rest_with_count("zalo_messages", params=fallback_params)
+    hydrated_rows = await hydrate_message_groups_from_jobs(user_id, rows or [])
+    return hydrated_rows, total
 
 
-async def list_saved_groups(user_id: str = "default") -> list[dict[str, Any]]:
+def group_summaries_from_message_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    groups_by_name: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        group_name = str(row.get("group_name") or "").strip()
+        if not group_name:
+            continue
+        key = group_name.lower()
+        item = groups_by_name.setdefault(
+            key,
+            {
+                "group_name": group_name,
+                "sheet_tab": group_name,
+                "message_count": 0,
+                "image_count": 0,
+                "latest_message_at": row.get("created_at"),
+            },
+        )
+        item["message_count"] += 1
+        item["image_count"] += sum(
+            1 for asset in row.get("assets") or [] if asset.get("status") == "uploaded"
+        )
+        if not item.get("latest_message_at"):
+            item["latest_message_at"] = row.get("created_at")
+    return list(groups_by_name.values())
+
+
+def _group_key(value: Any) -> str:
+    return str(value or "").strip().lower()
+
+
+def _merge_group_summary(
+    groups_by_name: dict[str, dict[str, Any]],
+    *,
+    group_name: str,
+    message_count: int = 0,
+    image_count: int = 0,
+    latest_message_at: Any = None,
+    prefer_counts: bool = False,
+) -> None:
+    clean_name = str(group_name or "").strip()
+    if not clean_name:
+        return
+    key = _group_key(clean_name)
+    current = groups_by_name.setdefault(
+        key,
+        {
+            "group_name": clean_name,
+            "sheet_tab": clean_name,
+            "message_count": 0,
+            "image_count": 0,
+            "latest_message_at": latest_message_at,
+        },
+    )
+    if prefer_counts:
+        current["message_count"] = max(int(current.get("message_count") or 0), int(message_count or 0))
+        current["image_count"] = max(int(current.get("image_count") or 0), int(image_count or 0))
+    else:
+        current["message_count"] = int(current.get("message_count") or 0) + int(message_count or 0)
+        current["image_count"] = int(current.get("image_count") or 0) + int(image_count or 0)
+    if latest_message_at and not current.get("latest_message_at"):
+        current["latest_message_at"] = latest_message_at
+
+
+async def hydrate_message_groups_from_jobs(
+    user_id: str,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    missing_job_ids = sorted(
+        {
+            str(row.get("job_id") or "").strip()
+            for row in rows
+            if not str(row.get("group_name") or "").strip() and str(row.get("job_id") or "").strip()
+        }
+    )
+    if not missing_job_ids:
+        return rows
+
+    quoted_job_ids = ",".join(f'"{job_id}"' for job_id in missing_job_ids)
+    job_rows = await _rest(
+        "GET",
+        "zalo_crawl_jobs",
+        params={
+            "select": "job_id,group_id,group_name",
+            "user_id": f"eq.{user_id}",
+            "job_id": f"in.({quoted_job_ids})",
+        },
+    ) or []
+    jobs_by_id = {
+        str(job.get("job_id") or ""): job
+        for job in job_rows
+        if str(job.get("job_id") or "")
+    }
+    if not jobs_by_id:
+        return rows
+
+    hydrated: list[dict[str, Any]] = []
+    for row in rows:
+        next_row = dict(row)
+        if not str(next_row.get("group_name") or "").strip():
+            job = jobs_by_id.get(str(next_row.get("job_id") or ""))
+            if job:
+                next_row["group_name"] = job.get("group_name") or next_row.get("group_name")
+                next_row["group_id"] = next_row.get("group_id") or job.get("group_id")
+        hydrated.append(next_row)
+    return hydrated
+
+
+async def list_library_group_summaries(user_id: str = "default") -> list[dict[str, Any]]:
+    groups_by_name: dict[str, dict[str, Any]] = {}
+
+    job_rows = await _rest(
+        "GET",
+        "zalo_crawl_jobs",
+        params={
+            "select": "group_name,messages_collected,images_found,completed_at,updated_at,started_at",
+            "user_id": f"eq.{user_id}",
+            "order": "updated_at.desc",
+            "limit": "10000",
+        },
+    ) or []
+    for job in job_rows:
+        latest_at = job.get("completed_at") or job.get("updated_at") or job.get("started_at")
+        _merge_group_summary(
+            groups_by_name,
+            group_name=str(job.get("group_name") or ""),
+            message_count=int(job.get("messages_collected") or 0),
+            image_count=int(job.get("images_found") or 0),
+            latest_message_at=latest_at,
+            prefer_counts=False,
+        )
+
     rows = await _rest(
         "GET",
         "zalo_messages",
         params={
-            "select": "group_name,group_id",
+            "select": "job_id,group_id,group_name,created_at,assets:zalo_message_assets(status)",
             "user_id": f"eq.{user_id}",
             "is_deleted": "eq.false",
-            "group_name": "not.is.null",
             "order": "created_at.desc",
-            "limit": "1000",
+            "limit": "10000",
         },
     ) or []
+    rows = await hydrate_message_groups_from_jobs(user_id, rows)
+    message_groups = group_summaries_from_message_rows(rows)
+    for group in message_groups:
+        _merge_group_summary(
+            groups_by_name,
+            group_name=str(group.get("group_name") or ""),
+            message_count=int(group.get("message_count") or 0),
+            image_count=int(group.get("image_count") or 0),
+            latest_message_at=group.get("latest_message_at"),
+            prefer_counts=True,
+        )
+    return sorted(
+        groups_by_name.values(),
+        key=lambda item: str(item.get("latest_message_at") or ""),
+        reverse=True,
+    )
+
+
+async def _message_group_counts(user_id: str = "default") -> dict[str, dict[str, Any]]:
+    rows = await _rest(
+        "GET",
+        "zalo_messages",
+        params={
+            "select": "job_id,group_id,group_name,created_at,assets:zalo_message_assets(status)",
+            "user_id": f"eq.{user_id}",
+            "is_deleted": "eq.false",
+            "order": "created_at.desc",
+            "limit": "10000",
+        },
+    ) or []
+    rows = await hydrate_message_groups_from_jobs(user_id, rows)
+    return {
+        _group_key(group.get("group_name")): group
+        for group in group_summaries_from_message_rows(rows)
+        if _group_key(group.get("group_name"))
+    }
+
+
+async def list_saved_groups(user_id: str = "default") -> list[dict[str, Any]]:
     groups_by_name: dict[str, dict[str, Any]] = {}
-    for row in rows:
-        group_name = row.get("group_name") or row.get("group_id") or ""
-        if group_name:
-            key = str(group_name).strip().lower()
-            if key not in groups_by_name:
-                groups_by_name[key] = {
-                    "group_name": group_name,
-                    "sheet_tab": group_name,
-                    "message_count": 0,
-                }
-            groups_by_name[key]["message_count"] += 1
-    return list(groups_by_name.values())
+    job_rows = await _rest(
+        "GET",
+        "zalo_crawl_jobs",
+        params={
+            "select": "group_name,messages_collected,images_found,completed_at,updated_at,started_at",
+            "user_id": f"eq.{user_id}",
+            "order": "updated_at.desc",
+            "limit": "10000",
+        },
+    ) or []
+    for job in job_rows:
+        latest_at = job.get("completed_at") or job.get("updated_at") or job.get("started_at")
+        _merge_group_summary(
+            groups_by_name,
+            group_name=str(job.get("group_name") or ""),
+            message_count=int(job.get("messages_collected") or 0),
+            image_count=int(job.get("images_found") or 0),
+            latest_message_at=latest_at,
+        )
+
+    for group in (await _message_group_counts(user_id)).values():
+        _merge_group_summary(
+            groups_by_name,
+            group_name=str(group.get("group_name") or ""),
+            message_count=int(group.get("message_count") or 0),
+            image_count=int(group.get("image_count") or 0),
+            latest_message_at=group.get("latest_message_at"),
+            prefer_counts=True,
+        )
+
+    return sorted(
+        groups_by_name.values(),
+        key=lambda item: str(item.get("latest_message_at") or ""),
+        reverse=True,
+    )
 
 
 async def cleanup_expired_assets(retention_days: int, limit: int) -> dict[str, Any]:

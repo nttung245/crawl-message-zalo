@@ -10,7 +10,7 @@ export const AuthService = {
   // BƯỚC 1: Đăng nhập khởi tạo
   login: async (data: LoginFormValues): Promise<AuthResponse> => {
     const response = await axiosClient.post<AuthResponse>("/api/v1/auth/login", {
-      email: data.userName,
+      email: data.email,
       password: data.password,
     });
     return response.data;

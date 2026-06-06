@@ -504,7 +504,13 @@ async def _parse_message(item, captured_image_urls: Set[str]) -> Message | None:
         if bubble_cdn_urls:
             # Prefer real CDN URLs. Data URLs are often generated from the visible
             # bubble thumbnail, which makes Supabase and resend output blurry.
-            image_urls = bubble_cdn_urls
+            # Still keep browser-fetched data URLs as a fallback because many Zalo
+            # CDN URLs require the active browser cookie and cannot be downloaded
+            # later from the backend container.
+            image_urls = bubble_cdn_urls + [
+                url for url in (data.get("image_data_urls") or [])
+                if isinstance(url, str) and _is_likely_message_image_url(url)
+            ]
         elif data.get("image_blob_urls"):
             image_urls = [
                 url for url in data["image_blob_urls"]

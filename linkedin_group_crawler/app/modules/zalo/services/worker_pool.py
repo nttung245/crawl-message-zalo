@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import os
 from dataclasses import dataclass
-from typing import Iterable
 
 from fastapi import HTTPException, Request
 
@@ -12,6 +11,12 @@ from fastapi import HTTPException, Request
 class ZaloBrowserWorker:
     worker_id: str
     base_url: str
+
+    @property
+    def label(self) -> str:
+        if self.worker_id == "default":
+            return "Default"
+        return self.worker_id.replace("-", " ").title()
 
 
 def _normalize_worker_id(value: str) -> str:
@@ -63,17 +68,28 @@ def is_zalo_browser_proxy_configured() -> bool:
     return bool(get_zalo_browser_workers())
 
 
-def _select_worker_by_user_id(
-    workers: Iterable[ZaloBrowserWorker],
-    user_id: str,
-) -> ZaloBrowserWorker:
-    worker_list = list(workers)
-    if len(worker_list) == 1:
-        return worker_list[0]
+def _normalize_user_id(value: str) -> str:
+    normalized = value.strip().lower()
+    normalized = "".join(ch if ch.isalnum() or ch in {"-", "_", ".", "@"} else "-" for ch in normalized)
+    normalized = normalized.strip("-_.")
+    return normalized or "default"
+
+
+def _user_id_from_request(request: Request) -> str:
+    return _normalize_user_id(
+        request.headers.get("X-User-ID")
+        or request.query_params.get("user_id")
+        or "default"
+    )
+
+
+def _select_worker_for_user(workers: list[ZaloBrowserWorker], user_id: str) -> ZaloBrowserWorker:
+    if len(workers) == 1:
+        return workers[0]
 
     digest = hashlib.sha256(user_id.encode("utf-8")).digest()
-    index = int.from_bytes(digest[:4], "big") % len(worker_list)
-    return worker_list[index]
+    worker_index = int.from_bytes(digest[:8], "big") % len(workers)
+    return workers[worker_index]
 
 
 def resolve_zalo_browser_worker(request: Request) -> ZaloBrowserWorker:
@@ -103,9 +119,4 @@ def resolve_zalo_browser_worker(request: Request) -> ZaloBrowserWorker:
                 detail=f"Unknown Zalo worker '{requested_worker_id}'. Valid workers: {valid_workers}",
             )
 
-    user_id = (
-        request.headers.get("X-User-ID")
-        or request.query_params.get("user_id")
-        or "default"
-    ).strip() or "default"
-    return _select_worker_by_user_id(workers, user_id)
+    return _select_worker_for_user(workers, _user_id_from_request(request))

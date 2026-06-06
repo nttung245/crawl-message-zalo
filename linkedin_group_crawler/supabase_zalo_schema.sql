@@ -1,5 +1,16 @@
 create extension if not exists pgcrypto;
 
+create table if not exists public.zalo_users (
+  user_id text primary key,
+  display_name text,
+  zalo_status text not null default 'unknown',
+  last_login_at timestamptz,
+  last_seen_at timestamptz,
+  assigned_worker_id text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.zalo_crawl_jobs (
   job_id text primary key,
   user_id text not null,

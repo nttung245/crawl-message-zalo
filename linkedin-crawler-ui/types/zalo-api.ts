@@ -40,12 +40,28 @@ export interface ZaloDeleteSessionResponse {
   message: string;
 }
 
+export type ZaloWorkerStatus = "online" | "degraded" | "offline" | "unknown";
+
+export interface ZaloWorkerInfo {
+  id: string;
+  label: string;
+  status: ZaloWorkerStatus | string;
+  is_default: boolean;
+  queue_state: string;
+}
+
+export interface ZaloWorkersResponse {
+  workers: ZaloWorkerInfo[];
+  selected_worker_id: string | null;
+}
+
 export interface ZaloStartCrawlRequest {
   sessionId?: string | null;
   userId?: string;
   group_name: string;
   group_id?: string | null;
   sheet_tab?: string;
+  max_messages?: number;
 }
 
 export interface ZaloStartCrawlResponse {
@@ -84,6 +100,7 @@ export interface ZaloMessage {
 
 export interface ZaloJobData {
   job_id: string;
+  user_id?: string;
   group_id?: string | null;
   group_name: string;
   sheet_id?: string | null;
@@ -125,8 +142,23 @@ export interface ZaloLibraryMessage {
   assets: ZaloStoredAsset[];
 }
 
+export type ZaloLibraryContentKind = "all" | "text" | "image";
+
+export interface ZaloLibraryGroupSummary {
+  group_name: string;
+  sheet_tab?: string | null;
+  message_count: number;
+  image_count: number;
+  latest_message_at?: string | null;
+}
+
 export interface ZaloLibraryListResponse {
   messages: ZaloLibraryMessage[];
+  groups: ZaloLibraryGroupSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+  has_more: boolean;
 }
 
 export interface ZaloLibraryBulkDeleteRequest {

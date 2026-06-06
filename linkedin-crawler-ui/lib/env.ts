@@ -9,10 +9,3 @@ export const API_BASE_URL =
   "http://localhost:8000";
 
 export const API_KEY = process.env.NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY ?? "";
-
-export const ZALO_WORKERS = (
-  process.env.NEXT_PUBLIC_ZALO_WORKERS ?? "account-a,account-b,account-c"
-)
-  .split(",")
-  .map((worker) => worker.trim())
-  .filter(Boolean);

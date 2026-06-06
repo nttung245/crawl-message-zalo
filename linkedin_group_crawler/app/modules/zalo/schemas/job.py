@@ -11,6 +11,7 @@ class JobProgress(BaseModel):
 
 class JobData(BaseModel):
     job_id: str
+    user_id: str = "default"
     group_id: str
     group_name: str
     sheet_id: Optional[str] = None

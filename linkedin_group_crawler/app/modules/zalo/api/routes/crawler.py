@@ -6,7 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from loguru import logger
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.zalo.config import settings
 from app.modules.zalo.crawler.qr_login import check_login_status
@@ -44,6 +44,7 @@ class CrawlRequest(BaseModel):
     group_name: str
     group_id: Optional[str] = None
     sheet_tab: Optional[str] = None
+    max_messages: int = Field(default=50, ge=1, le=500)
 
 
 @router.post("")
@@ -88,6 +89,7 @@ async def start_crawl(
 
     job = JobData(
         job_id=job_id,
+        user_id=user_id,
         group_id=body.group_name,
         group_name=body.group_name,
         sheet_id=resolved_sheet_id,
@@ -98,6 +100,11 @@ async def start_crawl(
         sheet_url=sheet_url,
     )
     save_job(job)
+    if settings.save_to_supabase and is_supabase_configured():
+        try:
+            await upsert_crawl_job(user_id, job)
+        except Exception as supabase_exc:
+            logger.warning(f"Could not persist queued job {job_id} to Supabase: {supabase_exc}")
 
     _schedule_crawl_job(job_id, session.session_id, user_id, body)
     logger.info(
@@ -197,6 +204,7 @@ async def _run_crawl(job_id: str, session_id: str, user_id: str, body: CrawlRequ
                             body.group_id,
                             body.group_name,
                             job_id,
+                            max_messages=body.max_messages,
                         ),
                         timeout=_CRAWL_JOB_TIMEOUT_SECONDS,
                     )

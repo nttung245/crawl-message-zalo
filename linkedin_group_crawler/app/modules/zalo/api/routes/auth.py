@@ -32,6 +32,7 @@ from app.modules.zalo.services.session_store import (
     get_session,
     save_session,
 )
+from app.modules.zalo.services.supabase_service import upsert_zalo_user
 from app.modules.zalo.api.security import verify_zalo_api_key
 
 router = APIRouter(
@@ -121,6 +122,13 @@ def _build_session_id(user_id: str) -> str:
     return f"{user_id}--{uuid.uuid4().hex}"
 
 
+async def _remember_zalo_user(user_id: str, status: str, worker_id: str | None = None) -> None:
+    try:
+        await upsert_zalo_user(user_id, status=status, assigned_worker_id=worker_id)
+    except Exception as exc:
+        logger.warning(f"Could not upsert Zalo user metadata for user={user_id}: {exc}")
+
+
 def _serialize_login_state(request: Request, user_id: str, session: SessionData | None, status: str) -> dict:
     manual_viewer_url = (settings.browser_remote_viewer_url or "").strip() or None
     return {
@@ -197,6 +205,11 @@ async def _build_current_status_payload(request: Request, user_id: str) -> dict:
     await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session.session_id)
+    await _remember_zalo_user(
+        user_id,
+        status,
+        worker_id=request.headers.get("X-Zalo-Worker-ID"),
+    )
     return _serialize_login_state(request, user_id, session, status)
 
 
@@ -426,12 +439,18 @@ async def _create_or_reuse_waiting_session(user_id: str) -> dict:
 
 
 @router.post("/init")
-async def init_session(x_user_id: str = Header("default", alias="X-User-ID")):
+async def init_session(
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    x_zalo_worker_id: str | None = Header(None, alias="X-Zalo-Worker-ID"),
+):
+    user_id = _normalize_user_id(x_user_id)
     try:
-        return await asyncio.wait_for(
-            _create_or_reuse_waiting_session(_normalize_user_id(x_user_id)),
+        payload = await asyncio.wait_for(
+            _create_or_reuse_waiting_session(user_id),
             timeout=_QR_INIT_TIMEOUT_SECONDS,
         )
+        await _remember_zalo_user(user_id, str(payload.get("status") or "unknown"), x_zalo_worker_id)
+        return payload
     except asyncio.TimeoutError:
         raise HTTPException(
             status_code=504,
@@ -440,17 +459,22 @@ async def init_session(x_user_id: str = Header("default", alias="X-User-ID")):
 
 
 @router.post("/qr/refresh")
-async def refresh_login_qr(x_user_id: str = Header("default", alias="X-User-ID")):
+async def refresh_login_qr(
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    x_zalo_worker_id: str | None = Header(None, alias="X-Zalo-Worker-ID"),
+):
     user_id = _normalize_user_id(x_user_id)
     profile_lock = await get_profile_lock(user_id)
     async with profile_lock:
         existing = await get_latest_session_for_user(user_id)
     if not existing:
         try:
-            return await asyncio.wait_for(
+            payload = await asyncio.wait_for(
                 _create_or_reuse_waiting_session(user_id),
                 timeout=_QR_INIT_TIMEOUT_SECONDS,
             )
+            await _remember_zalo_user(user_id, str(payload.get("status") or "unknown"), x_zalo_worker_id)
+            return payload
         except asyncio.TimeoutError:
             raise HTTPException(
                 status_code=504,
@@ -466,6 +490,7 @@ async def refresh_login_qr(x_user_id: str = Header("default", alias="X-User-ID")
             existing.qr_signature = None
             await save_session(existing)
             _cancel_qr_refresh_task(existing.session_id)
+            await _remember_zalo_user(user_id, "confirmed", x_zalo_worker_id)
             return {
                 "user_id": user_id,
                 "session_id": existing.session_id,
@@ -480,6 +505,7 @@ async def refresh_login_qr(x_user_id: str = Header("default", alias="X-User-ID")
         existing.qr_signature = qr_signature(qr_base64)
         existing.last_used = datetime.utcnow()
         await save_session(existing)
+        await _remember_zalo_user(user_id, "waiting_scan", x_zalo_worker_id)
         _ensure_qr_refresh_task(existing.session_id)
         return {
             "user_id": user_id,
@@ -491,12 +517,21 @@ async def refresh_login_qr(x_user_id: str = Header("default", alias="X-User-ID")
 
 
 @router.post("/manual-login/start")
-async def start_manual_login(x_user_id: str = Header("default", alias="X-User-ID")):
-    return await _create_or_reuse_manual_session(_normalize_user_id(x_user_id))
+async def start_manual_login(
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    x_zalo_worker_id: str | None = Header(None, alias="X-Zalo-Worker-ID"),
+):
+    user_id = _normalize_user_id(x_user_id)
+    payload = await _create_or_reuse_manual_session(user_id)
+    await _remember_zalo_user(user_id, str(payload.get("status") or "unknown"), x_zalo_worker_id)
+    return payload
 
 
 @router.post("/manual-login/resume")
-async def resume_manual_login(x_user_id: str = Header("default", alias="X-User-ID")):
+async def resume_manual_login(
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    x_zalo_worker_id: str | None = Header(None, alias="X-Zalo-Worker-ID"),
+):
     user_id = _normalize_user_id(x_user_id)
     session = await get_latest_session_for_user(user_id)
     if not session:
@@ -508,6 +543,7 @@ async def resume_manual_login(x_user_id: str = Header("default", alias="X-User-I
     await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session.session_id)
+    await _remember_zalo_user(user_id, status, x_zalo_worker_id)
 
     return {
         "user_id": user_id,
@@ -602,7 +638,11 @@ async def qr_image(
 
 
 @router.get("/status/{session_id}")
-async def get_status(session_id: str, x_user_id: str = Header("default", alias="X-User-ID")):
+async def get_status(
+    session_id: str,
+    x_user_id: str = Header("default", alias="X-User-ID"),
+    x_zalo_worker_id: str | None = Header(None, alias="X-Zalo-Worker-ID"),
+):
     session = await get_session(session_id)
     if not session:
         raise HTTPException(status_code=401, detail="Session not found, please login")
@@ -614,6 +654,7 @@ async def get_status(session_id: str, x_user_id: str = Header("default", alias="
     await save_session(session)
     if status == "confirmed":
         _cancel_qr_refresh_task(session_id)
+    await _remember_zalo_user(_normalize_user_id(x_user_id), status, x_zalo_worker_id)
     return {"user_id": _normalize_user_id(x_user_id), "session_id": session_id, "status": status}
 
 

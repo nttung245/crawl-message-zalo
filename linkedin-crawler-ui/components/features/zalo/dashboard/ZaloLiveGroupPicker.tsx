@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { MaterialIcon } from "@/components/ui";
 import type { ZaloCrawlerFlowValue } from "@/hooks/useZaloCrawlerFlow";
@@ -27,12 +27,58 @@ function liveToCrawlItem(group: ZaloLiveGroup): ZaloCrawledGroupItem {
   };
 }
 
+function savedToLiveGroup(group: ZaloCrawledGroupItem): ZaloLiveGroup {
+  const groupName = group.group_name.trim() || group.sheet_tab.trim();
+  return {
+    group_id: groupName,
+    name: groupName,
+    avatar_url: null,
+    last_message: `${group.message_count ?? 0} tin da luu`,
+    unread_count: 0,
+  };
+}
+
+function groupKey(group: Pick<ZaloLiveGroup, "name" | "group_id">): string {
+  return normalizeSearch(group.name || group.group_id);
+}
+
+function mergeGroups(previous: ZaloLiveGroup[], incoming: ZaloLiveGroup[]): ZaloLiveGroup[] {
+  const byKey = new Map<string, ZaloLiveGroup>();
+  for (const group of previous) {
+    const key = groupKey(group);
+    if (key) byKey.set(key, group);
+  }
+  for (const group of incoming) {
+    const key = groupKey(group);
+    if (!key) continue;
+    const existing = byKey.get(key);
+    byKey.set(key, {
+      ...existing,
+      ...group,
+      group_id: group.group_id || existing?.group_id || group.name,
+      name: group.name || existing?.name || group.group_id,
+      last_message: group.last_message || existing?.last_message || null,
+    });
+  }
+  return Array.from(byKey.values()).sort((left, right) =>
+    left.name.localeCompare(right.name, "vi"),
+  );
+}
+
 export function ZaloLiveGroupPicker({ flow }: ZaloLiveGroupPickerProps) {
   const [groups, setGroups] = useState<ZaloLiveGroup[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [searchText, setSearchText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const savedGroups = flow.crawledGroups
+      .filter((group) => group.group_name.trim() || group.sheet_tab.trim())
+      .map(savedToLiveGroup);
+    if (savedGroups.length === 0) return;
+    setGroups((current) => mergeGroups(current, savedGroups));
+  }, [flow.crawledGroups]);
 
   const visibleGroups = useMemo(() => {
     const needle = normalizeSearch(searchText);
@@ -50,14 +96,11 @@ export function ZaloLiveGroupPicker({ flow }: ZaloLiveGroupPickerProps) {
     setError(null);
     try {
       const liveGroups = await getZaloLiveGroups(flow.userId);
-      setGroups(liveGroups);
-      setSelectedIds([]);
+      setGroups((current) => mergeGroups(current, liveGroups));
       if (liveGroups.length === 0) {
         setError("Không thấy nhóm nào. Zalo có thể chưa đồng bộ xong, hãy thử lại sau vài giây.");
       }
     } catch (err) {
-      setGroups([]);
-      setSelectedIds([]);
       setError(
         err instanceof Error
           ? `Không thể tải nhóm live từ Zalo. ${err.message}`
@@ -93,6 +136,9 @@ export function ZaloLiveGroupPicker({ flow }: ZaloLiveGroupPickerProps) {
           </div>
           <div className="text-body-sm text-on-surface-variant">
             Bấm tải nhóm, tick nhóm cần crawl, rồi thêm vào danh sách chạy.
+          </div>
+          <div className="text-body-sm text-on-surface-variant">
+            Danh sach da luu luon duoc giu lai; goi y tu Zalo chi merge them.
           </div>
         </div>
         <button

@@ -59,5 +59,18 @@ class ZaloLibraryBulkDeleteResponse(BaseModel):
     deleted_count: int = 0
 
 
+class ZaloLibraryGroupSummary(BaseModel):
+    group_name: str
+    sheet_tab: Optional[str] = None
+    message_count: int = 0
+    image_count: int = 0
+    latest_message_at: Optional[str] = None
+
+
 class ZaloLibraryListResponse(BaseModel):
     messages: List[ZaloLibraryMessage]
+    groups: List[ZaloLibraryGroupSummary] = Field(default_factory=list)
+    total: int = 0
+    limit: int = 200
+    offset: int = 0
+    has_more: bool = False

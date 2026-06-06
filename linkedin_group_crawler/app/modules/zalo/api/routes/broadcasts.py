@@ -53,6 +53,10 @@ def _asset_count(message: dict) -> int:
     )
 
 
+def _failed_asset_count(message: dict) -> int:
+    return sum(1 for asset in message.get("assets") or [] if asset.get("status") == "failed")
+
+
 def _asset_preview_urls(message: dict) -> list[str]:
     urls: list[str] = []
     for asset in message.get("assets") or []:
@@ -67,11 +71,15 @@ def _asset_preview_urls(message: dict) -> list[str]:
 def _build_preview(messages: list[dict], target_count: int, content_mode: str) -> ZaloBroadcastPreviewResponse:
     items: list[ZaloBroadcastPreviewItem] = []
     warnings: list[str] = []
+    sendable_item_count = 0
     for message in messages:
         image_count = _asset_count(message)
+        failed_image_count = _failed_asset_count(message)
         image_urls = _asset_preview_urls(message)
         send_text = content_mode in {"text", "both"} and bool((message.get("content") or "").strip())
         send_images = content_mode in {"image", "both"} and image_count > 0
+        if send_text or send_images:
+            sendable_item_count += 1
         item_warnings: list[str] = []
         if content_mode == "image" and image_count == 0:
             item_warnings.append("Tin này không có ảnh đã lưu được trong Supabase Storage")
@@ -79,6 +87,10 @@ def _build_preview(messages: list[dict], target_count: int, content_mode: str) -
             item_warnings.append("Tin này không có nội dung text")
         if content_mode == "both" and not (send_text or send_images):
             item_warnings.append("Tin nay khong co text hoac anh de gui")
+        if failed_image_count > 0:
+            item_warnings.append(
+                f"{failed_image_count} anh crawl duoc nhung upload Supabase that bai, se khong gui cac anh nay"
+            )
         items.append(
             ZaloBroadcastPreviewItem(
                 message_id=message["id"],
@@ -94,6 +106,8 @@ def _build_preview(messages: list[dict], target_count: int, content_mode: str) -
         warnings.append("Chưa chọn group đích")
     if not messages:
         warnings.append("Chưa chọn tin nhắn")
+    if messages and sendable_item_count == 0:
+        warnings.append("Khong co tin nao du dieu kien gui voi che do hien tai")
     return ZaloBroadcastPreviewResponse(
         target_count=target_count,
         message_count=len(messages),
@@ -141,6 +155,9 @@ async def create_broadcast(
         messages = await fetch_messages_by_ids(user_id, body.message_ids)
         if len(messages) != len(set(body.message_ids)):
             raise HTTPException(status_code=400, detail="Some selected messages were not found")
+        preview = _build_preview(messages, len(body.targets), body.content_mode)
+        if preview.warnings:
+            raise HTTPException(status_code=400, detail="; ".join(preview.warnings))
 
         campaign_id = await create_broadcast_campaign(
             user_id,

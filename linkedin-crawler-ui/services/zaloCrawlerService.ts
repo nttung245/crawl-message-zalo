@@ -1,4 +1,4 @@
-import { API_BASE_URL, API_KEY, ZALO_WORKERS } from "@/lib/env";
+import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
   ZaloAuthInitResponse,
   ZaloAuthStatusResponse,
@@ -10,6 +10,7 @@ import type {
   ZaloBroadcastResponse,
   ZaloBroadcastStatusResponse,
   ZaloJobData,
+  ZaloLibraryContentKind,
   ZaloLibraryListResponse,
   ZaloLibraryMessage,
   ZaloLibraryBulkDeleteRequest,
@@ -22,6 +23,7 @@ import type {
   ZaloStartCrawlResponse,
   ZaloVerifyGroupRequestItem,
   ZaloVerifyGroupsResponse,
+  ZaloWorkersResponse,
 } from "@/types/zalo-api";
 
 const JSON_HEADERS = {
@@ -39,7 +41,7 @@ export function normalizeZaloWorkerId(value?: string | null): string {
 }
 
 export function getDefaultZaloWorkerId(): string {
-  return ZALO_WORKERS[0] ?? "account-a";
+  return "default";
 }
 
 export function getSelectedZaloWorkerId(): string {
@@ -59,17 +61,23 @@ export function setSelectedZaloWorkerId(workerId: string): string {
   return normalized;
 }
 
+export function getZaloWorkers(userId = "default"): Promise<ZaloWorkersResponse> {
+  return requestJson<ZaloWorkersResponse>("/api/zalo/workers", {
+    method: "GET",
+    headers: {
+      "X-User-ID": userId,
+    },
+  }, 7000);
+}
+
 function buildHeaders(extra?: HeadersInit): HeadersInit {
-  const selectedWorkerId = getSelectedZaloWorkerId();
   const baseHeaders: HeadersInit = API_KEY
     ? {
         ...JSON_HEADERS,
         "x-api-key": API_KEY,
-        "X-Zalo-Worker-ID": selectedWorkerId,
       }
     : {
         ...JSON_HEADERS,
-        "X-Zalo-Worker-ID": selectedWorkerId,
       };
 
   return {
@@ -249,23 +257,36 @@ export function startZaloCrawl(
       group_name: payload.group_name.trim(),
       group_id: payload.group_id?.trim() || undefined,
       sheet_tab: payload.sheet_tab?.trim() || undefined,
+      max_messages: Math.max(1, Math.min(payload.max_messages ?? 50, 500)),
     }),
   });
 }
 
-export function getZaloJob(jobId: string): Promise<ZaloJobData> {
+export function getZaloJob(jobId: string, userId = "default"): Promise<ZaloJobData> {
   return requestJson<ZaloJobData>(
     `/api/zalo/jobs/${encodeURIComponent(jobId)}`,
     {
       method: "GET",
+      headers: buildHeaders({
+        "X-User-ID": userId,
+      }),
     },
   );
 }
 
-export function getZaloJobs(): Promise<ZaloJobData[]> {
+export function getZaloJobs(userId = "default"): Promise<ZaloJobData[]> {
   return requestJson<ZaloJobData[]>("/api/zalo/jobs", {
     method: "GET",
+    headers: buildHeaders({
+      "X-User-ID": userId,
+    }),
   });
+}
+
+export function buildZaloJobEventsUrl(userId = "default"): string {
+  const params = new URLSearchParams({ user_id: userId });
+  if (API_KEY) params.set("api_key", API_KEY);
+  return `${API_BASE_URL}/api/zalo/jobs/events?${params.toString()}`;
 }
 
 export function getZaloCrawledGroups(userId = "default"): Promise<ZaloCrawledGroupsResponse> {
@@ -308,11 +329,15 @@ export function verifyZaloGroups(
 export function getZaloLibraryMessages(
   userId = "default",
   groupName?: string,
-  limit = 1000,
+  limit = 50,
+  offset = 0,
+  contentKind: ZaloLibraryContentKind = "all",
 ): Promise<ZaloLibraryListResponse> {
   const params = new URLSearchParams();
   if (groupName?.trim()) params.set("group_name", groupName.trim());
   params.set("limit", String(limit));
+  params.set("offset", String(offset));
+  params.set("content_kind", contentKind);
   const query = params.toString();
   return requestJson<ZaloLibraryListResponse>(
     `/api/zalo/library/messages${query ? `?${query}` : ""}`,
