@@ -5,9 +5,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { API_BASE_URL, API_KEY } from "@/lib/env";
 import {
   buildZaloJobEventsUrl,
+  createZaloAccount,
   deleteAllZaloSessions,
-  deleteZaloSession,
+  deleteZaloAccount,
   getDefaultZaloWorkerId,
+  getZaloAccounts,
   getZaloCrawledGroups,
   getZaloCurrentStatus,
   getZaloWorkers,
@@ -18,8 +20,10 @@ import {
   getZaloJobs,
   startZaloCrawl,
   verifyZaloGroups,
+  updateZaloAccount,
 } from "@/services/zaloCrawlerService";
 import type {
+  ZaloAccountInfo,
   ZaloAuthStatus,
   ZaloCrawledGroupItem,
   ZaloCrawledGroupsResponse,
@@ -39,17 +43,18 @@ const RESUME_RETRY_ATTEMPTS = 20;
 const RESUME_RETRY_INTERVAL_MS = 2000;
 const ZALO_USER_ID_STORAGE_KEY = "zalo_crawler_user_id";
 const LINKEDIN_EMAIL_STORAGE_KEY = "linkedin_crawler_email";
+const ZALO_ACCOUNT_OWNER_ID = "default";
 const INITIAL_GROUP_ROW_ID = "zalo-group-0";
 
 const MSG_LOAD_CRAWLED_GROUPS_ERROR = "Kh\u00f4ng th\u1ec3 t\u1ea3i danh s\u00e1ch nh\u00f3m \u0111\u00e3 crawl.";
 const MSG_CHECK_LOGIN_ERROR = "Kh\u00f4ng th\u1ec3 ki\u1ec3m tra tr\u1ea1ng th\u00e1i \u0111\u0103ng nh\u1eadp Zalo.";
 const MSG_UPDATE_PROGRESS_ERROR = "Kh\u00f4ng th\u1ec3 c\u1eadp nh\u1eadt ti\u1ebfn \u0111\u1ed9 crawl Zalo.";
 const MSG_MANUAL_OPENED =
-  "\u0110\u00e3 m\u1edf m\u00e0n h\u00ecnh Zalo remote. H\u00e3y \u0111\u0103ng nh\u1eadp/x\u1eed l\u00fd \u0111\u1ed3ng b\u1ed9 r\u1ed3i b\u1ea5m 'Ti\u1ebfp t\u1ee5c crawl'.";
+  "Đã mở màn hình Zalo remote. Hãy đăng nhập hoặc xử lý xác minh bổ sung rồi quay lại màn monitor.";
 const MSG_QR_READY =
-  "M\u00e3 QR Zalo \u0111\u00e3 s\u1eb5n s\u00e0ng. H\u00e3y qu\u00e9t QR v\u00e0 \u0111\u1ee3i h\u1ec7 th\u1ed1ng x\u00e1c nh\u1eadn \u0111\u0103ng nh\u1eadp.";
+  "Mã QR Zalo đã sẵn sàng. Hãy quét QR và đợi hệ thống xác nhận đăng nhập.";
 const MSG_MANUAL_RESUME_WAITING =
-  "Phi\u00ean Zalo ch\u01b0a s\u1eb5n s\u00e0ng crawl. H\u00e3y ho\u00e0n t\u1ea5t thao t\u00e1c trong m\u00e0n h\u00ecnh remote r\u1ed3i th\u1eed l\u1ea1i.";
+  "Phiên Zalo chưa sẵn sàng. Hãy hoàn tất thao tác xác minh rồi thử lại.";
 const MSG_GROUP_ADDED = "\u0110\u00e3 th\u00eam nh\u00f3m v\u00e0o danh s\u00e1ch crawl.";
 const MSG_GROUP_EXISTS = "Nh\u00f3m n\u00e0y \u0111\u00e3 c\u00f3 trong danh s\u00e1ch crawl.";
 const MSG_LOGIN_REQUIRED =
@@ -112,8 +117,11 @@ export interface ZaloCrawlerFlowValue {
   userId: string;
   selectedWorkerId: string;
   workers: ZaloWorkerInfo[];
+  accounts: ZaloAccountInfo[];
   isLoadingWorkers: boolean;
+  isLoadingAccounts: boolean;
   workersError: string | null;
+  accountsError: string | null;
   sessionId: string | null;
   authStatus: ZaloAuthStatus;
   isCheckingLoginStatus: boolean;
@@ -132,6 +140,7 @@ export interface ZaloCrawlerFlowValue {
   qrImageUrl: string | null;
   isLoggedIn: boolean;
   canCrawl: boolean;
+  sessionExpired: boolean;
   crawledGroups: ZaloCrawledGroupItem[];
   crawledGroupsSheetUrl: string | null;
   crawledGroupsTotal: number;
@@ -145,6 +154,11 @@ export interface ZaloCrawlerFlowValue {
   maxMessagesPerGroup: number;
   setMaxMessagesPerGroup: (value: number) => void;
   switchWorker: (workerId: string) => void;
+  switchAccount: (accountId: string) => void;
+  refreshLoginStatus: () => Promise<void>;
+  createAccount: (label: string, phone?: string) => Promise<void>;
+  deleteAccount: (accountId: string, deleteAuth?: boolean) => Promise<void>;
+  updateAccount: (accountId: string, label: string, phone?: string) => Promise<void>;
   startSession: () => Promise<void>;
   openManualScreen: () => Promise<void>;
   resumeManualLogin: () => Promise<void>;
@@ -321,10 +335,15 @@ function mergeRemoteJob(
 function mapCurrentStatusToAuthStatus(
   payload: ZaloCurrentStatusResponse,
 ): ZaloAuthStatus {
+  if (payload.session_expired || payload.status === "session_expired") return "session_expired";
   if (payload.status === "confirmed" && payload.can_crawl) return "confirmed";
   if (payload.status === "waiting_scan") return "waiting_scan";
   if (payload.status === "qr_expired") return "qr_expired";
   return "not_logged_in";
+}
+
+function getDisplayableQrBase64(status: ZaloAuthStatus, qrBase64?: string | null): string | null {
+  return status === "waiting_scan" && qrBase64 ? qrBase64 : null;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -400,13 +419,6 @@ function readStableZaloUserId(): string {
   return userId;
 }
 
-function buildQrImageUrl(sessionId: string | null, userId: string): string | null {
-  if (!sessionId) return null;
-  const params = new URLSearchParams({ user_id: userId });
-  if (API_KEY) params.set("api_key", API_KEY);
-  return `${API_BASE_URL}/api/zalo/auth/qr-image/${encodeURIComponent(sessionId)}?${params.toString()}`;
-}
-
 export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
   const [userId, setUserId] = useState("default");
   const [selectedWorkerId, setSelectedWorkerIdState] = useState(getDefaultZaloWorkerId());
@@ -421,6 +433,9 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
   ]);
   const [isLoadingWorkers, setIsLoadingWorkers] = useState(true);
   const [workersError, setWorkersError] = useState<string | null>(null);
+  const [accounts, setAccounts] = useState<ZaloAccountInfo[]>([]);
+  const [isLoadingAccounts, setIsLoadingAccounts] = useState(true);
+  const [accountsError, setAccountsError] = useState<string | null>(null);
   const [isUserIdReady, setIsUserIdReady] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<ZaloAuthStatus>("not_logged_in");
@@ -440,6 +455,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
   const [qrImageUrl, setQrImageUrl] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [canCrawl, setCanCrawl] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const [crawledGroups, setCrawledGroups] = useState<ZaloCrawledGroupItem[]>([]);
   const [crawledGroupsSheetUrl, setCrawledGroupsSheetUrl] =
     useState<string | null>(null);
@@ -470,7 +486,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       setUserId(readStableZaloUserId());
       setIsUserIdReady(true);
     });
-  }, []);
+  }, [userId]);
 
   useEffect(() => {
     sessionIdRef.current = sessionId;
@@ -555,14 +571,29 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     }
   }, [userId]);
 
+  const loadAccounts = useCallback(async () => {
+    setIsLoadingAccounts(true);
+    setAccountsError(null);
+    try {
+      const response = await getZaloAccounts(ZALO_ACCOUNT_OWNER_ID);
+      setAccounts(response.accounts ?? []);
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : "Không thể tải danh sách tài khoản Zalo.");
+    } finally {
+      setIsLoadingAccounts(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!isUserIdReady) return;
     void loadWorkers();
+    void loadAccounts();
     const intervalId = setInterval(() => {
       void loadWorkers();
+      void loadAccounts();
     }, 30000);
     return () => clearInterval(intervalId);
-  }, [isUserIdReady, loadWorkers]);
+  }, [isUserIdReady, loadAccounts, loadWorkers]);
 
   const loadCrawledGroups = useCallback(async () => {
     if (!isUserIdReady) return;
@@ -607,22 +638,112 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     // Worker routing is automatic by user_id; keep this no-op for compatibility.
   }, []);
 
+  const switchAccount = useCallback((accountId: string) => {
+    const nextUserId = normalizeZaloUserId(accountId);
+    if (!nextUserId || nextUserId === userId) return;
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ZALO_USER_ID_STORAGE_KEY, nextUserId);
+    }
+    clearAuthPolling();
+    clearJobPolling();
+    clearAuthEventStream();
+    clearJobEventStream();
+    setUserId(nextUserId);
+    resetAuthState();
+    setJobsByRow({});
+    setGroupRows([createGroupRow(0)]);
+    setCrawledGroups([]);
+    setCrawledGroupsTotal(0);
+    setFeedbackMessage(null);
+    setWarningMessage(null);
+    setErrorMessage(null);
+  }, [clearAuthEventStream, clearAuthPolling, clearJobEventStream, clearJobPolling, resetAuthState, userId]);
+
+  const createAccount = useCallback(async (label: string, phone?: string) => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) {
+      setErrorMessage("Nhập tên tài khoản Zalo trước.");
+      return;
+    }
+    setAccountsError(null);
+    try {
+      const accountId = normalizeZaloUserId(cleanLabel);
+      await createZaloAccount({
+        account_id: accountId,
+        owner_id: ZALO_ACCOUNT_OWNER_ID,
+        label: cleanLabel,
+        phone: phone?.trim() || undefined,
+      });
+      await loadAccounts();
+      switchAccount(accountId);
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : "Không thể tạo tài khoản Zalo.");
+    }
+  }, [loadAccounts, switchAccount]);
+
+  const deleteAccount = useCallback(async (accountId: string, deleteAuth = false) => {
+    const safeAccountId = normalizeZaloUserId(accountId);
+    try {
+      await deleteZaloAccount(safeAccountId, deleteAuth);
+      await loadAccounts();
+      if (safeAccountId === userId) {
+        switchAccount("default");
+      }
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : "Không thể xóa tài khoản Zalo.");
+    }
+  }, [loadAccounts, switchAccount, userId]);
+
+  const updateAccount = useCallback(async (accountId: string, label: string, phone?: string) => {
+    const cleanLabel = label.trim();
+    if (!cleanLabel) {
+      setErrorMessage("Nhập tên tài khoản Zalo trước.");
+      return;
+    }
+    setAccountsError(null);
+    try {
+      const safeAccountId = normalizeZaloUserId(accountId);
+      await updateZaloAccount(safeAccountId, {
+        label: cleanLabel,
+        phone: phone?.trim() || undefined,
+      });
+      await loadAccounts();
+    } catch (error) {
+      setAccountsError(error instanceof Error ? error.message : "Không thể cập nhật tài khoản Zalo.");
+    }
+  }, [loadAccounts]);
+
   const applyAuthStatus = useCallback((statusResponse: ZaloCurrentStatusResponse) => {
     setSessionId(statusResponse.session_id);
     setLoginUrl(statusResponse.login_url);
     setManualViewerUrl(statusResponse.manual_viewer_url ?? null);
-    setIsLoggedIn(statusResponse.is_logged_in);
-    setCanCrawl(statusResponse.can_crawl);
-    setAuthStatus(mapCurrentStatusToAuthStatus(statusResponse));
-    const qrBase64 = statusResponse.can_crawl ? null : statusResponse.qr_base64 ?? null;
-    setQrBase64(qrBase64);
-    setQrImageUrl(
-      statusResponse.can_crawl || qrBase64
-        ? null
-        : buildQrImageUrl(statusResponse.session_id, userId),
+    const nextAuthStatus = mapCurrentStatusToAuthStatus(statusResponse);
+    const expired = nextAuthStatus === "session_expired";
+    setSessionExpired(expired);
+    // Phiên hết hạn => coi như chưa đăng nhập để UI hiện lại flow QR.
+    setIsLoggedIn(expired ? false : statusResponse.is_logged_in);
+    setCanCrawl(expired ? false : statusResponse.can_crawl);
+    setAuthStatus(nextAuthStatus);
+    // Only update QR when the response provides a new one, or clear it on confirmed/expired.
+    // During "waiting_scan" without qr_base64 in the polling response, preserve the existing QR
+    // so it doesn't flicker or disappear between polls.
+    if (statusResponse.qr_base64) {
+      setQrBase64(statusResponse.qr_base64);
+      setQrImageUrl(null);
+    } else if (
+      nextAuthStatus === "confirmed" ||
+      nextAuthStatus === "qr_expired" ||
+      nextAuthStatus === "session_expired"
+    ) {
+      setQrBase64(null);
+      setQrImageUrl(null);
+    }
+    setWarningMessage(
+      expired
+        ? "Phiên đăng nhập Zalo đã hết hạn. Vui lòng đăng nhập lại bằng mã QR."
+        : null,
     );
-    setWarningMessage(null);
-  }, [userId]);
+  }, []);
 
   const pollAuthStatus = useCallback(async () => {
     if (!isUserIdReady) return;
@@ -832,6 +953,8 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       return;
     }
 
+    void pollRunningJobs();
+
     jobIntervalRef.current = setInterval(() => {
       void pollRunningJobs();
     }, JOB_POLL_INTERVAL_MS);
@@ -876,12 +999,13 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     setIsStartingSession(true);
     try {
       const response = await initZaloAuthSession(userId);
+      const qrBase64 = getDisplayableQrBase64(response.status, response.qr_base64);
       setSessionId(response.session_id);
       setAuthStatus(response.status);
       setIsLoggedIn(response.status === "confirmed");
       setCanCrawl(response.status === "confirmed");
-      setQrBase64(response.status === "confirmed" ? null : response.qr_base64);
-      setQrImageUrl(response.status === "confirmed" ? null : buildQrImageUrl(response.session_id, userId));
+      setQrBase64(qrBase64);
+      setQrImageUrl(null);
       setFeedbackMessage(response.status === "confirmed" ? null : MSG_QR_READY);
       void pollAuthStatus();
     } catch (error) {
@@ -908,7 +1032,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
         setCanCrawl(response.can_crawl);
         if (response.can_crawl) {
           setFeedbackMessage(
-            "Phi\u00ean Zalo \u0111\u00e3 s\u1eb5n s\u00e0ng. B\u1ea1n c\u00f3 th\u1ec3 ch\u1ea1y crawl.",
+            "Phiên Zalo đã sẵn sàng. Listener sẽ tự lưu tin nhắn mới.",
           );
           void pollAuthStatus();
           return;
@@ -931,13 +1055,16 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     }
   }, [pollAuthStatus, userId]);
 
+
+
+
   const addGroupRow = useCallback(() => {
     setGroupRows((previous) => {
       const nextSeed = previous.length;
       return [
         ...previous,
         {
-          id: `zalo-group-${nextSeed}-${crypto.randomUUID()}`,
+          id: `zalo-group-${nextSeed}-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
           groupName: "",
           sheetTab: "",
           verifyStatus: "unchecked",
@@ -993,7 +1120,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       return [
         ...previous,
         {
-          id: `zalo-group-${previous.length}-${crypto.randomUUID()}`,
+          id: `zalo-group-${previous.length}-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
           groupName,
           sheetTab,
           verifyStatus: "unchecked",
@@ -1281,10 +1408,6 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     setErrorMessage(null);
     setWarningMessage(null);
     try {
-      const currentSessionId = sessionIdRef.current;
-      if (currentSessionId) {
-        await deleteZaloSession(currentSessionId);
-      }
       await deleteAllZaloSessions(userId);
       resetAuthState();
       setJobsByRow({});
@@ -1324,12 +1447,13 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     setIsStartingSession(true);
     try {
       const response = await refreshZaloLoginQr(userId);
+      const qrBase64 = getDisplayableQrBase64(response.status, response.qr_base64);
       setSessionId(response.session_id);
       setAuthStatus(response.status);
       setIsLoggedIn(response.status === "confirmed");
       setCanCrawl(response.status === "confirmed");
-      setQrBase64(response.status === "confirmed" ? null : response.qr_base64);
-      setQrImageUrl(response.status === "confirmed" ? null : buildQrImageUrl(response.session_id, userId));
+      setQrBase64(qrBase64);
+      setQrImageUrl(null);
       setFeedbackMessage(response.status === "confirmed" ? null : MSG_QR_READY);
       void pollAuthStatus();
     } catch (error) {
@@ -1376,8 +1500,11 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     userId,
     selectedWorkerId,
     workers,
+    accounts,
     isLoadingWorkers,
+    isLoadingAccounts,
     workersError,
+    accountsError,
     sessionId,
     authStatus,
     isCheckingLoginStatus,
@@ -1396,6 +1523,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     qrImageUrl,
     isLoggedIn,
     canCrawl,
+    sessionExpired,
     crawledGroups,
     crawledGroupsSheetUrl,
     crawledGroupsTotal,
@@ -1417,6 +1545,11 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     maxMessagesPerGroup,
     setMaxMessagesPerGroup,
     switchWorker,
+    switchAccount,
+    refreshLoginStatus: pollAuthStatus,
+    createAccount,
+    deleteAccount,
+    updateAccount,
     startSession,
     openManualScreen,
     resumeManualLogin,

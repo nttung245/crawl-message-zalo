@@ -18,6 +18,7 @@ const AUTH_LABELS = {
   waiting_scan: "Đang chờ xác nhận",
   qr_expired: "QR đã hết hạn",
   not_logged_in: "Chưa đăng nhập",
+  session_expired: "Phiên đã hết hạn",
   checking: "Đang kiểm tra",
 } as const;
 

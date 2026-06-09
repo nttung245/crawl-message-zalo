@@ -15,6 +15,18 @@
   --radius-xl: 0.5rem;
   --radius-lg: 0.25rem;
 
+  --width-xs: 20rem;
+  --width-sm: 24rem;
+  --width-md: 28rem;
+  --width-lg: 32rem;
+  --width-xl: 36rem;
+
+  --max-width-xs: 20rem;
+  --max-width-sm: 24rem;
+  --max-width-md: 28rem;
+  --max-width-lg: 32rem;
+  --max-width-xl: 36rem;
+
   --color-background: #f6faff;
   --color-foreground: #171c20;
   --color-on-background: #171c20;
