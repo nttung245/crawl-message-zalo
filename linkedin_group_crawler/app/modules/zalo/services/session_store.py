@@ -6,10 +6,10 @@ mode is a single Uvicorn worker with in-process session storage and a
 persistent Chromium profile mounted on disk.
 """
 
+from typing import Dict, Optional, Set
 import asyncio
 import os
 from datetime import datetime, timedelta
-from typing import Dict, Optional
 
 from loguru import logger
 
@@ -140,7 +140,7 @@ async def get_latest_waiting_session(
 
 async def get_latest_session_for_user(
     user_id: str,
-    preferred_statuses: Optional[set[str]] = None,
+    preferred_statuses: Optional[Set[str]] = None,
 ) -> Optional[SessionData]:
     """Get latest session for user with optional status filter."""
     if _is_redis_enabled():
@@ -150,6 +150,40 @@ async def get_latest_session_for_user(
         session
         for session in session_store.values()
         if session.user_id == user_id
+        and (preferred_statuses is None or session.status in preferred_statuses)
+    ]
+    if not candidates:
+        return None
+    def _session_priority(session: SessionData) -> int:
+        if session.status == "confirmed" and getattr(session, "zca_auth", None):
+            return 3
+        if session.status == "confirmed":
+            return 2
+        if session.status == "waiting_scan":
+            return 1
+        return 0
+
+    candidates.sort(key=lambda s: (_session_priority(s), s.last_used, s.created_at), reverse=True)
+    latest = candidates[0]
+    latest.last_used = datetime.utcnow()
+    return latest
+
+
+async def get_latest_browser_session_for_user(
+    user_id: str,
+    preferred_statuses: Optional[Set[str]] = None,
+) -> Optional[SessionData]:
+    """Get latest session that has a live Playwright page for UI fallback."""
+    if _is_redis_enabled():
+        # Redis-backed Zalo sessions are intentionally unsupported because live
+        # Playwright objects cannot be serialized.
+        return None
+
+    candidates = [
+        session
+        for session in session_store.values()
+        if session.user_id == user_id
+        and session.page is not None
         and (preferred_statuses is None or session.status in preferred_statuses)
     ]
     if not candidates:
@@ -168,8 +202,15 @@ async def delete_session(session_id: str) -> None:
         session = session_store.pop(session_id, None)
         session_locks.pop(session_id, None)
         if session:
+            proc = getattr(session, "qr_process", None)
+            if proc:
+                try:
+                    proc.terminate()
+                except Exception as e:
+                    logger.warning(f"Error terminating QR process for session {session_id}: {e}")
             try:
-                await session.context.close()
+                if session.context:
+                    await session.context.close()
             except Exception as e:
                 logger.warning(f"Error closing context for session {session_id}: {e}")
             try:

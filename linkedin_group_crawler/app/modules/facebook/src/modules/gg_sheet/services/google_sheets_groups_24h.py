@@ -1,5 +1,5 @@
+from typing import Any, Dict, List, Optional
 import logging
-from typing import List, Dict, Any, Optional
 import gspread
 from google.oauth2.service_account import Credentials
 

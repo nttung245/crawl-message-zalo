@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date, datetime
 import re
-from typing import Any
 
 from app.core.logger import get_logger
 
@@ -60,7 +60,7 @@ _DATE_KEY_CANDIDATES = (
 )
 
 
-def posts_from_n8n_payload(body: Any) -> list[dict[str, Any]]:
+def posts_from_n8n_payload(body: Any) -> List[Dict[str, Any]]:
     """Trích list bài: array thuần; hoặc ``posts`` / ``data`` (chuẩn n8n ``{ success, data: [...] }``)."""
 
     if body is None:
@@ -83,7 +83,7 @@ def posts_from_n8n_payload(body: Any) -> list[dict[str, Any]]:
     return []
 
 
-def normalize_n8n_sheet_post(post: dict[str, Any]) -> dict[str, Any]:
+def normalize_n8n_sheet_post(post: Dict[str, Any]) -> Dict[str, Any]:
     """Gán ``id_session_crawl`` chuẩn nếu webhook dùng alias (vd. ``ID_session_crawl``)."""
 
     out = dict(post)
@@ -99,11 +99,11 @@ def normalize_n8n_sheet_post(post: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def normalize_n8n_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def normalize_n8n_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [normalize_n8n_sheet_post(p) for p in posts]
 
 
-def _parse_iso_date_fragment(text: str) -> date | None:
+def _parse_iso_date_fragment(text: str) -> Optional[date]:
     text = (text or "").strip()
     if len(text) < 10:
         return None
@@ -121,7 +121,7 @@ def _parse_iso_date_fragment(text: str) -> date | None:
     return None
 
 
-def parse_post_record_date(record: dict[str, Any]) -> date | None:
+def parse_post_record_date(record: Dict[str, Any]) -> Optional[date]:
     """Lấy một ngày lịch (date) từ một bản ghi post kiểu sheet/webhook."""
 
     for key in _DATE_KEY_CANDIDATES:
@@ -144,13 +144,13 @@ def parse_post_record_date(record: dict[str, Any]) -> date | None:
 
 
 def filter_posts_by_inclusive_date_range(
-    posts: list[dict[str, Any]],
-    start: date | None,
-    end: date | None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    posts: List[Dict[str, Any]],
+    start: Optional[date],
+    end: Optional[date],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
     """Lọc inclusive ``start``..``end``. Nếu cả hai None → không lọc."""
 
-    meta: dict[str, Any] = {"mode": "none", "start": None, "end": None}
+    meta: Dict[str, Any] = {"mode": "none", "start": None, "end": None}
     if start is None and end is None:
         return list(posts), meta
 
@@ -158,7 +158,7 @@ def filter_posts_by_inclusive_date_range(
     meta["start"] = start.isoformat() if start else None
     meta["end"] = end.isoformat() if end else None
 
-    kept: list[dict[str, Any]] = []
+    kept: List[Dict[str, Any]] = []
     skipped_no_date = 0
     for item in posts:
         d = parse_post_record_date(item)
@@ -184,7 +184,7 @@ def _non_empty_str(raw: Any) -> str:
     return s
 
 
-def session_id_from_post(post: dict[str, Any]) -> str:
+def session_id_from_post(post: Dict[str, Any]) -> str:
     """Chuẩn hoá id phiên cào để gom nhóm (khớp output /crawl-linkedin-group)."""
 
     for key in _SESSION_ID_KEYS_EXACT:
@@ -201,7 +201,7 @@ def session_id_from_post(post: dict[str, Any]) -> str:
     return UNKNOWN_SESSION_ID
 
 
-def group_url_from_post(post: dict[str, Any]) -> str:
+def group_url_from_post(post: Dict[str, Any]) -> str:
     for key in _GROUP_URL_KEYS_EXACT:
         val = _non_empty_str(post.get(key))
         if val:
@@ -215,7 +215,7 @@ def group_url_from_post(post: dict[str, Any]) -> str:
     return ""
 
 
-def group_name_from_post(post: dict[str, Any]) -> str:
+def group_name_from_post(post: Dict[str, Any]) -> str:
     for key in _GROUP_NAME_KEYS_EXACT:
         val = _non_empty_str(post.get(key))
         if val:
@@ -231,7 +231,7 @@ def group_name_from_post(post: dict[str, Any]) -> str:
     return ""
 
 
-def email_crawl_from_post(post: dict[str, Any]) -> str:
+def email_crawl_from_post(post: Dict[str, Any]) -> str:
     for key in _EMAIL_CRAWL_KEYS_EXACT:
         val = _non_empty_str(post.get(key))
         if val:
@@ -239,13 +239,13 @@ def email_crawl_from_post(post: dict[str, Any]) -> str:
     return ""
 
 
-def _session_sort_latest_post_date(posts: list[dict[str, Any]]) -> date:
+def _session_sort_latest_post_date(posts: List[Dict[str, Any]]) -> date:
     dates = [parse_post_record_date(p) for p in posts]
     ok = [d for d in dates if d is not None]
     return max(ok) if ok else date.min
 
 
-def _int_field(post: dict[str, Any], keys: tuple[str, ...]) -> int:
+def _int_field(post: Dict[str, Any], keys: Tuple[str, ...]) -> int:
     for k in keys:
         if k not in post:
             continue
@@ -257,7 +257,7 @@ def _int_field(post: dict[str, Any], keys: tuple[str, ...]) -> int:
     return 0
 
 
-def post_rank_key(post: dict[str, Any]) -> tuple[int, int, int]:
+def post_rank_key(post: Dict[str, Any]) -> Tuple[int, int, int]:
     """So sánh bài “hot” nhất: Điểm → like → comment (sheet / webhook)."""
 
     score = _int_field(post, ("Điểm", "score", "Score"))
@@ -266,7 +266,7 @@ def post_rank_key(post: dict[str, Any]) -> tuple[int, int, int]:
     return (score, likes, comments)
 
 
-def group_key_from_post(post: dict[str, Any]) -> str:
+def group_key_from_post(post: Dict[str, Any]) -> str:
     """Khóa nhóm LinkedIn để mỗi nhóm chỉ giữ một bài trong phiên."""
 
     u = group_url_from_post(post).strip()
@@ -284,7 +284,7 @@ _ROW_NUMBER_KEYS_EXACT = (
 )
 
 
-def _post_has_meaningful_row_number(post: dict[str, Any]) -> bool:
+def _post_has_meaningful_row_number(post: Dict[str, Any]) -> bool:
     """Ô STT / row_number có số nguyên > 0 (không trống / 0)."""
 
     for key in _ROW_NUMBER_KEYS_EXACT:
@@ -308,7 +308,7 @@ def _post_has_meaningful_row_number(post: dict[str, Any]) -> bool:
     return False
 
 
-def enrich_post_row_number_if_missing(post: dict[str, Any], ordinal: int) -> dict[str, Any]:
+def enrich_post_row_number_if_missing(post: Dict[str, Any], ordinal: int) -> Dict[str, Any]:
     """Gán ``row_number`` / ``rowNumber`` = thứ tự trong phiên (1…n) khi sheet/n8n không có."""
 
     if _post_has_meaningful_row_number(post):
@@ -321,11 +321,11 @@ def enrich_post_row_number_if_missing(post: dict[str, Any], ordinal: int) -> dic
     return out
 
 
-def pick_top_post_per_group(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def pick_top_post_per_group(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Trong một phiên cào: mỗi nhóm một bài — chọn bài rank cao nhất; thứ tự nhóm = lần đầu gặp."""
 
-    buckets: dict[str, list[dict[str, Any]]] = {}
-    order_keys: list[str] = []
+    buckets: Dict[str, List[Dict[str, Any]]] = {}
+    order_keys: List[str] = []
     for p in posts:
         key = group_key_from_post(p)
         if key not in buckets:
@@ -335,11 +335,11 @@ def pick_top_post_per_group(posts: list[dict[str, Any]]) -> list[dict[str, Any]]
     return [max(buckets[k], key=post_rank_key) for k in order_keys]
 
 
-def build_crawl_sessions_from_posts(posts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def build_crawl_sessions_from_posts(posts: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Gom theo ``id_session_crawl``; trong mỗi phiên mỗi nhóm chỉ 1 bài (điểm cao nhất); sort phiên mới nhất trước."""
 
-    bucket_posts: dict[str, list[dict[str, Any]]] = {}
-    order: list[str] = []
+    bucket_posts: Dict[str, List[Dict[str, Any]]] = {}
+    order: List[str] = []
 
     for item in posts:
         sid = session_id_from_post(item)
@@ -348,7 +348,7 @@ def build_crawl_sessions_from_posts(posts: list[dict[str, Any]]) -> list[dict[st
             order.append(sid)
         bucket_posts[sid].append(item)
 
-    sessions: list[dict[str, Any]] = []
+    sessions: List[Dict[str, Any]] = []
     for sid in order:
         plist_raw = pick_top_post_per_group(bucket_posts[sid])
         plist = [
@@ -384,10 +384,10 @@ def build_crawl_sessions_from_posts(posts: list[dict[str, Any]]) -> list[dict[st
     return sessions
 
 
-def flatten_crawl_sessions_posts(crawl_sessions: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def flatten_crawl_sessions_posts(crawl_sessions: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Nối ``posts`` của từng phiên theo đúng thứ tự ``crawl_sessions`` (đã sort lần cào)."""
 
-    ordered: list[dict[str, Any]] = []
+    ordered: List[Dict[str, Any]] = []
     for s in crawl_sessions:
         inner = s.get("posts")
         if isinstance(inner, list):

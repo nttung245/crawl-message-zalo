@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 import json
 import random
 import re
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 from playwright.sync_api import Error, Page, sync_playwright
@@ -55,7 +55,7 @@ def normalize_group_url(url: str) -> str:
     return f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
-def extract_member_count_from_html(html: str) -> int | None:
+def extract_member_count_from_html(html: str) -> Optional[int]:
     for pat in _MEMBER_COUNT_PATTERNS:
         m = pat.search(html or "")
         if m:
@@ -99,7 +99,7 @@ def _extract_group_name_from_page(page: Page) -> str:
     return ""
 
 
-def scrape_group_metadata(page: Page, group_url: str) -> tuple[str, int | None]:
+def scrape_group_metadata(page: Page, group_url: str) -> Tuple[str, Optional[int]]:
     """Mở trang nhóm, trả về (name_group, member_count)."""
 
     page.goto(group_url, wait_until="domcontentloaded", timeout=90000)
@@ -116,12 +116,12 @@ def scrape_group_metadata(page: Page, group_url: str) -> tuple[str, int | None]:
 
 def bulk_scrape_groups(
     *,
-    group_urls: list[str],
-    session_id: str | None,
-    email: str | None,
+    group_urls: List[str],
+    session_id: Optional[str],
+    email: Optional[str],
     delay_min_sec: float = 2.0,
     delay_max_sec: float = 5.0,
-) -> list[dict[str, Any]]:
+) -> List[Dict[str, Any]]:
     """Mở một browser context (có session nếu có), cào lần lượt từng URL."""
 
     normalized_urls = [normalize_group_url(u) for u in group_urls if (u or "").strip()]
@@ -134,7 +134,7 @@ def bulk_scrape_groups(
             state_path,
         )
 
-    results: list[dict[str, Any]] = []
+    results: List[Dict[str, Any]] = []
 
     with sync_playwright() as p:
         browser = p.chromium.launch(
@@ -163,7 +163,7 @@ def bulk_scrape_groups(
                         max(delay_min_sec, delay_max_sec),
                     )
                     page.wait_for_timeout(int(time_sleep * 1000))
-                item: dict[str, Any] = {
+                item: Dict[str, Any] = {
                     "url_group": url,
                     "name_group": "",
                     "member": 0,

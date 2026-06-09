@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Optional
 from datetime import date, datetime, timedelta
 import re
 
 
-def normalize_relative_time(raw: str, crawl_time: datetime) -> datetime | None:
+def normalize_relative_time(raw: str, crawl_time: datetime) -> Optional[datetime]:
     """Convert LinkedIn relative time like 5m, 2h, 1d into an absolute datetime."""
 
     if not raw:
@@ -29,7 +30,7 @@ def normalize_relative_time(raw: str, crawl_time: datetime) -> datetime | None:
     return None
 
 
-def parse_target_date(target_date: str | None, crawl_time: datetime) -> date:
+def parse_target_date(target_date: Optional[str], crawl_time: datetime) -> date:
     """Parse target date or fallback to crawl date."""
 
     if not target_date:

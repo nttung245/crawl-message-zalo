@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import date, datetime, timedelta, timezone
 import json
 import random
 import re
 import time
-from typing import Any
 from typing_extensions import Annotated
 
 import httpx
@@ -171,7 +171,7 @@ def _state_path_for_response(state_path) -> str:
         return str(state_path)
 
 
-def _compute_filter_date_window(payload: FilterDataRequest) -> tuple[date | None, date | None]:
+def _compute_filter_date_window(payload: FilterDataRequest) -> Tuple[Optional[date], Optional[date]]:
     """Trả về (start, end) inclusive theo payload; cả hai None = không lọc ngày."""
 
     today = datetime.now().date()
@@ -198,7 +198,7 @@ def _compute_filter_date_window(payload: FilterDataRequest) -> tuple[date | None
     return None, None
 
 
-def _crawl_id_session_prefix(email: str | None, session_id: str | None, resolved_linkedin_session_id: str) -> str:
+def _crawl_id_session_prefix(email: Optional[str], session_id: Optional[str], resolved_linkedin_session_id: str) -> str:
     """Phần trước dấu `_` của id_session_crawl (POST /start): ưu tiên local-part email LinkedIn."""
 
     raw_email = (email or "").strip().lower()
@@ -214,7 +214,7 @@ def _crawl_id_session_prefix(email: str | None, session_id: str | None, resolved
     return "session"
 
 
-def _extract_webhook_message_and_payload(raw_preview: str) -> tuple[str | None, Any]:
+def _extract_webhook_message_and_payload(raw_preview: str) -> Tuple[Optional[str], Any]:
     """Parse preview text thành message/payload để frontend hiển thị dễ hơn."""
 
     text = (raw_preview or "").strip()
@@ -244,7 +244,7 @@ def get_settings() -> Settings:
     return settings
 
 
-def verify_api_key(x_api_key: str | None = Header(default=None)) -> None:
+def verify_api_key(x_api_key: Optional[str] = Header(default=None)) -> None:
     """Optionally protect endpoints with an API key."""
 
     if not settings.api_key:
@@ -332,7 +332,7 @@ def system_status() -> StatusResponse:
     )
 
 
-def _pool_prime_fields(pool_prime: dict[str, Any] | None) -> dict[str, int | None]:
+def _pool_prime_fields(pool_prime: Optional[Dict[str, Any]]) -> Dict[str, Optional[int]]:
     if not pool_prime:
         return {
             "playwright_pool_primed_workers": None,
@@ -346,7 +346,7 @@ def _pool_prime_fields(pool_prime: dict[str, Any] | None) -> dict[str, int | Non
 
 def _login_success_message(
     base: str,
-    pool_prime: dict[str, Any] | None,
+    pool_prime: Optional[Dict[str, Any]],
 ) -> str:
     if not pool_prime:
         return base
@@ -745,8 +745,8 @@ def _truncate_webhook_preview(raw: str, limit: int = 512) -> str:
 
 def _resolve_crawler_email_for_n8n_groups(
     *,
-    body_email: str | None,
-    email_crawl: str | None = None,
+    body_email: Optional[str],
+    email_crawl: Optional[str] = None,
 ) -> str:
     """Ưu tiên cookie ``email_crawl`` (frontend), sau đó ``body.email``."""
 
@@ -772,7 +772,7 @@ def _parse_n8n_json_body_optional(full_text: str) -> Any:
         return {"raw": text[:4096]}
 
 
-def _pick_n8n_message(parsed: Any) -> str | None:
+def _pick_n8n_message(parsed: Any) -> Optional[str]:
     """Lấy message từ JSON trả về của node Respond to Webhook (nếu có)."""
 
     if isinstance(parsed, dict):
@@ -785,16 +785,16 @@ def _pick_n8n_message(parsed: Any) -> str | None:
 
 def _resolve_bulk_add_group_email(
     *,
-    body_email: str | None,
-    email_crawl: str | None = None,
-) -> str | None:
+    body_email: Optional[str],
+    email_crawl: Optional[str] = None,
+) -> Optional[str]:
     """Ưu tiên cookie ``email_crawl``; fallback ``body.email``; thiếu cả hai vẫn cho phép."""
 
     merged = ((email_crawl or "").strip() or (body_email or "").strip())
     return merged or None
 
 
-def _bulk_add_group_webhook_email_payload(email: str) -> dict[str, str]:
+def _bulk_add_group_webhook_email_payload(email: str) -> Dict[str, str]:
     """Giữ alias email nhất quán với các route n8n nhóm khác."""
 
     e = email.strip()
@@ -805,7 +805,7 @@ def _bulk_add_group_webhook_email_payload(email: str) -> dict[str, str]:
     }
 
 
-def _n8n_get_all_groups_webhook_body(email: str) -> dict[str, Any]:
+def _n8n_get_all_groups_webhook_body(email: str) -> Dict[str, Any]:
     """Payload gửi n8n: một email thống nhất (alias) để workflow lọc **tất cả nhóm** theo owner."""
 
     e = email.strip()
@@ -816,7 +816,7 @@ def _n8n_get_all_groups_webhook_body(email: str) -> dict[str, Any]:
     }
 
 
-def _pick_group_rows(parsed: Any) -> list[dict[str, Any]]:
+def _pick_group_rows(parsed: Any) -> List[Dict[str, Any]]:
     """Trích mảng dòng nhóm từ JSON n8n.
 
     Khớp các dạng hay gặp (cùng ``linkedin-crawler-ui/lib/n8n-groups-normalize.ts``):
@@ -838,18 +838,18 @@ def _pick_group_rows(parsed: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _pick_group_field(item: dict[str, Any], keys: tuple[str, ...]) -> Any:
+def _pick_group_field(item: Dict[str, Any], keys: Tuple[str, ...]) -> Any:
     for key in keys:
         if key in item:
             return item.get(key)
     return None
 
 
-def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = []
+def _normalize_n8n_groups(parsed: Any) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
     for item in _pick_group_rows(parsed):
         raw_row = _pick_group_field(item, ("row_number", "rowNumber", "stt", "STT"))
-        row_number: int | None = None
+        row_number: Optional[int] = None
         try:
             if raw_row is not None and str(raw_row).strip():
                 row_number = int(raw_row)
@@ -893,7 +893,7 @@ def _normalize_n8n_groups(parsed: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _forward_n8n_group_webhook(*, url: str, env_hint: str, json_body: dict[str, Any]) -> BaseResponse:
+def _forward_n8n_group_webhook(*, url: str, env_hint: str, json_body: Dict[str, Any]) -> BaseResponse:
     target = (url or "").strip()
     if not target:
         return BaseResponse(
@@ -1229,7 +1229,7 @@ def n8n_webhook_get_result_crawl_by_id(
 )
 def n8n_groups_get_all(
     payload: N8nGetAllGroupsRequest,
-    email_crawl: Annotated[str | None, Cookie()] = None,
+    email_crawl: Annotated[Optional[str], Cookie()] = None,
 ) -> BaseResponse:
     """Lấy **tất cả nhóm** theo email: POST tới ``N8N_WEBHOOK_GET_GROUP`` với ``email`` / ``Email_crawl`` / ``userEmail`` (cùng một giá trị sau khi resolve).
 
@@ -1272,7 +1272,7 @@ def n8n_groups_get_all(
 )
 def n8n_groups_add(
     payload: N8nAddGroupRequest,
-    email_crawl: Annotated[str | None, Cookie()] = None,
+    email_crawl: Annotated[Optional[str], Cookie()] = None,
 ) -> BaseResponse:
     """POST ``url_group``, ``name_group``, ``member``, ``email`` tới ``N8N_WEBHOOK_ADD_GROUP``."""
 
@@ -1294,7 +1294,7 @@ def n8n_groups_add(
 )
 def n8n_groups_remove(
     payload: N8nRemoveGroupRequest,
-    email_crawl: Annotated[str | None, Cookie()] = None,
+    email_crawl: Annotated[Optional[str], Cookie()] = None,
 ) -> BaseResponse:
     """POST ``url_group``, ``email`` tới ``N8N_WEBHOOK_REMOVE_GROUP``."""
 
@@ -1316,7 +1316,7 @@ def n8n_groups_remove(
 )
 def n8n_groups_update(
     payload: N8nUpdateGroupRequest,
-    email_crawl: Annotated[str | None, Cookie()] = None,
+    email_crawl: Annotated[Optional[str], Cookie()] = None,
 ) -> BaseResponse:
     """POST payload cập nhật nhóm tới ``N8N_WEBHOOK_UPDATE_GROUP``; trường ``new_*`` trống → giữ giá trị cũ."""
 
@@ -1338,7 +1338,7 @@ def n8n_groups_update(
 )
 def add_list_group(
     payload: AddListGroupRequest,
-    email_crawl: Annotated[str | None, Cookie()] = None,
+    email_crawl: Annotated[Optional[str], Cookie()] = None,
 ) -> BulkGroupImportResponse:
     """Cào hàng loạt URL nhóm, sau đó (tuỳ chọn) POST batch sang ``N8N_WEBHOOK_ADD_LIST_GROUP``."""
 
@@ -1415,7 +1415,7 @@ def add_list_group(
         }
         for item in scraped_items
     ]
-    webhook_payload: dict[str, Any] = {
+    webhook_payload: Dict[str, Any] = {
         **_bulk_add_group_webhook_email_payload(owner_email),
         "items": items_for_webhook,
         "total": len(items_for_webhook),
@@ -1491,7 +1491,7 @@ def filter_data(payload: FilterDataRequest) -> FilterDataResponse:
         except ValueError as ve:
             return FilterDataResponse(success=False, message=str(ve), data=None)
 
-        webhook_payload: dict[str, Any] = {"email": payload.email}
+        webhook_payload: Dict[str, Any] = {"email": payload.email}
 
         timeout = max(1.0, float(settings.n8n_webhook_timeout_sec))
 
@@ -1834,7 +1834,7 @@ def linkedin_app_crawl_batch(payload: LinkedinAppCrawlBatchRequest) -> LinkedinA
         int(payload.scroll_delay_max_sec * 1000) if payload.scroll_delay_max_sec is not None else None
     )
 
-    results: list[LinkedinAppCrawlGroupResult] = []
+    results: List[LinkedinAppCrawlGroupResult] = []
 
     for index, url in enumerate(payload.group_urls):
         if index > 0 and gmax_f > 0:
@@ -2334,9 +2334,9 @@ def _norm_header_key(key: str) -> str:
     return "".join(ch for ch in s if ch not in " \t\n\r-_")
 
 
-def _row_get_ci(row: dict[str, Any], *logical_names: str) -> Any:
+def _row_get_ci(row: Dict[str, Any], *logical_names: str) -> Any:
     """Lấy giá trị theo tên cột tương đương (Google Sheet / n8n đổi tên cột)."""
-    idx: dict[str, Any] = {}
+    idx: Dict[str, Any] = {}
     for k, v in row.items():
         nk = _norm_header_key(str(k))
         if nk not in idx:
@@ -2348,7 +2348,7 @@ def _row_get_ci(row: dict[str, Any], *logical_names: str) -> Any:
     return None
 
 
-def _unwrap_n8n_row(item: dict[str, Any]) -> dict[str, Any]:
+def _unwrap_n8n_row(item: Dict[str, Any]) -> Dict[str, Any]:
     """Một item n8n thường là ``{ \"json\": { ...dòng sheet... } }``."""
     inner = item.get("json")
     if isinstance(inner, dict):
@@ -2356,12 +2356,12 @@ def _unwrap_n8n_row(item: dict[str, Any]) -> dict[str, Any]:
     return item
 
 
-def _row_looks_like_profile(row: dict[str, Any]) -> bool:
+def _row_looks_like_profile(row: Dict[str, Any]) -> bool:
     email = str(_row_get_ci(row, "email", "Email", "Email_crawl", "email_crawl", "userEmail", "mail") or "").strip()
     return bool(email and "@" in email)
 
 
-def _coerce_payload_to_row_dicts(parsed: Any) -> list[dict[str, Any]]:
+def _coerce_payload_to_row_dicts(parsed: Any) -> List[Dict[str, Any]]:
     """Đệ quy / đa dạng format: list, ``{data:[]}``, n8n ``[{json:{}}]``, dict index→row."""
     if parsed is None:
         return []
@@ -2371,7 +2371,7 @@ def _coerce_payload_to_row_dicts(parsed: Any) -> list[dict[str, Any]]:
         except Exception:
             return []
     if isinstance(parsed, list):
-        out: list[dict[str, Any]] = []
+        out: List[Dict[str, Any]] = []
         for item in parsed:
             if not isinstance(item, dict):
                 continue
@@ -2403,7 +2403,7 @@ def _coerce_payload_to_row_dicts(parsed: Any) -> list[dict[str, Any]]:
     return []
 
 
-def _parse_get_all_kpi_rows(response_text: str) -> list[dict[str, Any]]:
+def _parse_get_all_kpi_rows(response_text: str) -> List[Dict[str, Any]]:
     """Chuẩn hóa n8n / Google Sheet → list dict dòng profile."""
     try:
         parsed = json.loads(response_text)
@@ -2413,11 +2413,11 @@ def _parse_get_all_kpi_rows(response_text: str) -> list[dict[str, Any]]:
 
 
 def _normalize_kpi_member_row(
-    row: dict[str, Any],
+    row: Dict[str, Any],
     leader_email: str,
     *,
     require_leader_match: bool = True,
-) -> KpiMemberData | None:
+) -> Optional[KpiMemberData]:
     """Map dòng sheet → ``KpiMemberData``.
 
     ``require_leader_match=True`` (get-all): lọc theo ``email_leader`` trùng leader gọi API.
@@ -2452,7 +2452,7 @@ def _normalize_kpi_member_row(
             return None
         if row_leader and row_leader != leader_norm:
             return None
-        effective_leader: str | None = row_leader or leader_norm
+        effective_leader: Optional[str] = row_leader or leader_norm
     else:
         leader_norm = ""
         effective_leader = row_leader or None
@@ -2476,9 +2476,9 @@ def _normalize_kpi_member_row(
     )
 
 
-def _parse_kpi_field_to_dict_list(raw: Any) -> list[dict[str, Any]]:
-    """Sheet/n8n hay trả ``kpi`` là JSON string hoặc một object — ép về ``list[dict]`` cho Pydantic."""
-    out: list[dict[str, Any]] = []
+def _parse_kpi_field_to_dict_list(raw: Any) -> List[Dict[str, Any]]:
+    """Sheet/n8n hay trả ``kpi`` là JSON string hoặc một object — ép về ``List[dict]`` cho Pydantic."""
+    out: List[Dict[str, Any]] = []
     if isinstance(raw, list):
         for el in raw:
             if isinstance(el, dict):
@@ -2519,7 +2519,7 @@ def get_all_kpi(payload: GetAllKpiRequest) -> GetAllKpiResponse:
             json_body={"email_leader": leader},
         )
         raw_rows = _parse_get_all_kpi_rows(response_text)
-        normalized: list[KpiMemberData] = []
+        normalized: List[KpiMemberData] = []
         for item in raw_rows:
             mem = _normalize_kpi_member_row(item, leader)
             if mem is not None:
@@ -2554,7 +2554,7 @@ def get_kpi_by_email(payload: GetKpiByEmailRequest) -> GetKpiByEmailResponse:
         )
         parsed = json.loads(response_text)
         raw_rows = _coerce_payload_to_row_dicts(parsed)
-        normalized: list[KpiMemberData] = []
+        normalized: List[KpiMemberData] = []
         for item in raw_rows:
             mem = _normalize_kpi_member_row(
                 item,

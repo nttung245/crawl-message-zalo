@@ -1,6 +1,6 @@
+from typing import List, Optional
 import logging
 import asyncio
-from typing import List, Optional
 from fastapi import HTTPException, status 
 from fastapi.concurrency import run_in_threadpool
 from app.modules.facebook.src.modules.crawl_fb.schemas.crawl_schema import CrawlPayload

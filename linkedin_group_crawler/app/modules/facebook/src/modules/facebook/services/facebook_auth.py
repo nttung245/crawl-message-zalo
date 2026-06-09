@@ -1,8 +1,8 @@
+from typing import Any, Dict, Optional, Tuple
 import json
 import re
 import time
 from pathlib import Path
-from typing import Dict, Any, Optional
 from playwright_stealth import Stealth
 import pyotp
 from playwright.sync_api import sync_playwright, Page, BrowserContext, Browser, TimeoutError as PlaywrightTimeoutError
@@ -168,7 +168,7 @@ class FacebookAuth:
     # PRIVATE METHODS - CORE LOGIC
     # ─────────────────────────────────────────────────────────────────────────────
 
-    def _init_browser(self, p: Any) -> tuple[Browser, BrowserContext, Page]:
+    def _init_browser(self, p: Any) -> Tuple[Browser, BrowserContext, Page]:
         browser = p.chromium.launch(
             headless=True,
             channel="chrome", 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import List, Set
 import hashlib
 import os
 from dataclasses import dataclass
@@ -24,9 +25,9 @@ def _normalize_worker_id(value: str) -> str:
     return "".join(ch for ch in normalized if ch.isalnum() or ch in {"-", "."})
 
 
-def _parse_worker_entries(raw: str) -> list[ZaloBrowserWorker]:
-    workers: list[ZaloBrowserWorker] = []
-    seen: set[str] = set()
+def _parse_worker_entries(raw: str) -> List[ZaloBrowserWorker]:
+    workers: List[ZaloBrowserWorker] = []
+    seen: Set[str] = set()
 
     for index, entry in enumerate(part.strip() for part in raw.split(",") if part.strip()):
         if "=" in entry:
@@ -50,7 +51,7 @@ def _parse_worker_entries(raw: str) -> list[ZaloBrowserWorker]:
     return workers
 
 
-def get_zalo_browser_workers() -> list[ZaloBrowserWorker]:
+def get_zalo_browser_workers() -> List[ZaloBrowserWorker]:
     multi_worker_urls = (os.getenv("ZALO_BROWSER_SERVICE_URLS") or "").strip()
     if multi_worker_urls:
         workers = _parse_worker_entries(multi_worker_urls)
@@ -83,7 +84,7 @@ def _user_id_from_request(request: Request) -> str:
     )
 
 
-def _select_worker_for_user(workers: list[ZaloBrowserWorker], user_id: str) -> ZaloBrowserWorker:
+def _select_worker_for_user(workers: List[ZaloBrowserWorker], user_id: str) -> ZaloBrowserWorker:
     if len(workers) == 1:
         return workers[0]
 

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict
 import math
 from datetime import date, datetime, timezone
 from decimal import Decimal
 from enum import Enum
-from typing import Any
 from uuid import UUID
 
 
@@ -37,7 +37,7 @@ def sanitize_webhook_payload(obj: Any) -> Any:
     if isinstance(obj, Enum):
         return obj.value
     if isinstance(obj, dict):
-        out: dict[str, Any] = {}
+        out: Dict[str, Any] = {}
         for k, v in obj.items():
             sk = k if isinstance(k, str) else str(k)
             out[sk] = sanitize_webhook_payload(v)

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final, Optional, Tuple
 import platform
-from typing import Final
 from urllib.parse import urlparse
 
 from playwright.sync_api import Error, Page, TimeoutError as PlaywrightTimeoutError
@@ -17,7 +17,7 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-_COMMENT_OPEN_TRIGGER_SELECTORS: Final[tuple[str, ...]] = (
+_COMMENT_OPEN_TRIGGER_SELECTORS: Final[Tuple[str, ...]] = (
     'button[aria-label="Comment"]',
     'button[aria-label*="Comment"]',
     'button[aria-label*="Bình luận"]',
@@ -27,7 +27,7 @@ _COMMENT_OPEN_TRIGGER_SELECTORS: Final[tuple[str, ...]] = (
     'button[data-control-name="public_post_comment"]',
 )
 
-_COMMENT_EDITOR_SELECTORS: Final[tuple[str, ...]] = (
+_COMMENT_EDITOR_SELECTORS: Final[Tuple[str, ...]] = (
     '[componentkey^="commentBox-"] [data-testid="ui-core-tiptap-text-editor-wrapper"] '
     'div[contenteditable="true"][role="textbox"]',
     '[componentkey^="commentBox-"] div[contenteditable="true"][role="textbox"].ProseMirror',
@@ -38,7 +38,7 @@ _COMMENT_EDITOR_SELECTORS: Final[tuple[str, ...]] = (
     'div.ql-editor[contenteditable="true"]',
 )
 
-_COMMENT_SECTION_SELECTORS: Final[tuple[str, ...]] = (
+_COMMENT_SECTION_SELECTORS: Final[Tuple[str, ...]] = (
     '[componentkey^="commentBox-"]',
     'div.comments-comment-box',
     'div.comments-comment-box__form',
@@ -49,7 +49,7 @@ _EDITOR_PROBE_TIMEOUT_MS: Final[int] = 2500
 _COMPOSER_OPEN_SETTLE_MS: Final[int] = 700
 _SUBMIT_ENABLE_SETTLE_MS: Final[int] = 450
 
-_COMMENT_SUBMIT_SELECTORS: Final[tuple[str, ...]] = (
+_COMMENT_SUBMIT_SELECTORS: Final[Tuple[str, ...]] = (
     'button[componentkey*="commentButtonSection"]:not([disabled])',
     'button[componentkey*="commentButtonSection"]',
     'button.comments-comment-box__submit-button--cr:not([disabled])',
@@ -59,7 +59,7 @@ _COMMENT_SUBMIT_SELECTORS: Final[tuple[str, ...]] = (
     'button[aria-label*="Post"]:not([disabled])',
 )
 
-_COMMENT_SUBMIT_LABELS: Final[tuple[str, ...]] = (
+_COMMENT_SUBMIT_LABELS: Final[Tuple[str, ...]] = (
     "Comment",
     "Bình luận",
     "Post",
@@ -241,13 +241,13 @@ def comment_on_linkedin_post(
     *,
     post_url: str,
     comment_text: str,
-    session_id: str | None,
-    email: str | None,
+    session_id: Optional[str],
+    email: Optional[str],
     typing_delay_ms: int = 30,
     timeout_ms: int = 300000,
-    password: str | None = None,
+    password: Optional[str] = None,
     auto_login: bool = True,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """Trả ``(normalized_session_id, final_page_url)`` sau khi gửi comment.
 
     Raises:
@@ -280,7 +280,7 @@ def comment_on_linkedin_post(
         auto_login,
     )
 
-    def _playwright_action(page: Page) -> tuple[str, str]:
+    def _playwright_action(page: Page) -> Tuple[str, str]:
         page = goto_linkedin_url(
             page.context,
             page,
@@ -320,7 +320,7 @@ def comment_on_linkedin_post(
                 force_relogin=True,
             )
             # Retry running the action with updated session ID
-            def _playwright_action_retry(page: Page) -> tuple[str, str]:
+            def _playwright_action_retry(page: Page) -> Tuple[str, str]:
                 page_res = goto_linkedin_url(
                     page.context,
                     page,

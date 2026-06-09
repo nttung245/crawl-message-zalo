@@ -17,3 +17,9 @@ data/raw/*.html
 storage/chromium-profile
 storage/chromium-profile/**
 credentials/**
+node_modules/
+local-test-logs/
+data/output/**
+data/raw/**
+*.log
+

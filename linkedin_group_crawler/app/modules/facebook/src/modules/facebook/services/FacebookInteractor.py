@@ -1,8 +1,8 @@
+from typing import Optional
 import os
 import time
 import random
 from dataclasses import dataclass
-from typing import Optional
 
 from playwright.sync_api import sync_playwright, Page
 

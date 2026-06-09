@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Dict, Final, List, Optional, Set, Tuple
 import re
-from typing import Final
 from urllib.parse import unquote, urlparse
 
 from playwright.sync_api import Error, Locator, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
@@ -37,7 +37,7 @@ _COMMENT_OPTIONS_LABEL_RE: Final[re.Pattern[str]] = re.compile(
 )
 _DELETE_MENU_RE: Final[re.Pattern[str]] = re.compile(r"^(Delete|Xóa)$", re.I)
 
-_COMMENT_ENTITY_ANCESTOR_XPATHS: Final[tuple[str, ...]] = (
+_COMMENT_ENTITY_ANCESTOR_XPATHS: Final[Tuple[str, ...]] = (
     'xpath=ancestor::*[.//button[contains(@aria-label,"View more options") or '
     'contains(@aria-label,"more options for") or contains(@aria-label,"Open options") or '
     '@aria-label="More" or @aria-label="Thêm"]][1]',
@@ -46,13 +46,13 @@ _COMMENT_ENTITY_ANCESTOR_XPATHS: Final[tuple[str, ...]] = (
     'xpath=ancestor::*[.//button[@aria-label="More" or @aria-label="Thêm"]][1]',
 )
 
-_DETAIL_COMMENT_TEXT_SELECTORS: Final[tuple[str, ...]] = (
+_DETAIL_COMMENT_TEXT_SELECTORS: Final[Tuple[str, ...]] = (
     '[data-testid="expandable-text-box"]',
     ".comments-comment-item__main-content span[dir='ltr']",
     ".comments-comment-item__main-content",
 )
 
-_COMMENT_OPTIONS_TRIGGER_SELECTORS: Final[tuple[str, ...]] = (
+_COMMENT_OPTIONS_TRIGGER_SELECTORS: Final[Tuple[str, ...]] = (
     'button[aria-label*="View more options"]',
     'button[aria-label*="more options for"]',
     ".comment-options-trigger button.artdeco-dropdown__trigger",
@@ -71,7 +71,7 @@ _OPEN_COMMENT_DROPDOWN_SELECTOR: Final[str] = (
     '[role="menu"]:visible'
 )
 
-_DELETE_MENU_ITEM_SELECTORS: Final[tuple[str, ...]] = (
+_DELETE_MENU_ITEM_SELECTORS: Final[Tuple[str, ...]] = (
     '.artdeco-dropdown__content--is-open div[role="button"].option-button:has-text("Delete")',
     '.artdeco-dropdown__content--is-open div[role="button"].option-button:has-text("Xóa")',
     '.artdeco-dropdown__item.option-button .comment-options-dropdown__option-text:has-text("Delete")',
@@ -83,7 +83,7 @@ _DELETE_MENU_ITEM_SELECTORS: Final[tuple[str, ...]] = (
     '[role="menuitem"]:has-text("Xóa")',
 )
 
-_DELETE_CONFIRMATION_BUTTON_SELECTORS: Final[tuple[str, ...]] = (
+_DELETE_CONFIRMATION_BUTTON_SELECTORS: Final[Tuple[str, ...]] = (
     'button[aria-label*="Delete"]',
     'button:has-text("Delete")',
     'button:has-text("Xóa")',
@@ -124,11 +124,11 @@ def _normalize_compare_url(url: str) -> str:
     return raw.split("?")[0].rstrip("/")
 
 
-def _urn_post_fingerprints(url: str) -> set[str]:
+def _urn_post_fingerprints(url: str) -> Set[str]:
     """Chuỗi nhận dạng từ URN trong URL đã decode."""
 
     decoded = unquote((url or "").strip())
-    out: set[str] = set()
+    out: Set[str] = set()
     for match in _LINKEDIN_URN_RE.finditer(decoded):
         token = match.group(0).strip().lower()
         if token:
@@ -318,7 +318,7 @@ def _deeplink_via_owned_comment_on_timeline(
     pattern: re.Pattern[str],
     sheet_raw: str,
     profile_slug: str,
-) -> str | None:
+) -> Optional[str]:
     """
     Timeline recent-activity: khớp comment của chính mình (You/Bạn hoặc /in/<slug>)
     trước khi bắt buộc postUrl trùng activity trên DOM.
@@ -328,7 +328,7 @@ def _deeplink_via_owned_comment_on_timeline(
     links = root.locator(
         'a[href*="/feed/update/"], a[href*="/posts/"], a[href*="dashCommentUrn"]',
     )
-    candidates: list[tuple[str, bool]] = []
+    candidates: List[Tuple[str, bool]] = []
 
     for i in range(links.count()):
         link = links.nth(i)
@@ -401,11 +401,11 @@ def _deeplink_via_dashcomment_anchors(
     post_url: str,
     pattern: re.Pattern[str],
     sheet_raw: str,
-) -> str | None:
+) -> Optional[str]:
     """Giống ``crawl_profile_comments``: các ``a`` có dashCommentUrn + ``_parse_row``."""
 
     links = _main_activity_root(page).locator('a[href*="dashCommentUrn"]')
-    same_post: list[tuple[str, Locator]] = []
+    same_post: List[Tuple[str, Locator]] = []
     n_links = links.count()
 
     for i in range(n_links):
@@ -454,7 +454,7 @@ def _deeplink_via_comment_text_near_activity_anchor(
     post_url: str,
     pattern: re.Pattern[str],
     profile_slug: str,
-) -> str | None:
+) -> Optional[str]:
     """Fallback: getByText → ancestor có link bài (/feed/update, /posts, dashComment)."""
 
     root = _main_activity_root(page)
@@ -525,7 +525,7 @@ def _deeplink_via_feed_post_cards_matching_text(
     post_url: str,
     pattern: re.Pattern[str],
     sheet_raw: str,
-) -> str | None:
+) -> Optional[str]:
     """
     LinkedIn không lúc nào cũng đặt ``dashCommentUrn`` trên ``<a>`` timeline.
     Quét ``/feed/update/`` và ``/posts/`` khớp bài, đọc text trong card (expandable hoặc inner_text).
@@ -535,7 +535,7 @@ def _deeplink_via_feed_post_cards_matching_text(
     links = root.locator('a[href*="/feed/update/"], a[href*="/posts/"]')
     n_links = links.count()
 
-    score_by_href: dict[str, int] = {}
+    score_by_href: Dict[str, int] = {}
 
     def _remember(href_full: str) -> None:
         key = href_full.strip()
@@ -644,9 +644,9 @@ def _locator_dom_key(block: Locator) -> str:
         return ""
 
 
-def _dedupe_comment_blocks(blocks: list[Locator]) -> list[Locator]:
-    unique: list[Locator] = []
-    seen: set[str] = set()
+def _dedupe_comment_blocks(blocks: List[Locator]) -> List[Locator]:
+    unique: List[Locator] = []
+    seen: Set[str] = set()
     for block in blocks:
         key = _locator_dom_key(block)
         if key:
@@ -678,10 +678,10 @@ def _detail_comment_body_text(block: Locator) -> str:
 
 
 def _choose_detail_delete_block(
-    blocks: list[Locator],
+    blocks: List[Locator],
     sheet_raw: str,
     profile_slug: str,
-) -> Locator | None:
+) -> Optional[Locator]:
     """Chọn một khối comment để xóa khi DOM báo trùng text."""
 
     candidates = _dedupe_comment_blocks(blocks)
@@ -691,7 +691,7 @@ def _choose_detail_delete_block(
         return candidates[0]
 
     sheet = _sanitize_compare_text(sheet_raw)
-    ranked: list[tuple[int, int, int, Locator]] = []
+    ranked: List[Tuple[int, int, int, Locator]] = []
     for block in candidates:
         if not _card_owned_by_self(block, profile_slug):
             continue
@@ -734,7 +734,7 @@ def _detail_text_host_matches(
     return _dom_comment_matches_sheet(dom_text, detail_pattern, sheet_raw)
 
 
-def _resolve_detail_comment_block(text_node: Locator) -> Locator | None:
+def _resolve_detail_comment_block(text_node: Locator) -> Optional[Locator]:
     """Khối comment trên post detail (article comments-comment-entity hoặc DOM cũ More)."""
 
     for xpath in _COMMENT_ENTITY_ANCESTOR_XPATHS:
@@ -751,10 +751,10 @@ def _collect_self_comment_blocks_on_detail(
     detail_pattern: re.Pattern[str],
     sheet_raw: str,
     profile_slug: str,
-) -> list[Locator]:
+) -> List[Locator]:
     root = page.locator("main, [role='main']").first
-    matched_blocks: list[Locator] = []
-    seen_keys: set[str] = set()
+    matched_blocks: List[Locator] = []
+    seen_keys: Set[str] = set()
 
     def _remember(block: Locator) -> None:
         key = _locator_dom_key(block)
@@ -859,7 +859,7 @@ def _visible_dropdown_menu(page: Page) -> Locator:
 
 def _click_delete_menu_item(page: Page) -> bool:
     dropdown = _visible_dropdown_menu(page)
-    scopes: list[Locator] = []
+    scopes: List[Locator] = []
     if dropdown.count() > 0:
         scopes.append(dropdown)
     scopes.append(page.locator("body"))
@@ -896,11 +896,11 @@ def delete_linkedin_comment_from_recent_activity(
     profile_slug: str,
     post_url: str,
     comment_text: str,
-    session_id: str | None = None,
-    email: str | None = None,
+    session_id: Optional[str] = None,
+    email: Optional[str] = None,
     max_scroll: int = 8,
     timeout_ms: int = 120000,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """
     1. /in/<slug>/recent-activity/comments/
     2. Tìm commentText (regex, không phân biệt hoa thường)
@@ -945,7 +945,7 @@ def delete_linkedin_comment_from_recent_activity(
             except Error:
                 pass
 
-            matched_activity_href: str | None = None
+            matched_activity_href: Optional[str] = None
 
             for _scroll_idx in range(max_scroll + 1):
                 matched_activity_href = _deeplink_via_owned_comment_on_timeline(
@@ -1100,11 +1100,11 @@ def delete_linkedin_comment_from_recent_activity(
 def delete_linkedin_comment_from_post_detail(
     post_url: str,
     comment_text: str,
-    profile_slug: str | None = None,
-    session_id: str | None = None,
-    email: str | None = None,
+    profile_slug: Optional[str] = None,
+    session_id: Optional[str] = None,
+    email: Optional[str] = None,
     timeout_ms: int = 300000,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """
     Optimize: Xóa comment bằng cách vào trực tiếp post detail (URL bài) thay vì qua recent-activity.
     

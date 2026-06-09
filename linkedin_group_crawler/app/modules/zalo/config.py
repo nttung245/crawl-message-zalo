@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,6 +23,10 @@ class Settings(BaseSettings):
     debug_artifacts_dir: str = Field(
         default="artifacts/debug",
         validation_alias=AliasChoices("ZALO_DEBUG_ARTIFACTS_DIR", "DEBUG_ARTIFACTS_DIR"),
+    )
+    zca_auth_store_dir: str = Field(
+        default="artifacts/zca-auth",
+        validation_alias=AliasChoices("ZALO_ZCA_AUTH_STORE_DIR", "ZCA_AUTH_STORE_DIR"),
     )
     browser_headless: bool = Field(
         default=True,
@@ -49,16 +54,20 @@ class Settings(BaseSettings):
             "BROWSER_KILL_STALE_PROCESSES",
         ),
     )
-    browser_executable_path: str | None = Field(
+    browser_executable_path: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices("ZALO_BROWSER_EXECUTABLE_PATH", "BROWSER_EXECUTABLE_PATH"),
     )
-    browser_remote_viewer_url: str | None = Field(
+    browser_remote_viewer_url: Optional[str] = Field(
         default=None,
         validation_alias=AliasChoices(
             "ZALO_BROWSER_REMOTE_VIEWER_URL",
             "BROWSER_REMOTE_VIEWER_URL",
         ),
+    )
+    qr_login_mode: str = Field(
+        default="web",
+        validation_alias=AliasChoices("ZALO_QR_LOGIN_MODE", "QR_LOGIN_MODE"),
     )
     supabase_url: str = Field(
         default="",
@@ -75,6 +84,10 @@ class Settings(BaseSettings):
     save_to_supabase: bool = Field(
         default=True,
         validation_alias=AliasChoices("ZALO_SAVE_TO_SUPABASE", "SAVE_TO_SUPABASE"),
+    )
+    supabase_ssl_verify: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("ZALO_SUPABASE_SSL_VERIFY", "SUPABASE_SSL_VERIFY"),
     )
     write_google_sheet: bool = Field(
         default=False,
@@ -98,6 +111,10 @@ class Settings(BaseSettings):
     asset_cleanup_batch_size: int = Field(
         default=200,
         validation_alias=AliasChoices("ZALO_ASSET_CLEANUP_BATCH_SIZE", "ASSET_CLEANUP_BATCH_SIZE"),
+    )
+    zca_old_message_interval_ms: int = Field(
+        default=60000,
+        validation_alias=AliasChoices("ZALO_ZCA_OLD_MESSAGE_INTERVAL_MS", "ZCA_OLD_MESSAGE_INTERVAL_MS"),
     )
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")

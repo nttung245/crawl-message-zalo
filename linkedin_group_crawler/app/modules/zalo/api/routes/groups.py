@@ -1,5 +1,5 @@
+from typing import List, Optional, Set
 import asyncio
-from typing import List
 
 import gspread
 from fastapi import APIRouter, Depends, Header, HTTPException
@@ -8,14 +8,16 @@ from pydantic import BaseModel, Field
 
 from app.modules.zalo.config import settings
 from app.modules.zalo.crawler.group_parser import collect_group_debug_info, parse_groups, wait_for_group_list_ready
-from app.modules.zalo.crawler.qr_login import check_login_status
-from app.modules.zalo.crawler.scroll_handler import verify_group_for_crawl
+from app.modules.zalo.crawler.scroll_handler import verify_group_for_crawl, wait_for_message_sync
 from app.modules.zalo.schemas.group import Group
 from app.modules.zalo.services.debug_artifacts import save_page_artifacts
 from app.modules.zalo.services.gsheet_service import list_crawled_groups
 from app.modules.zalo.services.supabase_service import is_supabase_configured, list_saved_groups, upsert_groups
-from app.modules.zalo.services.session_store import get_latest_session_for_user, get_session, get_session_lock, save_session
+from app.modules.zalo.services.session_store import get_latest_session_for_user, get_session, get_session_lock
 from app.modules.zalo.services.browser_operation_lock import zalo_browser_operation_lock
+from app.modules.zalo.services.session_browser import ensure_session_browser_ready
+from app.modules.zalo.services.zca_auth_store import ensure_session_zca_auth
+from app.modules.zalo.services.zca_api_bridge import list_zca_groups, list_zca_friends
 from app.modules.zalo.api.security import verify_zalo_api_key
 
 router = APIRouter(
@@ -32,40 +34,40 @@ zalo_groups_router = APIRouter(
 
 class VerifyGroupItem(BaseModel):
     group_name: str = Field(..., min_length=1)
-    group_id: str | None = None
-    sheet_tab: str | None = None
+    group_id: Optional[str] = None
+    sheet_tab: Optional[str] = None
 
 
 class VerifyGroupsRequest(BaseModel):
-    groups: list[VerifyGroupItem]
+    groups: List[VerifyGroupItem]
 
 
 class VerifiedGroupItem(BaseModel):
     group_name: str
-    group_id: str | None = None
-    sheet_tab: str | None = None
-    current_title: str | None = None
-    member_count: int | None = None
+    group_id: Optional[str] = None
+    sheet_tab: Optional[str] = None
+    current_title: Optional[str] = None
+    member_count: Optional[int] = None
     message_count: int = 0
-    warnings: list[str] = []
+    warnings: List[str] = []
 
 
 class RejectedGroupItem(BaseModel):
     group_name: str
-    group_id: str | None = None
+    group_id: Optional[str] = None
     reason: str
     detail: str
-    current_title: str | None = None
-    member_count: int | None = None
-    warnings: list[str] = []
+    current_title: Optional[str] = None
+    member_count: Optional[int] = None
+    warnings: List[str] = []
 
 
 class VerifyGroupsResponse(BaseModel):
-    verified: list[VerifiedGroupItem]
-    rejected: list[RejectedGroupItem]
+    verified: List[VerifiedGroupItem]
+    rejected: List[RejectedGroupItem]
 
 
-async def _live_group_fallback(user_id: str, session, selector_counts: dict | None, reason: str) -> list[Group]:
+async def _live_group_fallback(user_id: str, session, selector_counts: Optional[dict], reason: str) -> List[Group]:
     if is_supabase_configured():
         try:
             saved_groups = await list_saved_groups(user_id)
@@ -110,7 +112,7 @@ async def _live_group_fallback(user_id: str, session, selector_counts: dict | No
     return []
 
 
-async def _get_confirmed_session_for_user(user_id: str, session_id: str | None):
+async def _get_confirmed_session_for_user(user_id: str, session_id: Optional[str]):
     session = await get_session(session_id) if session_id else None
     if not session:
         session = await get_latest_session_for_user(user_id, preferred_statuses={"confirmed"})
@@ -119,9 +121,7 @@ async def _get_confirmed_session_for_user(user_id: str, session_id: str | None):
     if session.user_id != user_id:
         raise HTTPException(status_code=403, detail="Session does not belong to current user")
 
-    live_status = await check_login_status(session.page)
-    session.status = live_status
-    await save_session(session)
+    live_status = await ensure_session_browser_ready(session)
     if live_status != "confirmed":
         raise HTTPException(
             status_code=403,
@@ -132,7 +132,7 @@ async def _get_confirmed_session_for_user(user_id: str, session_id: str | None):
 
 @router.get("", response_model=List[Group])
 async def list_groups(
-    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
     x_user_id: str = Header("default", alias="X-User-ID"),
 ):
     user_id = (x_user_id or "default").strip() or "default"
@@ -144,27 +144,52 @@ async def list_groups(
     if session.user_id != user_id:
         raise HTTPException(status_code=403, detail="Session does not belong to current user")
 
-    live_status = await check_login_status(session.page)
-    session.status = live_status
-    await save_session(session)
-    if live_status != "confirmed":
-        raise HTTPException(
-            status_code=403,
-            detail=f"Login not completed yet (status={live_status})",
-        )
+    zca_auth = await ensure_session_zca_auth(session)
+    if zca_auth:
+        try:
+            groups = await list_zca_groups(zca_auth)
+            try:
+                friends = await list_zca_friends(zca_auth)
+            except Exception as e:
+                logger.warning(f"Could not load ZCA friends in list_groups: {e}")
+                friends = []
+            all_chats = groups + friends
+            if all_chats:
+                if is_supabase_configured():
+                    try:
+                        cached_count = await upsert_groups(
+                            user_id,
+                            [chat.model_dump() for chat in all_chats],
+                        )
+                        logger.info(f"Cached {cached_count} ZCA chats for user_id={user_id}")
+                    except Exception as exc:
+                        logger.warning(f"Could not cache ZCA chats for user_id={user_id}: {exc}")
+                logger.info(f"Returning {len(all_chats)} ZCA chats for user_id={user_id}; browser fallback skipped")
+                return all_chats
+            logger.warning("ZCA list_zca_groups returned empty; falling back to Playwright group parser")
+        except Exception as exc:
+            logger.warning(f"ZCA list_zca_groups failed; falling back to Playwright group parser: {exc}")
 
     selector_counts = {}
     try:
+        live_status = await ensure_session_browser_ready(session)
+        if live_status != "confirmed":
+            raise HTTPException(
+                status_code=403,
+                detail=f"Login not completed yet (status={live_status})",
+            )
         async with zalo_browser_operation_lock:
             session_lock = await get_session_lock(session.session_id)
             async with session_lock:
-                groups: list[Group] = []
+                groups: List[Group] = []
                 for attempt in range(1, 3):
                     try:
+                        await wait_for_message_sync(session.page, timeout_ms=90000 if attempt == 1 else 30000)
                         if attempt > 1:
                             logger.warning("Retrying live group suggestions after Zalo navigation/parser failure")
                             await session.page.goto("https://chat.zalo.me", wait_until="domcontentloaded", timeout=60000)
                             await session.page.wait_for_timeout(3000)
+                            await wait_for_message_sync(session.page, timeout_ms=30000)
                         selector_counts = await wait_for_group_list_ready(session.page, timeout_ms=30000)
                         groups = await parse_groups(session.page)
                         break
@@ -182,6 +207,7 @@ async def list_groups(
                     try:
                         await session.page.goto("https://chat.zalo.me", wait_until="domcontentloaded", timeout=60000)
                         await session.page.wait_for_timeout(3000)
+                        await wait_for_message_sync(session.page, timeout_ms=30000)
                         selector_counts = await wait_for_group_list_ready(session.page, timeout_ms=30000)
                         groups = await parse_groups(session.page)
                     except Exception as retry_exc:
@@ -251,16 +277,27 @@ async def list_groups(
 @zalo_groups_router.post("/verify", response_model=VerifyGroupsResponse)
 async def verify_groups_for_crawl(
     body: VerifyGroupsRequest,
-    x_session_id: str | None = Header(None, alias="X-Session-ID"),
+    x_session_id: Optional[str] = Header(None, alias="X-Session-ID"),
     x_user_id: str = Header("default", alias="X-User-ID"),
 ):
     user_id = (x_user_id or "default").strip() or "default"
     session = await _get_confirmed_session_for_user(user_id, x_session_id)
     session_lock = await get_session_lock(session.session_id)
 
-    verified: list[VerifiedGroupItem] = []
-    rejected: list[RejectedGroupItem] = []
-    seen: set[str] = set()
+    verified: List[VerifiedGroupItem] = []
+    rejected: List[RejectedGroupItem] = []
+    seen: Set[str] = set()
+
+    zca_auth = await ensure_session_zca_auth(session)
+    zca_groups_by_name = {}
+    if zca_auth:
+        try:
+            zca_groups = await list_zca_groups(zca_auth)
+            for g in zca_groups:
+                norm_name = " ".join(g.name.split()).lower()
+                zca_groups_by_name[norm_name] = g
+        except Exception as e:
+            logger.warning(f"Failed to load ZCA groups for verification: {e}")
 
     async with zalo_browser_operation_lock:
         async with session_lock:
@@ -280,6 +317,53 @@ async def verify_groups_for_crawl(
                     )
                     continue
                 seen.add(key)
+
+                matched_group = None
+                if zca_groups_by_name:
+                    if key in zca_groups_by_name:
+                        matched_group = zca_groups_by_name[key]
+                    else:
+                        matches = [g for n, g in zca_groups_by_name.items() if key in n]
+                        if len(matches) == 1:
+                            matched_group = matches[0]
+                        elif len(matches) > 1:
+                            rejected.append(
+                                RejectedGroupItem(
+                                    group_name=group_name,
+                                    group_id=item.group_id,
+                                    reason="ambiguous",
+                                    detail=f"Có {len(matches)} nhóm chứa từ khoá '{group_name}', vui lòng nhập tên chính xác hơn.",
+                                )
+                            )
+                            continue
+
+                if matched_group:
+                    verified.append(
+                        VerifiedGroupItem(
+                            group_name=matched_group.name,
+                            group_id=matched_group.group_id,
+                            sheet_tab=item.sheet_tab or matched_group.name,
+                            current_title=matched_group.name,
+                            member_count=None,
+                            message_count=0,
+                            warnings=[],
+                        )
+                    )
+                    continue
+
+                if not session.page:
+                    rejected.append(
+                        RejectedGroupItem(
+                            group_name=group_name,
+                            group_id=item.group_id,
+                            reason="not_found",
+                            detail="Khong tim thay nhom Zalo qua API. Trinh duyet khong kha dung.",
+                            current_title=None,
+                            member_count=None,
+                            warnings=[],
+                        )
+                    )
+                    continue
 
                 result = await verify_group_for_crawl(
                     session.page,

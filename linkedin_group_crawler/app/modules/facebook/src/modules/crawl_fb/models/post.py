@@ -1,5 +1,5 @@
+from typing import List, Optional
 from dataclasses import dataclass, field
-from typing import Optional, List
 #  cấu trúc dữ liệu 1 bài viết mà mình lấy
 @dataclass
 class Post:

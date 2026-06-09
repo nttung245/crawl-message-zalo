@@ -1,8 +1,7 @@
-from typing import Tuple, Optional, Dict
+from typing import Dict, List, Optional, Tuple
 from app.modules.facebook.src.modules.facebook.constants.facebook_regex import POST_URL_RE, VIDEO_URL_RE,NON_REACTION_KEYWORDS, COMMENT_RE, SHARE_RE, REACTION_NUM_RE
 from app.modules.facebook.src.core.utils.facebook_parsers import clean_post_url, extract_ts_hint, classify_timestamp
 from app.modules.facebook.src.core.utils.date_parser import parse_interactions
-from typing import List
 class PostExtractor:
     """Class chuyên chịu trách nhiệm đọc hiểu các thẻ HTML/DOM của Facebook"""
     # nói chung chuyên tóc tách dữ liệu từ bài viết

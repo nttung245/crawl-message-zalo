@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Literal, Optional, Union
 from datetime import datetime
 import re
-from typing import Any, Literal, Optional, Union
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -415,7 +415,7 @@ class StartWorkflowRequest(BaseModel):
         le=600,
         validation_alias=AliasChoices("delay_sec", "delaySec", "delay_seconds", "delaySeconds"),
     )
-    group_urls: list[str] = Field(
+    group_urls: List[str] = Field(
         default_factory=list,
         validation_alias=AliasChoices("group_urls", "groupUrls", "urls"),
     )
@@ -438,8 +438,8 @@ class StartWorkflowRequest(BaseModel):
 
     @field_validator("group_urls")
     @classmethod
-    def validate_group_urls_start(cls, value: list[str]) -> list[str]:
-        normalized: list[str] = []
+    def validate_group_urls_start(cls, value: List[str]) -> List[str]:
+        normalized: List[str] = []
         for url in value:
             candidate = url.strip()
             if not candidate:
@@ -460,7 +460,7 @@ class GetAllPostsRequest(BaseModel):
         description="Email to fetch posts for.",
         validation_alias=AliasChoices("email", "userEmail"),
     )
-    filters: Optional[dict[str, Any]] = Field(
+    filters: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Optional additional filters to pass to n8n.",
         validation_alias=AliasChoices("filters", "filter"),
@@ -477,7 +477,7 @@ class N8nGetSheetLinkRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    webhook_payload: dict[str, Any] = Field(
+    webhook_payload: Dict[str, Any] = Field(
         default_factory=dict,
         description="JSON tùy chọn gửi kèm cho workflow n8n (có thể để {}).",
         validation_alias=AliasChoices("webhook_payload", "payload", "body"),
@@ -489,7 +489,7 @@ class N8nWebhookPassthroughRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    webhook_payload: dict[str, Any] = Field(
+    webhook_payload: Dict[str, Any] = Field(
         default_factory=dict,
         description="Object JSON POST sang n8n (mặc định {}).",
         validation_alias=AliasChoices("webhook_payload", "payload", "body"),
@@ -633,7 +633,7 @@ class LinkedinAppCrawlBatchRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    group_urls: list[str] = Field(
+    group_urls: List[str] = Field(
         ...,
         min_length=1,
         validation_alias=AliasChoices("group_urls", "groupUrls", "urls"),
@@ -710,8 +710,8 @@ class LinkedinAppCrawlBatchRequest(BaseModel):
 
     @field_validator("group_urls")
     @classmethod
-    def validate_group_urls_batch(cls, value: list[str]) -> list[str]:
-        normalized: list[str] = []
+    def validate_group_urls_batch(cls, value: List[str]) -> List[str]:
+        normalized: List[str] = []
         for url in value:
             candidate = url.strip()
             if "linkedin.com/groups/" not in candidate:
@@ -748,7 +748,7 @@ class AddListGroupRequest(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True, extra="ignore")
 
-    group_urls: list[str] = Field(
+    group_urls: List[str] = Field(
         ...,
         min_length=1,
         max_length=80,
@@ -817,8 +817,8 @@ class AddListGroupRequest(BaseModel):
 
     @field_validator("group_urls")
     @classmethod
-    def validate_bulk_group_urls(cls, value: list[str]) -> list[str]:
-        normalized: list[str] = []
+    def validate_bulk_group_urls(cls, value: List[str]) -> List[str]:
+        normalized: List[str] = []
         for url in value:
             candidate = url.strip()
             if not candidate:
@@ -874,7 +874,7 @@ class N8nAddGroupRequest(BaseModel):
         t = value.strip()
         return t or None
 
-    def to_webhook_payload(self, email_resolved: str) -> dict[str, Any]:
+    def to_webhook_payload(self, email_resolved: str) -> Dict[str, Any]:
         return {
             "url_group": self.url_group.strip(),
             "name_group": self.name_group.strip(),
@@ -908,7 +908,7 @@ class N8nRemoveGroupRequest(BaseModel):
         t = value.strip()
         return t or None
 
-    def to_webhook_payload(self, email_resolved: str) -> dict[str, Any]:
+    def to_webhook_payload(self, email_resolved: str) -> Dict[str, Any]:
         return {
             "url_group": self.url_group.strip(),
             "email": email_resolved.strip(),
@@ -979,8 +979,8 @@ class N8nUpdateGroupRequest(BaseModel):
         t = value.strip()
         return t or None
 
-    def to_webhook_payload(self, email_resolved: str) -> dict[str, Any]:
-        payload: dict[str, Any] = {
+    def to_webhook_payload(self, email_resolved: str) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
             "url_group_need_update": self.url_group_need_update.strip(),
             "name_group": self.name_group.strip(),
             "member": int(self.member),
@@ -1065,7 +1065,7 @@ class PostReactionRequest(BaseModel):
         description="true: gỡ reaction trên LinkedIn và ghi ô reaction trống (không null) trên sheet.",
         validation_alias=AliasChoices("clear_reaction", "clearReaction"),
     )
-    sheet_row: Optional[dict[str, Any]] = Field(
+    sheet_row: Optional[Dict[str, Any]] = Field(
         default=None,
         description=(
             "Toàn bộ key/value của dòng bài (như sheet/API) — webhook nhận merge object này "
@@ -1223,7 +1223,7 @@ class PostCommentRequest(BaseModel):
         ge=1,
         validation_alias=AliasChoices("row_number", "rowNumber"),
     )
-    existing_app_comments: list[AppCommentEntry] = Field(
+    existing_app_comments: List[AppCommentEntry] = Field(
         default_factory=list,
         validation_alias=AliasChoices(
             "existing_app_comments",
@@ -1256,7 +1256,7 @@ class PostCommentRequest(BaseModel):
         default=True,
         validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
     )
-    sheet_row: Optional[dict[str, Any]] = Field(
+    sheet_row: Optional[Dict[str, Any]] = Field(
         default=None,
         validation_alias=AliasChoices(
             "sheet_row",
@@ -1419,7 +1419,7 @@ class PostCommentDeleteRequest(BaseModel):
         description="Sau khi xóa comment thành công, POST JSON tới N8N_WEBHOOK_REACTION để ghi đè Sheet.",
         validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
     )
-    sheet_row: Optional[dict[str, Any]] = Field(
+    sheet_row: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Toàn bộ key/value của dòng bài (như sheet/API) — webhook nhận merge object này.",
         validation_alias=AliasChoices(
@@ -1601,7 +1601,7 @@ class PostCommentEditRequest(BaseModel):
         description="Sau khi edit comment thành công, POST JSON tới N8N_WEBHOOK_REACTION để ghi đè Sheet.",
         validation_alias=AliasChoices("post_to_webhook", "postToWebhook"),
     )
-    sheet_row: Optional[dict[str, Any]] = Field(
+    sheet_row: Optional[Dict[str, Any]] = Field(
         default=None,
         description="Toàn bộ key/value của dòng bài — webhook nhận merge object này.",
         validation_alias=AliasChoices(
@@ -1738,7 +1738,7 @@ class SyncPostProgressRequest(BaseModel):
         validation_alias=AliasChoices("auto_login", "autoLogin"),
     )
     post_to_webhook: bool = Field(default=True, validation_alias=AliasChoices("post_to_webhook", "postToWebhook"))
-    sheet_row: Optional[dict[str, Any]] = Field(default=None, validation_alias=AliasChoices("sheet_row", "sheetRow"))
+    sheet_row: Optional[Dict[str, Any]] = Field(default=None, validation_alias=AliasChoices("sheet_row", "sheetRow"))
     timeout_ms: int = Field(default=300000, ge=30000, le=600000)
 
     @model_validator(mode="after")
@@ -1845,7 +1845,7 @@ class AssignKpiRequest(BaseModel):
         serialization_alias="role",
         validation_alias=AliasChoices("member_role", "role", "memberRole"),
     )
-    kpi: list[KpiItem] = Field(default_factory=list)
+    kpi: List[KpiItem] = Field(default_factory=list)
 
     @field_validator("leader_role", "email", "profile_slug", "member_role", "email_leader")
     @classmethod
@@ -1899,5 +1899,5 @@ class UpdateProfileSlugRequest(BaseModel):
     profile_slug: str = Field(default="", validation_alias=AliasChoices("profile_slug", "profileSlug", "slug"))
     profile_url: str = Field(default="", validation_alias=AliasChoices("profile_url", "profileUrl", "url"))
     role: str = Field(default="member", validation_alias=AliasChoices("role", "member_role", "memberRole"))
-    kpi: list[dict[str, Any]] = Field(default_factory=list)
+    kpi: List[Dict[str, Any]] = Field(default_factory=list)
     email_leader: Optional[str] = Field(default="", validation_alias=AliasChoices("email_leader", "emailLeader", "leaderEmail"))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Optional, Tuple
 import json
 from pathlib import Path
 
@@ -16,7 +17,7 @@ from app.core.logger import get_logger
 logger = get_logger(__name__)
 
 
-def resolve_password_for_email(email: str, explicit_password: str | None = None) -> str:
+def resolve_password_for_email(email: str, explicit_password: Optional[str] = None) -> str:
     """Password từ request body, rồi map env ``LINKEDIN_ENGAGEMENT_PASSWORDS_JSON``."""
 
     if explicit_password and explicit_password.strip():
@@ -36,11 +37,11 @@ def resolve_password_for_email(email: str, explicit_password: str | None = None)
 
 def ensure_linkedin_session_for_engagement(
     *,
-    email: str | None,
-    session_id: str | None = None,
-    password: str | None = None,
+    email: Optional[str],
+    session_id: Optional[str] = None,
+    password: Optional[str] = None,
     force_relogin: bool = False,
-) -> tuple[str, Path]:
+) -> Tuple[str, Path]:
     """Trước Playwright react/comment: login lại nếu cần, luôn prime feed (nhanh nếu session còn hợp lệ).
 
     - File session **hợp lệ** + có password: ``login(force_relogin=False)`` → reuse + prime (~vài giây).

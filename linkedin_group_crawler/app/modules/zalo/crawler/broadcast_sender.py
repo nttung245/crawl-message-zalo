@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
 import asyncio
 import os
 import tempfile
-from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -250,7 +250,7 @@ async def _send_composer_content(page: Page, composer, chunk: str) -> None:
     raise RuntimeError(f"Zalo text remained in composer after send attempts; artifacts={artifacts}")
 
 
-async def _composer_debug_snapshot(page: Page) -> dict[str, Any]:
+async def _composer_debug_snapshot(page: Page) -> Dict[str, Any]:
     try:
         return await page.evaluate(
             """
@@ -315,7 +315,7 @@ async def _composer_debug_snapshot(page: Page) -> dict[str, Any]:
 
 async def _wait_for_chat_ready(page: Page, timeout_ms: int = 30000) -> None:
     deadline = _loop_time(page) + timeout_ms / 1000
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
     await page.keyboard.press("Escape")
     while _loop_time(page) < deadline:
         try:
@@ -339,9 +339,9 @@ async def _wait_for_chat_ready(page: Page, timeout_ms: int = 30000) -> None:
     )
 
 
-def _split_text_chunks(text: str, max_length: int = MAX_TEXT_CHUNK_LENGTH) -> list[str]:
+def _split_text_chunks(text: str, max_length: int = MAX_TEXT_CHUNK_LENGTH) -> List[str]:
     remaining = (text or "").strip()
-    chunks: list[str] = []
+    chunks: List[str] = []
     while len(remaining) > max_length:
         split_at = max(
             remaining.rfind("\n", 0, max_length),
@@ -364,7 +364,7 @@ async def _send_text(page: Page, content: str) -> None:
     if not text:
         raise RuntimeError("Empty text content")
 
-    last_error: Exception | None = None
+    last_error: Optional[Exception] = None
     for selector in COMPOSER_SELECTORS:
         try:
             composer = page.locator(selector).first
@@ -393,7 +393,7 @@ async def _write_temp_image(content: bytes, suffix: str) -> str:
     return path
 
 
-async def _download_to_temp(url: str, storage_path: str | None = None) -> str:
+async def _download_to_temp(url: str, storage_path: Optional[str] = None) -> str:
     if storage_path:
         content, _content_type, ext = await download_asset_bytes(storage_path)
         return await _write_temp_image(content, ext)
@@ -414,7 +414,7 @@ async def _existing_file_input(page: Page):
     return None
 
 
-async def _upload_debug_snapshot(page: Page) -> dict[str, Any]:
+async def _upload_debug_snapshot(page: Page) -> Dict[str, Any]:
     try:
         return await page.evaluate(
             """
@@ -570,7 +570,7 @@ async def _set_image_file(page: Page, path: str) -> None:
     artifacts = await save_page_artifacts(page, "broadcast-upload-input-missing", diagnostics)
     raise RuntimeError(f"Zalo upload input was not found; artifacts={artifacts}")
 
-async def _send_image_asset(page: Page, asset: dict[str, Any]) -> None:
+async def _send_image_asset(page: Page, asset: Dict[str, Any]) -> None:
     storage_path = asset.get("storage_path")
     storage_url = asset.get("storage_url")
     if not storage_path and not storage_url:
@@ -607,8 +607,8 @@ async def _send_image_asset(page: Page, asset: dict[str, Any]) -> None:
             pass
 
 
-def _uploaded_assets(message: dict[str, Any]) -> list[dict[str, Any]]:
-    assets: list[dict[str, Any]] = []
+def _uploaded_assets(message: Dict[str, Any]) -> List[Dict[str, Any]]:
+    assets: List[Dict[str, Any]] = []
     for asset in message.get("assets") or []:
         if asset.get("status") == "uploaded" and (asset.get("storage_url") or asset.get("storage_path")):
             assets.append(asset)
@@ -618,8 +618,8 @@ def _uploaded_assets(message: dict[str, Any]) -> list[dict[str, Any]]:
 async def send_broadcast_to_targets(
     page: Page,
     campaign_id: str,
-    messages: list[dict[str, Any]],
-    targets: list[dict[str, Any]],
+    messages: List[Dict[str, Any]],
+    targets: List[Dict[str, Any]],
     content_mode: str,
     delay_seconds: float,
     composer_timeout_seconds: int,

@@ -1,7 +1,7 @@
 import re
 import random
 import time
-from typing import List, Set
+from typing import List, Optional, Set, Tuple, Union
 
 from loguru import logger
 from playwright.async_api import Frame, Locator, Page, TimeoutError as PlaywrightTimeout
@@ -51,17 +51,17 @@ INVALID_GROUP_IDS = {"", "string", "null", "undefined"}
 _TIME_ONLY_RE = re.compile(r"^\d{1,2}:\d{2}$")
 
 
-def _normalize_title(text: str | None) -> str:
+def _normalize_title(text: Optional[str]) -> str:
     return " ".join((text or "").replace("\xa0", " ").split())
 
 
-def _titles_match(expected: str | None, actual: str | None) -> bool:
+def _titles_match(expected: Optional[str], actual: Optional[str]) -> bool:
     expected_title = _normalize_title(expected).casefold()
     actual_title = _normalize_title(actual).casefold()
     return bool(expected_title and actual_title and expected_title == actual_title)
 
 
-def _sanitize_group_id(group_id: str | None) -> str | None:
+def _sanitize_group_id(group_id: Optional[str]) -> Optional[str]:
     if group_id is None:
         return None
     value = group_id.strip()
@@ -70,7 +70,7 @@ def _sanitize_group_id(group_id: str | None) -> str | None:
     return value
 
 
-async def _count_messages(target: Page | Frame | Locator) -> int:
+async def _count_messages(target: Union[Page, Frame, Locator]) -> int:
     best_count = 0
     for selector in MSG_CONTAINER_SELECTORS:
         count = await target.locator(selector).count()
@@ -79,8 +79,8 @@ async def _count_messages(target: Page | Frame | Locator) -> int:
     return best_count
 
 
-async def _find_best_message_frame(page: Page) -> Frame | None:
-    best_frame: Frame | None = None
+async def _find_best_message_frame(page: Page) -> Optional[Frame]:
+    best_frame: Optional[Frame] = None
     best_count = 0
 
     for frame in page.frames:
@@ -169,7 +169,7 @@ async def _ensure_chat_tab(page: Page) -> None:
         pass
 
 
-async def _wait_for_group_title(page: Page, expected_title: str | None = None, timeout_ms: int = 15000) -> str | None:
+async def _wait_for_group_title(page: Page, expected_title: Optional[str] = None, timeout_ms: int = 15000) -> Optional[str]:
     title_locator = page.locator("div.header-title, [class*='header-title']")
     try:
         await title_locator.first.wait_for(state="visible", timeout=timeout_ms)
@@ -183,7 +183,7 @@ async def _wait_for_group_title(page: Page, expected_title: str | None = None, t
         return None
 
 
-async def _detect_group_member_count(page: Page) -> int | None:
+async def _detect_group_member_count(page: Page) -> Optional[int]:
     try:
         text = await page.locator("body").inner_text(timeout=3000)
     except Exception:
@@ -204,7 +204,7 @@ async def _detect_group_member_count(page: Page) -> int | None:
     return None
 
 
-async def _assert_group_conversation(page: Page, group_name: str | None) -> None:
+async def _assert_group_conversation(page: Page, group_name: Optional[str]) -> None:
     member_count = await _detect_group_member_count(page)
     if member_count is None:
         logger.warning(
@@ -228,7 +228,7 @@ async def _assert_group_conversation(page: Page, group_name: str | None) -> None
 async def verify_group_for_crawl(
     page: Page,
     group_name: str,
-    group_id: str | None = None,
+    group_id: Optional[str] = None,
 ) -> dict:
     """Open a Zalo conversation and verify it is safe to crawl.
 
@@ -250,9 +250,9 @@ async def verify_group_for_crawl(
             "warnings": [],
         }
 
-    warnings: list[str] = []
-    current_title: str | None = None
-    member_count: int | None = None
+    warnings: List[str] = []
+    current_title: Optional[str] = None
+    member_count: Optional[int] = None
     message_count = 0
     resolved_group_id = group_id or group_name
 
@@ -329,7 +329,7 @@ async def verify_group_for_crawl(
         }
 
     message_frame = await _find_best_message_frame(page)
-    message_root_target: Page | Frame = message_frame or page
+    message_root_target: Union[Page, Frame] = message_frame or page
     message_root = await _find_message_root(message_root_target)
     message_count = await _count_messages(message_root)
     if message_count <= 0:
@@ -348,7 +348,7 @@ async def verify_group_for_crawl(
     }
 
 
-async def _find_message_root(page: Page | Frame) -> Page | Frame | Locator:
+async def _find_message_root(page: Union[Page, Frame]) -> Union[Page, Frame, Locator]:
     selectors = [
         "main",
         "[role='main']",
@@ -359,7 +359,7 @@ async def _find_message_root(page: Page | Frame) -> Page | Frame | Locator:
         "[data-qa*='chat']",
     ]
 
-    best_locator: Locator | None = None
+    best_locator: Optional[Locator] = None
     best_score = (-1, -1)
 
     for selector in selectors:
@@ -395,7 +395,7 @@ async def _find_message_root(page: Page | Frame) -> Page | Frame | Locator:
     return page
 
 
-async def _scroll_message_root_up(root: Page | Frame | Locator) -> dict:
+async def _scroll_message_root_up(root: Union[Page, Frame, Locator]) -> dict:
     """Cuộn khung tin nhắn lên một trang. Trả về dict gồm:
     - scrolled (bool): có tìm được khung cuộn không
     - at_top (bool): scrollTop sau khi cuộn bằng 0, đã lên đỉnh lịch sử
@@ -461,7 +461,7 @@ async def _scroll_message_root_up(root: Page | Frame | Locator) -> dict:
 
 
 
-async def _scroll_to_bottom(root: Page | Frame | Locator) -> None:
+async def _scroll_to_bottom(root: Union[Page, Frame, Locator]) -> None:
     try:
         await root.evaluate(
             """el => {
@@ -509,7 +509,7 @@ async def _scroll_to_bottom(root: Page | Frame | Locator) -> None:
         pass
 
 
-async def _click_visible_group_by_name(page: Page, group_name: str) -> str | None:
+async def _click_visible_group_by_name(page: Page, group_name: str) -> Optional[str]:
     group_name = _normalize_title(group_name)
     if not group_name:
         return None
@@ -568,7 +568,7 @@ async def _click_visible_group_by_name(page: Page, group_name: str) -> str | Non
     return None
 
 
-async def _search_group_by_name(page: Page, group_name: str) -> str | None:
+async def _search_group_by_name(page: Page, group_name: str) -> Optional[str]:
     group_name = _normalize_title(group_name)
     if not group_name:
         return None
@@ -607,7 +607,7 @@ async def _search_group_by_name(page: Page, group_name: str) -> str | None:
     return None
 
 
-async def _open_group(page: Page, group_id: str | None, group_name: str | None) -> str:
+async def _open_group(page: Page, group_id: Optional[str], group_name: Optional[str]) -> str:
     group_id = _sanitize_group_id(group_id)
     resolved_group_id = group_id or group_name or ""
     clicked = False
@@ -688,7 +688,7 @@ async def _open_group(page: Page, group_id: str | None, group_name: str | None) 
     return resolved_group_id
 
 
-async def open_conversation_for_send(page: Page, conversation_id: str | None, conversation_name: str | None) -> str:
+async def open_conversation_for_send(page: Page, conversation_id: Optional[str], conversation_name: Optional[str]) -> str:
     """Open a Zalo target for broadcast.
 
     Unlike crawl, broadcast targets can be either groups or personal chats. This
@@ -766,7 +766,7 @@ async def open_conversation_for_send(page: Page, conversation_id: str | None, co
     return resolved_id
 
 
-async def _click_message_sync_action(page: Page) -> str | None:
+async def _click_message_sync_action(page: Page) -> Optional[str]:
     try:
         clicked_text = await page.evaluate(
             """
@@ -864,10 +864,14 @@ async def _wait_for_message_sync(page: Page, timeout_ms: int = 90000) -> None:
     logger.warning("Zalo message sync did not finish within timeout; continuing with currently available messages")
 
 
+async def wait_for_message_sync(page: Page, timeout_ms: int = 90000) -> None:
+    await _wait_for_message_sync(page, timeout_ms=timeout_ms)
+
+
 async def _wait_for_message_dom_stable(
     page: Page,
-    root: Page | Frame | Locator,
-    group_name: str | None,
+    root: Union[Page, Frame, Locator],
+    group_name: Optional[str],
     timeout_ms: int = 45000,
     stable_rounds_required: int = 3,
 ) -> None:
@@ -899,9 +903,9 @@ async def _wait_for_message_dom_stable(
     logger.warning(f"Zalo visible message DOM did not stabilize within {timeout_ms}ms; continuing")
 
 
-async def _get_message_root_after_sync(page: Page) -> tuple[Page | Frame | Locator, int]:
+async def _get_message_root_after_sync(page: Page) -> Tuple[Union[Page, Frame, Locator], int]:
     message_frame = await _find_best_message_frame(page)
-    message_root_target: Page | Frame = message_frame or page
+    message_root_target: Union[Page, Frame] = message_frame or page
     message_root = await _find_message_root(message_root_target)
     message_count = await _count_messages(message_root)
     return message_root, message_count
@@ -909,11 +913,11 @@ async def _get_message_root_after_sync(page: Page) -> tuple[Page | Frame | Locat
 
 async def scroll_and_collect(
     page: Page,
-    group_id: str | None,
-    group_name: str | None,
+    group_id: Optional[str],
+    group_name: Optional[str],
     job_id: str,
     max_messages: int = 50,
-) -> tuple[str, List[Message]]:
+) -> Tuple[str, List[Message]]:
     captured_image_urls: Set[str] = set()
     message_limit = max(1, min(int(max_messages or 50), 500))
 
@@ -1092,7 +1096,7 @@ async def scroll_and_collect(
         # Duyệt ngược (Cũ nhất → Mới nhất) để propagate date context.
         # Logic cũ dùng điều kiện `time_text == timestamp` không bao giờ true
         # vì timestamp được build từ date_text + time_text.
-        current_date_context: str | None = None
+        current_date_context: Optional[str] = None
         for i in range(len(ordered_messages) - 1, -1, -1):
             msg = ordered_messages[i]
             ts = (msg.timestamp or "").strip()

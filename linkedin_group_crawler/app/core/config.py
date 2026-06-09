@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Dict, List, Optional, Tuple
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,13 +15,13 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 
-def _parse_bool(value: str | None, default: bool = False) -> bool:
+def _parse_bool(value: Optional[str], default: bool = False) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _linkedin_engagement_passwords_from_env() -> dict[str, str]:
+def _linkedin_engagement_passwords_from_env() -> Dict[str, str]:
     """Map email (lower) → password cho auto-login trước react/comment."""
 
     raw = (os.getenv("LINKEDIN_ENGAGEMENT_PASSWORDS_JSON") or "").strip()
@@ -32,7 +33,7 @@ def _linkedin_engagement_passwords_from_env() -> dict[str, str]:
         return {}
     if not isinstance(data, dict):
         return {}
-    out: dict[str, str] = {}
+    out: Dict[str, str] = {}
     for key, value in data.items():
         if not isinstance(key, str) or value is None:
             continue
@@ -43,7 +44,7 @@ def _linkedin_engagement_passwords_from_env() -> dict[str, str]:
     return out
 
 
-def _parse_csv(value: str | None, default: tuple[str, ...]) -> list[str]:
+def _parse_csv(value: Optional[str], default: Tuple[str, ...]) -> List[str]:
     """Parse a comma-separated env var into a list of non-empty strings."""
 
     if value is None:
@@ -297,7 +298,7 @@ class Settings:
         os.getenv("LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT"),
         default=True,
     )
-    linkedin_engagement_passwords: dict[str, str] = field(
+    linkedin_engagement_passwords: Dict[str, str] = field(
         default_factory=_linkedin_engagement_passwords_from_env,
     )
     linkedin_default_engagement_password: str = (
@@ -342,7 +343,7 @@ class Settings:
     api_key: str = os.getenv("API_KEY", "")
     render_api_key: str = os.getenv("RENDER_API_KEY", "")
     render_service_id: str = os.getenv("RENDER_SERVICE_ID", "")
-    cors_origins: list[str] | None = None
+    cors_origins: Optional[List[str]] = None
     host: str = os.getenv("HOST", "0.0.0.0")
     port: int = int(os.getenv("PORT", "8000"))
     raw_data_dir: Path = BASE_DIR / "data" / "raw"

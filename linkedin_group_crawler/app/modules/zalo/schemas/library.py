@@ -1,5 +1,5 @@
-from typing import List, Optional
 
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 
@@ -74,3 +74,27 @@ class ZaloLibraryListResponse(BaseModel):
     limit: int = 200
     offset: int = 0
     has_more: bool = False
+
+
+class ZaloConversationSummary(BaseModel):
+    conversation_id: str
+    conversation_name: str
+    account_id: str
+    message_count: int = 0
+    image_count: int = 0
+    sent_count: int = 0
+    received_count: int = 0
+    latest_message_at: Optional[str] = None
+    latest_content: Optional[str] = None
+    latest_sender_name: Optional[str] = None
+    has_messages: bool = True
+    sync_status: str = "has_messages"
+    avatar_url: Optional[str] = None
+    unread_count: int = 0
+    is_pinned: bool = False
+
+
+class ZaloConversationListResponse(BaseModel):
+    account_id: str
+    conversations: List[ZaloConversationSummary] = Field(default_factory=list)
+    total: int = 0

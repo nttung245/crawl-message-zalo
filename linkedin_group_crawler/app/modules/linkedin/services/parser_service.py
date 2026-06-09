@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
 import re
-from typing import Any
 from urllib.parse import urljoin
 
 from playwright.sync_api import Error, Locator
@@ -62,7 +62,7 @@ LINK_SELECTORS = [
 ]
 
 
-def _safe_text(locator: Locator, selectors: list[str], default: str = "") -> str:
+def _safe_text(locator: Locator, selectors: List[str], default: str = "") -> str:
     for selector in selectors:
         try:
             element = locator.locator(selector).first
@@ -75,7 +75,7 @@ def _safe_text(locator: Locator, selectors: list[str], default: str = "") -> str
     return default
 
 
-def _safe_attribute(locator: Locator, selectors: list[str], attribute: str) -> str:
+def _safe_attribute(locator: Locator, selectors: List[str], attribute: str) -> str:
     for selector in selectors:
         try:
             element = locator.locator(selector).first
@@ -201,7 +201,7 @@ def _extract_metric_by_aria(locator: Locator, keyword: str) -> int:
     return 0
 
 
-def parse_post_locator(post_locator: Locator) -> dict[str, Any] | None:
+def parse_post_locator(post_locator: Locator) -> Optional[Dict[str, Any]]:
     """Parse a LinkedIn post locator into a normalized dictionary."""
 
     try:

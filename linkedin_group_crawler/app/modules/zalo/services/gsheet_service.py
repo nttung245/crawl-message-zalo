@@ -1,6 +1,6 @@
+from typing import Dict, List
 import asyncio
 import time
-from typing import Dict, List
 
 import gspread
 from google.oauth2.service_account import Credentials

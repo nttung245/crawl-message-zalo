@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, Final, List, Literal, Optional
 import re
 from datetime import date, timedelta
-from typing import Any, Final, Literal
 
 from playwright.sync_api import Error, Locator, Page
 
@@ -127,7 +127,7 @@ def load_more_comments(page: Page, max_rounds: int = 15):
     except Exception as exc:
         logger.debug("Load more comments issue: %s", exc)
 
-def detect_current_reaction(page: Page) -> str | None:
+def detect_current_reaction(page: Page) -> Optional[str]:
     """Detects the current reaction of the user on the main post."""
     try:
         post_root = page.locator("main").first
@@ -182,7 +182,7 @@ def detect_current_reaction(page: Page) -> str | None:
     
     return None
 
-def extract_post_metrics(page: Page) -> dict[str, int]:
+def extract_post_metrics(page: Page) -> Dict[str, int]:
     """Extracts total reaction count and total comment count from the post page."""
     metrics = {"total_reactions": 0, "total_comments": 0}
     try:
@@ -257,7 +257,7 @@ def extract_post_metrics(page: Page) -> dict[str, int]:
     
     return metrics
 
-def get_my_comment_blocks_by_you(page: Page) -> list[Locator]:
+def get_my_comment_blocks_by_you(page: Page) -> List[Locator]:
     """Finds comment blocks by looking for the '• You' or '• Bạn' marker."""
     blocks = []
     try:
@@ -282,7 +282,7 @@ def get_my_comment_blocks_by_you(page: Page) -> list[Locator]:
         logger.warning("Error finding comment blocks by You marker: %s", exc)
     return blocks
 
-def extract_comment_text(comment_block: Locator) -> str | None:
+def extract_comment_text(comment_block: Locator) -> Optional[str]:
     """Extracts cleaned text from a comment block using standardized logic."""
     try:
         # Sử dụng chung hàm chuẩn đã được fix logic lọc rác (---, impressions, etc.)
@@ -291,7 +291,7 @@ def extract_comment_text(comment_block: Locator) -> str | None:
     except Exception:
         return None
 
-def collect_user_comments(page: Page, profile_slug: str) -> list[dict[str, str]]:
+def collect_user_comments(page: Page, profile_slug: str) -> List[Dict[str, str]]:
     """Collects all comments made by the user on the current post page."""
     user_comments = []
     try:
@@ -336,7 +336,7 @@ def sync_post_engagement_on_page(
     post_url: str,
     profile_slug: str,
     timeout_ms: int = 300000,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Syncs engagement for a post using an already open page."""
     logger.info("Syncing engagement on page for %s", post_url)
     try:
@@ -372,12 +372,12 @@ def sync_post_engagement_on_page(
 def sync_post_engagement(
     post_url: str,
     profile_slug: str,
-    session_id: str | None = None,
-    email: str | None = None,
+    session_id: Optional[str] = None,
+    email: Optional[str] = None,
     timeout_ms: int = 300000,
-    password: str | None = None,
+    password: Optional[str] = None,
     auto_login: bool = True,
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Opens a post in a new browser and returns current engagement data."""
 
     if auto_login:
@@ -396,7 +396,7 @@ def sync_post_engagement(
         if not state_path.is_file():
             raise FileNotFoundError(f"Session not found at {state_path}")
 
-    def _action(page: Page) -> dict[str, Any]:
+    def _action(page: Page) -> Dict[str, Any]:
         page.set_default_timeout(timeout_ms)
         result = sync_post_engagement_on_page(page, post_url, profile_slug, timeout_ms)
         result["session_id"] = normalized_session_id

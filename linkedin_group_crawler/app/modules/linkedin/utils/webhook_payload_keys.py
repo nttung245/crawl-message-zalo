@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, Optional, Tuple
 import re
 import unicodedata
-from typing import Any
 
 
 _VI_TRANS = str.maketrans(
@@ -41,7 +41,7 @@ def vietnamese_slug_key(key: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", lower)
 
 
-_ROW_NUMBER_WEBHOOK_ALIAS_KEYS: tuple[str, ...] = (
+_ROW_NUMBER_WEBHOOK_ALIAS_KEYS: Tuple[str, ...] = (
     "row_number",
     "rownumber",
     "rowNumber",
@@ -51,7 +51,7 @@ _ROW_NUMBER_WEBHOOK_ALIAS_KEYS: tuple[str, ...] = (
 )
 
 
-def sync_webhook_body_row_number_aliases(body: dict[str, Any], row_number: int) -> None:
+def sync_webhook_body_row_number_aliases(body: Dict[str, Any], row_number: int) -> None:
     """Sau merge ``sheet_row``: ép các alias STT / ``row_number`` khớp số dòng từ API (ưu tiên UI phiên)."""
 
     for k in _ROW_NUMBER_WEBHOOK_ALIAS_KEYS:
@@ -59,8 +59,8 @@ def sync_webhook_body_row_number_aliases(body: dict[str, Any], row_number: int) 
 
 
 def merge_sheet_row_into_webhook_body(
-    body: dict[str, Any],
-    sheet_row: dict[str, Any],
+    body: Dict[str, Any],
+    sheet_row: Dict[str, Any],
 ) -> None:
     """Merge ``sheet_row`` vào ``body``; với key tiếng Việt có dấu / có space thêm alias slug."""
 
@@ -74,7 +74,7 @@ def merge_sheet_row_into_webhook_body(
                 body[slug] = value
 
 
-def _coerce_non_negative_int(raw: Any) -> int | None:
+def _coerce_non_negative_int(raw: Any) -> Optional[int]:
     if raw is None:
         return None
     if isinstance(raw, bool):
@@ -96,7 +96,7 @@ def _coerce_non_negative_int(raw: Any) -> int | None:
     return None
 
 
-def _first_metric_int(body: dict[str, Any], keys: tuple[str, ...]) -> int | None:
+def _first_metric_int(body: Dict[str, Any], keys: Tuple[str, ...]) -> Optional[int]:
     """Lấy số đầu tiên khớp một trong các key (đã merge vào ``body``, kể cả slug kiểu ``solike``)."""
 
     for k in keys:
@@ -108,7 +108,7 @@ def _first_metric_int(body: dict[str, Any], keys: tuple[str, ...]) -> int | None
     return None
 
 
-def enrich_webhook_sheet_metrics(body: dict[str, Any]) -> None:
+def enrich_webhook_sheet_metrics(body: Dict[str, Any]) -> None:
     """Thêm key cố định tiếng Anh cho like / comment / báo cáo / điểm — đọc từ các cột sheet đã có trong ``body``.
 
     Không xoá key gốc (``Số like``, …); chỉ bổ sung để n8n luôn có chỗ map.
@@ -174,7 +174,7 @@ def enrich_webhook_sheet_metrics(body: dict[str, Any]) -> None:
         body["total_posts_per_scrape"] = sess_n
 
 
-_LIKE_METRIC_KEYS: tuple[str, ...] = (
+_LIKE_METRIC_KEYS: Tuple[str, ...] = (
     "Số like",
     "likes",
     "Số Like",
@@ -183,7 +183,7 @@ _LIKE_METRIC_KEYS: tuple[str, ...] = (
 )
 
 
-_COMMENT_METRIC_KEYS: tuple[str, ...] = (
+_COMMENT_METRIC_KEYS: Tuple[str, ...] = (
     "Số comment",
     "comments",
     "Số Comment",
@@ -192,7 +192,7 @@ _COMMENT_METRIC_KEYS: tuple[str, ...] = (
 )
 
 
-_REPORT_METRIC_KEYS: tuple[str, ...] = (
+_REPORT_METRIC_KEYS: Tuple[str, ...] = (
     "Số báo cáo",
     "Số bao cao",
     "Lượng báo sao",
@@ -211,7 +211,7 @@ _REPORT_METRIC_KEYS: tuple[str, ...] = (
 )
 
 
-def _propagate_report_metric_aliases(body: dict[str, Any], value: int) -> None:
+def _propagate_report_metric_aliases(body: Dict[str, Any], value: int) -> None:
     """Đồng bộ số report/repost lên mọi key sheet + canonical mà n8n hay map."""
 
     body["linkedin_report_count"] = value
@@ -228,7 +228,7 @@ def _propagate_report_metric_aliases(body: dict[str, Any], value: int) -> None:
         body["reposts"] = value
 
 
-def bump_comment_metrics_after_app_comment(body: dict[str, Any]) -> None:
+def bump_comment_metrics_after_app_comment(body: Dict[str, Any]) -> None:
     """Sau khi gửi comment qua app: cộng 1 vào các key số comment trên payload webhook."""
 
     base = _first_metric_int(body, _COMMENT_METRIC_KEYS)
@@ -244,7 +244,7 @@ def bump_comment_metrics_after_app_comment(body: dict[str, Any]) -> None:
         body["Số comment"] = new_val
 
 
-def bump_like_metrics_after_like_reaction(body: dict[str, Any]) -> None:
+def bump_like_metrics_after_like_reaction(body: Dict[str, Any]) -> None:
     """Sau reaction ``like``: cộng 1 vào số like trên payload gửi n8n (cột sheet + canonical + slug)."""
 
     base = _first_metric_int(body, _LIKE_METRIC_KEYS)
@@ -260,7 +260,7 @@ def bump_like_metrics_after_like_reaction(body: dict[str, Any]) -> None:
         body["Số like"] = new_val
 
 
-def decrement_like_metrics_after_clear_reaction(body: dict[str, Any]) -> None:
+def decrement_like_metrics_after_clear_reaction(body: Dict[str, Any]) -> None:
     """Sau khi gỡ reaction (clear): trừ 1 số like trên payload — tối thiểu 0."""
 
     base = _first_metric_int(body, _LIKE_METRIC_KEYS)
@@ -276,7 +276,7 @@ def decrement_like_metrics_after_clear_reaction(body: dict[str, Any]) -> None:
         body["Số like"] = new_val
 
 
-def decrement_comment_metrics_after_delete_comment(body: dict[str, Any]) -> None:
+def decrement_comment_metrics_after_delete_comment(body: Dict[str, Any]) -> None:
     """Sau khi xóa comment qua app: trừ 1 số comment trên payload — tối thiểu 0."""
 
     base = _first_metric_int(body, _COMMENT_METRIC_KEYS)
@@ -291,7 +291,7 @@ def decrement_comment_metrics_after_delete_comment(body: dict[str, Any]) -> None
     if "Số comment" not in body:
         body["Số comment"] = new_val
 
-def update_metrics_from_sync(body: dict[str, Any], total_reactions: int, total_comments: int) -> None:
+def update_metrics_from_sync(body: Dict[str, Any], total_reactions: int, total_comments: int) -> None:
     """Updates the webhook body with exact metrics fetched during sync."""
     
     # Update reactions/likes

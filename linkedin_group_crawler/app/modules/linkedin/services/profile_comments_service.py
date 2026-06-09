@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Set, Tuple
 import json
 import re
-from typing import Any
 from urllib.parse import parse_qs, unquote, urljoin, urlparse
 
 from playwright.sync_api import Error, Locator, Page, sync_playwright
@@ -68,14 +68,14 @@ def _is_login_form_visible(page: Page) -> bool:
     return False
 
 
-def build_profile_urls(public_id: str) -> tuple[str, str]:
+def build_profile_urls(public_id: str) -> Tuple[str, str]:
     slug = (public_id or "").strip().strip("/")
     base = f"https://www.linkedin.com/in/{slug}/"
     comments = f"https://www.linkedin.com/in/{slug}/recent-activity/comments/"
     return base, comments
 
 
-def _absolute_href(page: Page, href: str | None) -> str:
+def _absolute_href(page: Page, href: Optional[str]) -> str:
     if not href:
         return ""
     if href.startswith(("http://", "https://")):
@@ -83,7 +83,7 @@ def _absolute_href(page: Page, href: str | None) -> str:
     return urljoin(page.url or "https://www.linkedin.com/", href)
 
 
-def parse_comment_activity_href(href: str, page_url: str = "") -> dict[str, Any] | None:
+def parse_comment_activity_href(href: str, page_url: str = "") -> Optional[Dict[str, Any]]:
     """Parse decoded activity URL + dashCommentUrn → type, ids, activity_url."""
 
     if not href or "dashCommentUrn" not in href:
@@ -205,7 +205,7 @@ def _expandable_root_for_link(link: Locator) -> Locator:
     return link.locator("xpath=..")
 
 
-def _parse_row(link: Locator, page: Page) -> dict[str, Any] | None:
+def _parse_row(link: Locator, page: Page) -> Optional[Dict[str, Any]]:
     try:
         href = link.get_attribute("href")
     except Error:
@@ -218,7 +218,7 @@ def _parse_row(link: Locator, page: Page) -> dict[str, Any] | None:
     comment_text = _comment_text_from_root(root)
     time_text = _time_text_from_container(root)
 
-    row: dict[str, Any] = {
+    row: Dict[str, Any] = {
         "type": parsed["type"],
         "post_id": parsed["post_id"],
         "comment_id": parsed.get("comment_id"),
@@ -231,7 +231,7 @@ def _parse_row(link: Locator, page: Page) -> dict[str, Any] | None:
     return row
 
 
-def _unique_key(row: dict[str, Any]) -> str:
+def _unique_key(row: Dict[str, Any]) -> str:
     cid = row.get("comment_id")
     if cid:
         return f"c:{cid}"
@@ -242,10 +242,10 @@ def crawl_profile_comments(
     *,
     public_id: str,
     max_items: int,
-    target_post_id: str | None,
-    session_id: str | None,
-    email: str | None,
-) -> dict[str, Any]:
+    target_post_id: Optional[str],
+    session_id: Optional[str],
+    email: Optional[str],
+) -> Dict[str, Any]:
     """Mở comments_url, scroll, parse. Cần session (li_at) — nếu không có thì có thể gặp login."""
 
     slug = (public_id or "").strip().strip("/")
@@ -254,8 +254,8 @@ def crawl_profile_comments(
     _, state_path = build_session_state_path(session_id=session_id, email=email)
     has_state = state_path.exists() and _state_has_li_at_cookie(state_path)
 
-    collected: list[dict[str, Any]] = []
-    seen: set[str] = set()
+    collected: List[Dict[str, Any]] = []
+    seen: Set[str] = set()
     max_items = max(1, min(max_items, 200))
 
     with sync_playwright() as p:
@@ -343,7 +343,7 @@ def crawl_profile_comments(
             "comments": [],
         }
 
-    matched: list[dict[str, Any]] = []
+    matched: List[Dict[str, Any]] = []
     if target_post_id:
         tid = str(target_post_id).strip()
         for c in collected:

@@ -1,11 +1,12 @@
+from typing import Optional
 from fastapi import Header, HTTPException, Query, status
 
 from app.core.config import settings
 
 
 def verify_zalo_api_key(
-    x_api_key: str | None = Header(default=None),
-    api_key: str | None = Query(default=None),
+    x_api_key: Optional[str] = Header(default=None),
+    api_key: Optional[str] = Query(default=None),
 ) -> None:
     if not settings.api_key:
         return

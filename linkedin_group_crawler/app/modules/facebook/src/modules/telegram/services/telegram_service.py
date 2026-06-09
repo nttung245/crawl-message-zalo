@@ -1,9 +1,9 @@
+from typing import List
 import logging
 import time # Dùng time.sleep thay vì asyncio.sleep
 import requests # Dùng requests thay vì httpx
 import html
 from datetime import datetime
-from typing import List
 
 from app.modules.facebook.src.core.config.env import Config
 from app.modules.facebook.src.modules.crawl_fb.models.GroupSummary import GroupSummary

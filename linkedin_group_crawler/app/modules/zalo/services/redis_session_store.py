@@ -10,10 +10,10 @@ Features:
 - Backward compatible interface with in-memory session store
 """
 
+from typing import Dict, Optional, Set
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Optional
 
 import redis.asyncio as redis
 from loguru import logger
@@ -37,7 +37,7 @@ class RedisSessionStore:
         """
         self.redis_url = redis_url
         self.redis_client: Optional[redis.Redis] = None
-        self._local_locks: dict[str, asyncio.Lock] = {}
+        self._local_locks: Dict[str, asyncio.Lock] = {}
 
     async def connect(self) -> None:
         """Establish Redis connection."""
@@ -205,7 +205,7 @@ class RedisSessionStore:
     async def get_latest_session_for_user(
         self,
         user_id: str,
-        preferred_statuses: Optional[set[str]] = None,
+        preferred_statuses: Optional[Set[str]] = None,
     ) -> Optional[SessionData]:
         """Get latest session for user with optional status filter."""
         if not self.redis_client:

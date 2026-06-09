@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 import re
 from datetime import date, datetime
 from pathlib import Path
-from typing import Any
 from urllib.parse import urlparse
 
 from google.oauth2 import service_account
@@ -21,7 +21,7 @@ logger = get_logger(__name__)
 _SHEETS_SCOPES = ("https://www.googleapis.com/auth/spreadsheets",)
 
 # Map header (trimmed) → giá trị ô (theo ngữ nghĩa khi append bài mới)
-_TOP_POST_HEADER_ALIASES: dict[str, tuple[str, ...]] = {
+_TOP_POST_HEADER_ALIASES: Dict[str, Tuple[str, ...]] = {
     "email_crawl": ("email_crawl", "email crawl"),
     "ngày": ("ngay", "ngày", "date"),
     "tên nhóm": ("ten nhom", "tên nhóm", "group_name", "group name"),
@@ -71,17 +71,17 @@ def get_sheets_service():
     return build("sheets", "v4", credentials=credentials, cache_discovery=False)
 
 
-_spreadsheet_sheet_titles_cache: dict[str, list[str]] = {}
+_spreadsheet_sheet_titles_cache: Dict[str, List[str]] = {}
 
 
-def _fetch_spreadsheet_sheet_titles(spreadsheet_id: str) -> list[str]:
+def _fetch_spreadsheet_sheet_titles(spreadsheet_id: str) -> List[str]:
     service = get_sheets_service()
     body = (
         service.spreadsheets()
         .get(spreadsheetId=spreadsheet_id, fields="sheets(properties(title))")
         .execute()
     )
-    titles: list[str] = []
+    titles: List[str] = []
     for sheet in body.get("sheets", []):
         props = sheet.get("properties") or {}
         title = props.get("title")
@@ -90,7 +90,7 @@ def _fetch_spreadsheet_sheet_titles(spreadsheet_id: str) -> list[str]:
     return titles
 
 
-def get_spreadsheet_sheet_titles(spreadsheet_id: str) -> list[str]:
+def get_spreadsheet_sheet_titles(spreadsheet_id: str) -> List[str]:
     """Danh sách tên tab đúng như trên Google Sheets (cache theo process)."""
 
     sid = (spreadsheet_id or "").strip()
@@ -106,7 +106,7 @@ def _normalize_tab_token(name: str) -> str:
     return re.sub(r"\s+", " ", text)
 
 
-def _match_configured_tab_title(titles: list[str], preferred: str) -> str | None:
+def _match_configured_tab_title(titles: List[str], preferred: str) -> Optional[str]:
     pref = (preferred or "").strip()
     if not pref:
         return None
@@ -143,7 +143,7 @@ def resolve_top_posts_tab_title(spreadsheet_id: str) -> str:
     return titles[0]
 
 
-def resolve_group_urls_tab_title(spreadsheet_id: str, top_posts_tab: str) -> str | None:
+def resolve_group_urls_tab_title(spreadsheet_id: str, top_posts_tab: str) -> Optional[str]:
     """Tab danh sách URL nhóm: ưu tiên env, sau đó heuristics (URL + nhóm) hoặc tab duy nhất còn lại."""
 
     titles = get_spreadsheet_sheet_titles(spreadsheet_id)
@@ -190,7 +190,7 @@ def spreadsheet_configured() -> bool:
     return spreadsheet_id_ok and json_path.is_file()
 
 
-def _read_values(*, spreadsheet_id: str, range_a1: str) -> list[list[Any]]:
+def _read_values(*, spreadsheet_id: str, range_a1: str) -> List[List[Any]]:
     service = get_sheets_service()
     resp = (
         service.spreadsheets()
@@ -201,9 +201,9 @@ def _read_values(*, spreadsheet_id: str, range_a1: str) -> list[list[Any]]:
     return list(resp.get("values") or [])
 
 
-def _headers_to_unique_keys(headers: list[str]) -> list[str]:
-    counts: dict[str, int] = {}
-    keys: list[str] = []
+def _headers_to_unique_keys(headers: List[str]) -> List[str]:
+    counts: Dict[str, int] = {}
+    keys: List[str] = []
     for index, raw in enumerate(headers):
         label = (raw or "").strip()
         if not label:
@@ -217,7 +217,7 @@ def _headers_to_unique_keys(headers: list[str]) -> list[str]:
     return keys
 
 
-def read_top_post_header_row() -> list[str]:
+def read_top_post_header_row() -> List[str]:
     """Chỉ đọc dòng tiêu đề tab top_posts (để map cột khi append)."""
 
     sid = settings.google_spreadsheet_id
@@ -228,7 +228,7 @@ def read_top_post_header_row() -> list[str]:
     return [str(c or "") for c in raw[0]]
 
 
-def read_top_posts_as_dicts() -> tuple[list[str], list[dict[str, Any]]]:
+def read_top_posts_as_dicts() -> Tuple[List[str], List[Dict[str, Any]]]:
     """Đọc toàn bộ tab top_posts: trả về (header_keys, rows)."""
 
     sid = settings.google_spreadsheet_id
@@ -239,10 +239,10 @@ def read_top_posts_as_dicts() -> tuple[list[str], list[dict[str, Any]]]:
 
     headers = raw[0]
     keys = _headers_to_unique_keys([str(cell) if cell is not None else "" for cell in headers])
-    rows: list[dict[str, Any]] = []
+    rows: List[Dict[str, Any]] = []
     for line in raw[1:]:
         padded = list(line) + [""] * (len(keys) - len(line))
-        row_obj: dict[str, Any] = {}
+        row_obj: Dict[str, Any] = {}
         for key, cell in zip(keys, padded[: len(keys)]):
             row_obj[key] = cell
         rows.append(row_obj)
@@ -259,7 +259,7 @@ def _header_key_base(header_key: str) -> str:
     return re.sub(r"__\d+$", "", str(header_key).strip())
 
 
-def _get_row_email_crawl_cell(row: dict[str, Any]) -> str:
+def _get_row_email_crawl_cell(row: Dict[str, Any]) -> str:
     for header_key, raw in row.items():
         base = _header_key_base(header_key)
         if _header_semantic_key(base) == "email_crawl":
@@ -267,7 +267,7 @@ def _get_row_email_crawl_cell(row: dict[str, Any]) -> str:
     return ""
 
 
-def _parse_cell_date_maybe(value: str) -> date | None:
+def _parse_cell_date_maybe(value: str) -> Optional[date]:
     text = str(value or "").strip()
     if len(text) < 10:
         return None
@@ -277,8 +277,8 @@ def _parse_cell_date_maybe(value: str) -> date | None:
         return None
 
 
-def _collect_sheet_row_ngay_dates(row: dict[str, Any]) -> list[date]:
-    parsed: list[date] = []
+def _collect_sheet_row_ngay_dates(row: Dict[str, Any]) -> List[date]:
+    parsed: List[date] = []
     for header_key, raw in row.items():
         base = _header_key_base(header_key)
         if _header_semantic_key(base) != "ngày":
@@ -290,19 +290,19 @@ def _collect_sheet_row_ngay_dates(row: dict[str, Any]) -> list[date]:
 
 
 def filter_sheet_top_posts_for_owner(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     *,
     owner_email_token: str,
-    date_from: date | None = None,
-    date_to: date | None = None,
-) -> list[dict[str, Any]]:
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+) -> List[Dict[str, Any]]:
     """Chỉ trả các dòng có ``Email_crawl`` đúng owner; lọc theo khoảng các cột ``Ngày`` (YYYYMMDD trên ô)."""
 
     owner = _normalize_owner_email_token(owner_email_token)
     if not owner:
         return []
 
-    out: list[dict[str, Any]] = []
+    out: List[Dict[str, Any]] = []
     for row in rows:
         cell_owner = _normalize_owner_email_token(_get_row_email_crawl_cell(row))
         if cell_owner != owner:
@@ -329,7 +329,7 @@ def filter_sheet_top_posts_for_owner(
     return out
 
 
-def _hyperlink_formula(url: str, label: str | None = None) -> str:
+def _hyperlink_formula(url: str, label: Optional[str] = None) -> str:
     if not (url or "").strip():
         return ""
     escaped_url = url.replace('"', '""')
@@ -337,7 +337,7 @@ def _hyperlink_formula(url: str, label: str | None = None) -> str:
     return f'=HYPERLINK("{escaped_url}","{lab}")'
 
 
-def _header_semantic_key(header: str) -> str | None:
+def _header_semantic_key(header: str) -> Optional[str]:
     norm = _normalize_header_cell(header)
     for canonical, aliases in _TOP_POST_HEADER_ALIASES.items():
         if norm == _normalize_header_cell(canonical):
@@ -349,18 +349,18 @@ def _header_semantic_key(header: str) -> str | None:
 
 
 def build_top_post_row_values(
-    headers: list[str],
+    headers: List[str],
     *,
     email_crawl: str,
     crawl_date: str,
     group_name: str,
     group_url: str,
     total_posts_in_run: int,
-    post: dict[str, Any],
-) -> list[str]:
+    post: Dict[str, Any],
+) -> List[str]:
     """Tạo một dòng theo đúng thứ tự cột của header dòng 1 trong Sheet."""
 
-    row: list[str] = []
+    row: List[str] = []
     for header in headers:
         sem = _header_semantic_key(header)
         if sem == "email_crawl":
@@ -395,7 +395,7 @@ def build_top_post_row_values(
     return row
 
 
-def append_top_post_rows(rows_2d: list[list[Any]]) -> None:
+def append_top_post_rows(rows_2d: List[List[Any]]) -> None:
     sid = settings.google_spreadsheet_id
     tab = resolve_top_posts_tab_title(sid)
     if not rows_2d:
@@ -410,7 +410,7 @@ def append_top_post_rows(rows_2d: list[list[Any]]) -> None:
     ).execute()
 
 
-def read_group_url_rows() -> list[dict[str, Any]]:
+def read_group_url_rows() -> List[Dict[str, Any]]:
     """Đọc tab URL nhóm: cột URL_Nhóm, email, Trạng thái."""
 
     sid = settings.google_spreadsheet_id
@@ -426,10 +426,10 @@ def read_group_url_rows() -> list[dict[str, Any]]:
         return []
     headers = [str(c or "").strip() for c in raw[0]]
     keys = _headers_to_unique_keys(headers)
-    out: list[dict[str, Any]] = []
+    out: List[Dict[str, Any]] = []
     for line in raw[1:]:
         padded = list(line) + [""] * (len(keys) - len(line))
-        item: dict[str, Any] = {}
+        item: Dict[str, Any] = {}
         for key, cell in zip(keys, padded[: len(keys)]):
             item[key] = cell
         out.append(item)
@@ -475,7 +475,7 @@ def update_group_status_by_url(target_url: str, status: str = "done") -> bool:
         status_col_index = 2
 
     want = _normalize_group_url(target_url)
-    row_number: int | None = None
+    row_number: Optional[int] = None
     for offset, line in enumerate(raw[1:], start=2):
         cells = list(line) + [""] * (url_col_index + 1 - len(line))
         cell = cells[url_col_index] if url_col_index < len(cells) else ""

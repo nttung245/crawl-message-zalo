@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Dict
 from pathlib import Path
 
 from playwright.sync_api import BrowserContext, Error, Page
@@ -40,7 +41,7 @@ def validate_storage_state_file(state_path: Path) -> None:
         )
 
 
-def linkedin_browser_context_options() -> dict[str, object]:
+def linkedin_browser_context_options() -> Dict[str, object]:
     return {
         "viewport": {"width": 1366, "height": 768},
         "locale": "en-US",

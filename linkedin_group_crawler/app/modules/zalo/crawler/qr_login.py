@@ -1,6 +1,6 @@
-﻿import base64
+from typing import Any, Dict, List, Optional, Tuple, Union
+import base64
 import hashlib
-from typing import Any
 import time
 
 from loguru import logger
@@ -62,8 +62,6 @@ ACCOUNT_CONTINUE_SELECTORS = [
     "text=Tiếp tục",
     "text=Tiep tuc",
     "text=Continue",
-    "text=Đăng nhập",
-    "text=Dang nhap",
 ]
 
 _JS_CANVAS = """
@@ -152,6 +150,18 @@ _JS_CHECK_LOGGED_IN = """
 
     if (appEl) return 'confirmed:appElement';
 
+    const rawText = ((document.body ? document.body.innerText : '') || '').toLowerCase();
+    const text = rawText.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    if (
+        text.includes('het han') ||
+        text.includes('ma qr het han') ||
+        text.includes('lay ma moi') ||
+        text.includes('refresh qr') ||
+        text.includes('reload qr')
+    ) {
+        return 'qr_expired';
+    }
+
     const qrSelectors = [
         'canvas.qr-img',
         '.qr-panel canvas',
@@ -177,12 +187,21 @@ _JS_CHECK_LOGGED_IN = """
         if (isVisible(qrEl)) return 'waiting_scan';
     }
 
-    const text = ((document.body ? document.body.innerText : '') || '').toLowerCase();
-    if (text.includes('het han') || text.includes('háº¿t háº¡n') || text.includes('refresh qr')) {
-        return 'qr_expired';
-    }
-
     return inChatUrl ? 'confirmed:fallbackChatUrl' : 'waiting_scan';
+}
+"""
+
+_JS_QR_EXPIRED = """
+() => {
+    const rawText = ((document.body ? document.body.innerText : '') || '').toLowerCase();
+    const text = rawText.normalize('NFD').replace(/[\\u0300-\\u036f]/g, '');
+    return (
+        text.includes('het han') ||
+        text.includes('ma qr het han') ||
+        text.includes('lay ma moi') ||
+        text.includes('refresh qr') ||
+        text.includes('reload qr')
+    );
 }
 """
 
@@ -191,8 +210,8 @@ class ZaloAlreadyLoggedInError(RuntimeError):
     """Raised when the page is already in a confirmed logged-in state."""
 
 
-def _qr_targets(page: Page) -> list[tuple[str, Page | Frame]]:
-    targets: list[tuple[str, Page | Frame]] = [("main", page)]
+def _qr_targets(page: Page) -> List[Tuple[str, Union[Page, Frame]]]:
+    targets: List[Tuple[str, Union[Page, Frame]]] = [("main", page)]
     for index, frame in enumerate(page.frames):
         if frame is page.main_frame:
             continue
@@ -201,7 +220,7 @@ def _qr_targets(page: Page) -> list[tuple[str, Page | Frame]]:
     return targets
 
 
-async def _canvas_data_url(page: Page) -> str | None:
+async def _canvas_data_url(page: Page) -> Optional[str]:
     for label, target in _qr_targets(page):
         try:
             data_url = await target.evaluate(_JS_CANVAS, CANVAS_SELECTORS)
@@ -218,7 +237,7 @@ async def _canvas_data_url(page: Page) -> str | None:
     return None
 
 
-async def _img_src(page: Page) -> str | None:
+async def _img_src(page: Page) -> Optional[str]:
     for label, target in _qr_targets(page):
         try:
             src = await target.evaluate(_JS_IMG, IMG_SELECTORS)
@@ -235,7 +254,7 @@ async def _img_src(page: Page) -> str | None:
     return None
 
 
-async def qr_element_screenshot_bytes(page: Page) -> bytes | None:
+async def qr_element_screenshot_bytes(page: Page) -> Optional[bytes]:
     for label, target in _qr_targets(page):
         for selector in QR_PRIMARY_SCREENSHOT_SELECTORS:
             try:
@@ -263,7 +282,7 @@ async def qr_element_screenshot_bytes(page: Page) -> bytes | None:
     return None
 
 
-async def _qr_element_screenshot_data_url(page: Page) -> str | None:
+async def _qr_element_screenshot_data_url(page: Page) -> Optional[str]:
     shot = await qr_element_screenshot_bytes(page)
     if not shot:
         return None
@@ -323,7 +342,7 @@ async def _capture_qr(page: Page) -> str:
     raise RuntimeError("Could not extract QR from canvas or image")
 
 
-async def _capture_qr_if_ready(page: Page) -> str | None:
+async def _capture_qr_if_ready(page: Page) -> Optional[str]:
     screenshot_data_url = await _qr_element_screenshot_data_url(page)
     if screenshot_data_url:
         return screenshot_data_url
@@ -347,8 +366,8 @@ async def _capture_qr_if_ready(page: Page) -> str | None:
         return None
 
 
-async def _save_qr_failure_artifacts(page: Page, name: str, metadata: dict[str, Any] | None = None) -> dict[str, str]:
-    debug_metadata: dict[str, Any] = dict(metadata or {})
+async def _save_qr_failure_artifacts(page: Page, name: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
+    debug_metadata: Dict[str, Any] = dict(metadata or {})
     try:
         debug_metadata.setdefault("url", page.url)
     except Exception:
@@ -398,17 +417,23 @@ async def _try_continue_from_account_page(page: Page) -> bool:
     return False
 
 
-async def _wait_for_stable_qr(page: Page, previous_signature: str | None = None) -> str | None:
+async def _wait_for_stable_qr(page: Page, previous_signature: Optional[str] = None) -> Optional[str]:
     """Return a QR only after it is observed more than once in a row.
 
     Zalo can render the QR canvas before the bitmap is fully settled. Returning the
     first canvas snapshot too early can produce a QR that scans but is already stale.
     Requiring two matching captures reduces those false positives.
     """
-    last_data_url: str | None = None
-    last_signature: str | None = None
+    last_data_url: Optional[str] = None
+    last_signature: Optional[str] = None
 
     for _ in range(8):
+        try:
+            if await page.evaluate(_JS_QR_EXPIRED):
+                return None
+        except Exception:
+            pass
+
         data_url = await _capture_qr_if_ready(page)
         if not data_url:
             last_data_url = None
@@ -436,7 +461,7 @@ async def _wait_for_stable_qr(page: Page, previous_signature: str | None = None)
     return last_data_url
 
 
-def qr_signature(data_url: str | None) -> str:
+def qr_signature(data_url: Optional[str]) -> str:
     if not data_url:
         return ""
     return hashlib.sha256(data_url.encode("utf-8")).hexdigest()
@@ -468,17 +493,19 @@ async def navigate_and_get_qr(page: Page) -> str:
 
 async def check_login_status(page: Page) -> str:
     try:
+        if page is None:
+            return "waiting_scan"
         await _try_continue_from_account_page(page)
         url = page.url
         title = await page.title()
         result: str = await page.evaluate(_JS_CHECK_LOGGED_IN)
         logger.debug(f"Status check - url={url!r} title={title!r} js={result!r}")
-        if "id.zalo.me/account" in url or "Đăng nhập" in title or "Dang nhap" in title:
-            logger.info(f"Zalo account/login page is not crawl-ready yet (url={url!r}, title={title!r})")
-            return "waiting_scan"
         if result == "qr_expired":
             logger.info("QR expired")
             return "qr_expired"
+        if "id.zalo.me/account" in url or "Đăng nhập" in title or "Dang nhap" in title:
+            logger.info(f"Zalo account/login page is not crawl-ready yet (url={url!r}, title={title!r})")
+            return "waiting_scan"
         if result.startswith("confirmed"):
             logger.info(f"Login confirmed ({result})")
             return "confirmed"
@@ -492,8 +519,40 @@ async def refresh_qr(page: Page) -> str:
     return await refresh_qr_with_previous(page, previous_signature=None)
 
 
-async def refresh_qr_with_previous(page: Page, previous_signature: str | None) -> str:
+async def refresh_qr_with_previous(page: Page, previous_signature: Optional[str]) -> str:
     clicked_refresh = False
+    try:
+        clicked_by_text = await page.evaluate(
+            """
+            () => {
+                const normalize = (value) => String(value || '')
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\\u0300-\\u036f]/g, '');
+                const candidates = Array.from(document.querySelectorAll('button, [role="button"], a'));
+                for (const el of candidates) {
+                    const text = normalize(el.innerText || el.textContent || el.getAttribute('aria-label'));
+                    if (
+                        text.includes('lay ma moi') ||
+                        text.includes('lam moi') ||
+                        text.includes('tai lai') ||
+                        text.includes('refresh')
+                    ) {
+                        el.click();
+                        return true;
+                    }
+                }
+                return false;
+            }
+            """
+        )
+        if clicked_by_text:
+            await page.wait_for_timeout(1000)
+            clicked_refresh = True
+            logger.info("Clicked refresh QR by normalized text")
+    except Exception as exc:
+        logger.debug(f"Could not click refresh QR by normalized text: {exc}")
+
     for selector in [
         "[class*=refresh]",
         "button[class*=refresh]",
@@ -532,6 +591,13 @@ async def refresh_qr_with_previous(page: Page, previous_signature: str | None) -
 
     await page.goto(ZALO_WEB_URL, wait_until="domcontentloaded", timeout=60000)
     for _ in range(30):
+        try:
+            if await page.evaluate(_JS_QR_EXPIRED):
+                await page.wait_for_timeout(400)
+                continue
+        except Exception:
+            pass
+
         data_url = await _capture_qr_if_ready(page)
         if data_url:
             current_sig = qr_signature(data_url)

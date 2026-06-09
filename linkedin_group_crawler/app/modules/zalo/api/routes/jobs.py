@@ -1,5 +1,5 @@
+from typing import List, Optional
 import re
-from typing import List
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from fastapi.responses import StreamingResponse
@@ -16,7 +16,7 @@ router = APIRouter(
 )
 
 
-def _normalize_user_id(value: str | None) -> str:
+def _normalize_user_id(value: Optional[str]) -> str:
     raw = (value or "default").strip().lower()
     raw = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
     return raw or "default"
@@ -30,7 +30,7 @@ async def get_all_jobs(x_user_id: str = Header("default", alias="X-User-ID")):
 @router.get("/events")
 async def stream_job_events(
     x_user_id: str = Header("default", alias="X-User-ID"),
-    user_id: str | None = None,
+    user_id: Optional[str] = None,
 ):
     event_user_id = _normalize_user_id(user_id or x_user_id)
     return StreamingResponse(

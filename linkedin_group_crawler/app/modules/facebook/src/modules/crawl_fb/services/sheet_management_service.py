@@ -1,6 +1,6 @@
+from typing import Dict, List, Tuple
 import asyncio
 
-from typing import List, Dict, Tuple
 from datetime import datetime
 
 from fastapi.concurrency import run_in_threadpool
@@ -176,7 +176,7 @@ class SheetManagementService:
             self.comment_sheet.add_multiple_comments, 
             comments_data
         )
-    async def bulk_process_comments_and_scores(self, comments_data: List[Dict]) -> tuple[bool, bool]:
+    async def bulk_process_comments_and_scores(self, comments_data: List[Dict]) -> Tuple[bool, bool]:
         """
         Thực thi SONG SONG 2 tác vụ từ một nguồn dữ liệu duy nhất: 
         1. Ghi danh sách Comments vào Sheet Comments.
@@ -198,7 +198,7 @@ class SheetManagementService:
                 ]
                 
         Returns:
-            tuple[bool, bool]: Kết quả của (Comments_Success, Scores_Success)
+            Tuple[bool, bool]: Kết quả của (Comments_Success, Scores_Success)
         """
         if not comments_data:
             return False, False
