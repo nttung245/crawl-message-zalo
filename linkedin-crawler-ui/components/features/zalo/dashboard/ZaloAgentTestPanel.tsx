@@ -1,14 +1,15 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import { testAgentExtract } from "@/services/zaloCrawlerService";
+import { getZaloCrawledGroups, testAgentExtract } from "@/services/zaloCrawlerService";
 import type {
   AgentTestExtractResponse,
   AgentTestExtractResult,
+  ZaloCrawledGroupItem,
 } from "@/types/zalo-api";
 
-type InputMode = "fake" | "text";
+type InputMode = "fake" | "text" | "group";
 
 interface FakeGroup {
   group_name: string;
@@ -21,7 +22,7 @@ interface FakeDataResponse {
   total_images: number;
 }
 
-export function ZaloAgentTestPanel({ userId: _userId }: { userId: string }) {
+export function ZaloAgentTestPanel({ userId }: { userId: string }) {
   const [mode, setMode] = useState<InputMode>("fake");
   const [pasteText, setPasteText] = useState("");
   const [loading, setLoading] = useState(false);
@@ -29,6 +30,12 @@ export function ZaloAgentTestPanel({ userId: _userId }: { userId: string }) {
   const [result, setResult] = useState<AgentTestExtractResponse | null>(null);
   const [fakeData, setFakeData] = useState<FakeDataResponse | null>(null);
   const [selectedFakeGroup, setSelectedFakeGroup] = useState<string>("all");
+
+  // Crawled groups state
+  const [crawledGroups, setCrawledGroups] = useState<ZaloCrawledGroupItem[]>([]);
+  const [selectedCrawledGroup, setSelectedCrawledGroup] = useState<string>("");
+  const [loadingGroups, setLoadingGroups] = useState(false);
+  const [groupsError, setGroupsError] = useState<string | null>(null);
 
   const handleGenerateFake = useCallback(async () => {
     setLoading(true);
@@ -108,6 +115,50 @@ export function ZaloAgentTestPanel({ userId: _userId }: { userId: string }) {
     }
   }, [pasteText]);
 
+  // Load crawled groups when switching to "group" mode
+  const loadCrawledGroups = useCallback(async () => {
+    setLoadingGroups(true);
+    setGroupsError(null);
+    try {
+      const response = await getZaloCrawledGroups(userId);
+      setCrawledGroups(response.groups ?? []);
+      if (response.groups?.length && !selectedCrawledGroup) {
+        setSelectedCrawledGroup(response.groups[0].group_name);
+      }
+    } catch (err) {
+      setGroupsError(err instanceof Error ? err.message : "Lỗi tải nhóm");
+    } finally {
+      setLoadingGroups(false);
+    }
+  }, [userId, selectedCrawledGroup]);
+
+  const handleTestGroup = useCallback(async () => {
+    if (!selectedCrawledGroup) {
+      setError("Vui lòng chọn nhóm");
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+    setResult(null);
+
+    try {
+      const res = await testAgentExtract({ group_name: selectedCrawledGroup });
+      setResult(res);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Lỗi không xác định");
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCrawledGroup]);
+
+  // Auto-load crawled groups when switching to "group" mode
+  useEffect(() => {
+    if (mode === "group" && crawledGroups.length === 0 && !loadingGroups) {
+      void loadCrawledGroups();
+    }
+  }, [mode, crawledGroups.length, loadingGroups, loadCrawledGroups]);
+
   return (
     <div className="flex flex-col gap-lg">
       <div>
@@ -122,6 +173,7 @@ export function ZaloAgentTestPanel({ userId: _userId }: { userId: string }) {
         {[
           ["fake", "🧪 Dữ liệu ảo"],
           ["text", "📝 Paste text"],
+          ["group", "📋 Chọn nhóm đã crawl"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -257,6 +309,63 @@ export function ZaloAgentTestPanel({ userId: _userId }: { userId: string }) {
           >
             {loading ? "Đang test..." : "🚀 Test Agent"}
           </button>
+        </div>
+      )}
+
+      {/* ── GROUP MODE ─────────────────────────────────── */}
+      {mode === "group" && (
+        <div className="flex flex-col gap-md">
+          <p className="text-body-sm text-on-surface-variant">
+            Chọn nhóm đã crawl để test Agent trên dữ liệu thật. Hệ thống sẽ lấy tối đa 50 tin nhắn từ nhóm đã chọn.
+          </p>
+
+          {loadingGroups ? (
+            <div className="text-body-sm text-on-surface-variant">Đang tải danh sách nhóm...</div>
+          ) : groupsError ? (
+            <div className="border-error-container bg-error-container/40 text-error rounded-lg border px-md py-sm text-body-sm">
+              {groupsError}
+            </div>
+          ) : crawledGroups.length === 0 ? (
+            <div className="text-body-sm text-on-surface-variant">
+              Chưa có nhóm nào được crawl. Hãy chạy crawl trước ở tab "Crawl".
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-sm">
+                <label className="text-body-sm font-medium text-on-surface">Chọn nhóm</label>
+                <select
+                  value={selectedCrawledGroup}
+                  onChange={(e) => setSelectedCrawledGroup(e.target.value)}
+                  className="border-outline bg-surface-container-lowest rounded-xl border px-md py-sm text-body-md"
+                >
+                  {crawledGroups.map((g) => (
+                    <option key={g.group_name} value={g.group_name}>
+                      {g.group_name} ({g.message_count} tin)
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex gap-sm">
+                <button
+                  type="button"
+                  onClick={handleTestGroup}
+                  disabled={loading || !selectedCrawledGroup}
+                  className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {loading ? "Đang test..." : "🚀 Test Agent"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void loadCrawledGroups()}
+                  disabled={loadingGroups}
+                  className="border-outline text-on-surface rounded-xl border px-md py-sm text-body-sm transition hover:bg-surface-container-high"
+                >
+                  Tải lại nhóm
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
