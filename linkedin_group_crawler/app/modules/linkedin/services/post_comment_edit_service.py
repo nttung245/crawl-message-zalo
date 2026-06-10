@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Final, List, Optional, Tuple
 import re
-from typing import Final
 from urllib.parse import unquote, urlparse
 
 from playwright.sync_api import Error, Locator, Page, TimeoutError as PlaywrightTimeoutError, sync_playwright
@@ -25,7 +25,7 @@ from app.core.logger import get_logger
 
 logger = get_logger(__name__)
 
-_EDIT_MENU_ITEM_SELECTORS: Final[tuple[str, ...]] = (
+_EDIT_MENU_ITEM_SELECTORS: Final[Tuple[str, ...]] = (
     '.artdeco-dropdown__content--is-open div[role="button"].option-button:has-text("Edit")',
     '.artdeco-dropdown__item.option-button .comment-options-dropdown__option-text:has-text("Edit")',
     '[role="menuitem"] button:has-text("Edit")',
@@ -34,7 +34,7 @@ _EDIT_MENU_ITEM_SELECTORS: Final[tuple[str, ...]] = (
 )
 
 _COMMENT_EDIT_FORM_SELECTOR: Final[str] = '[role="textbox"][contenteditable="true"]'
-_SAVE_COMMENT_BUTTON_SELECTORS: Final[tuple[str, ...]] = (
+_SAVE_COMMENT_BUTTON_SELECTORS: Final[Tuple[str, ...]] = (
     'button:has-text("Save changes")',
     'button:has-text("Save"):not(:has-text("Save photo"))',
 )
@@ -43,7 +43,7 @@ _SAVE_COMMENT_BUTTON_SELECTORS: Final[tuple[str, ...]] = (
 def _click_edit_menu_item(page: Page) -> bool:
     """Click Edit từ dropdown menu comment."""
     dropdown = _visible_dropdown_menu(page)
-    scopes: list[Locator] = []
+    scopes: List[Locator] = []
     if dropdown.count() > 0:
         scopes.append(dropdown)
     scopes.append(page.locator("body"))
@@ -77,7 +77,7 @@ def _wait_for_comment_edit_form(
     target_block: Locator,
     old_text: str,
     timeout_ms: int = 30000,
-) -> Locator | None:
+) -> Optional[Locator]:
     """Chờ form edit comment hiển thị (contenteditable textbox) đúng block."""
     scoped = target_block.locator(_COMMENT_EDIT_FORM_SELECTOR).first
     try:
@@ -146,9 +146,9 @@ def _update_comment_text_in_form(
         return False
 
 
-def _click_save_comment_changes(page: Page, scope: Locator | None = None) -> bool:
+def _click_save_comment_changes(page: Page, scope: Optional[Locator] = None) -> bool:
     """Click Save changes button."""
-    scopes: list[Locator] = []
+    scopes: List[Locator] = []
     if scope is not None:
         scopes.append(scope)
     scopes.append(page.locator("body"))
@@ -187,11 +187,11 @@ def edit_linkedin_comment_from_post_detail(
     post_url: str,
     comment_text: str,
     new_comment_text: str,
-    profile_slug: str | None = None,
-    session_id: str | None = None,
-    email: str | None = None,
+    profile_slug: Optional[str] = None,
+    session_id: Optional[str] = None,
+    email: Optional[str] = None,
     timeout_ms: int = 300000,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """
     Chỉnh sửa comment trên LinkedIn bằng cách vào post detail trực tiếp.
     

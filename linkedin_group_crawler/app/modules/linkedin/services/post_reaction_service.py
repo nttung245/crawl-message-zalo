@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Final, Literal
 
+from typing import Dict, Final, Literal, Optional, Tuple
 from playwright.sync_api import Error, Locator, Page, TimeoutError as PlaywrightTimeoutError
 
 from app.core.config import settings
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 
 ReactionKind = Literal["like", "love", "celebrate", "support", "insightful", "funny"]
 
-REACTION_KINDS: Final[tuple[str, ...]] = (
+REACTION_KINDS: Final[Tuple[str, ...]] = (
     "like",
     "love",
     "celebrate",
@@ -35,7 +35,7 @@ def _normalize_selector_blob(raw: str) -> str:
 
 
 # Nút reaction trong flyout sau khi hover mở menu — khớp luồng UI LinkedIn (EN/VN).
-_REACTION_SELECTOR_PARTS: Final[dict[str, tuple[str, ...]]] = {
+_REACTION_SELECTOR_PARTS: Final[Dict[str, Tuple[str, ...]]] = {
     "like": (
         'button[aria-label="Like"]',
         'button[aria-label*="Like"]',
@@ -70,7 +70,7 @@ _REACTION_SELECTOR_PARTS: Final[dict[str, tuple[str, ...]]] = {
     ),
 }
 
-REACTION_SELECTORS: Final[dict[str, str]] = {
+REACTION_SELECTORS: Final[Dict[str, str]] = {
     kind: ", ".join(parts) for kind, parts in _REACTION_SELECTOR_PARTS.items()
 }
 
@@ -84,7 +84,7 @@ _REACTION_MENU_TRIGGERS: Final[str] = _normalize_selector_blob(
 )
 
 # Flyout / palette — ưu tiên click trong vùng này (tránh nút ẩn ngoài menu).
-_REACTION_FLYOUT_ROOTS: Final[tuple[str, ...]] = (
+_REACTION_FLYOUT_ROOTS: Final[Tuple[str, ...]] = (
     "motion.div",
     "motion.ul",
     "motion.div.reactions-menu__content",
@@ -100,7 +100,7 @@ _REACTION_FLYOUT_ROOTS: Final[tuple[str, ...]] = (
 _MENU_OPEN_TIMEOUT_MS: Final[int] = 300000
 _TARGET_REACTION_TIMEOUT_MS: Final[int] = 60000
 _ACTIVE_REACTION_BUTTON_SELECTOR: Final[str] = 'button[aria-label^="Reaction button state:"]'
-_REACTION_STATE_LABEL_HINTS: Final[dict[str, tuple[str, ...]]] = {
+_REACTION_STATE_LABEL_HINTS: Final[Dict[str, Tuple[str, ...]]] = {
     "like": ("like", "thích", "thich"),
     "love": ("love", "yêu thích", "yeu thich"),
     "celebrate": ("celebrate", "praise", "chúc mừng", "chuc mung"),
@@ -161,7 +161,7 @@ def _reaction_is_active_on_page(page: Page, reaction: ReactionKind) -> bool:
     return False
 
 
-def _find_visible_flyout_root(page: Page, *, timeout_ms: int) -> Locator | None:
+def _find_visible_flyout_root(page: Page, *, timeout_ms: int) -> Optional[Locator]:
     deadline = timeout_ms
     for root_sel in _REACTION_FLYOUT_ROOTS:
         root = page.locator(root_sel)
@@ -329,12 +329,12 @@ def _run_linkedin_post_reaction_playwright(
     *,
     post_url: str,
     reaction: ReactionKind,
-    session_id: str | None,
-    email: str | None,
+    session_id: Optional[str],
+    email: Optional[str],
     clear_reaction: bool,
-    password: str | None = None,
+    password: Optional[str] = None,
     auto_login: bool = True,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """Trả ``(normalized_session_id, final_page_url)`` sau khi thêm hoặc gỡ reaction."""
 
     url = (post_url or "").strip()
@@ -364,7 +364,7 @@ def _run_linkedin_post_reaction_playwright(
     if reaction not in REACTION_SELECTORS:
         raise ValueError(f"reaction không hỗ trợ: {reaction}")
 
-    def _playwright_action(page: Page) -> tuple[str, str]:
+    def _playwright_action(page: Page) -> Tuple[str, str]:
         page = goto_linkedin_url(
             page.context,
             page,
@@ -403,7 +403,7 @@ def _run_linkedin_post_reaction_playwright(
                 force_relogin=True,
             )
             # Retry running the action with updated session ID
-            def _playwright_action_retry(page: Page) -> tuple[str, str]:
+            def _playwright_action_retry(page: Page) -> Tuple[str, str]:
                 page_res = goto_linkedin_url(
                     page.context,
                     page,
@@ -432,11 +432,11 @@ def react_to_linkedin_post(
     *,
     post_url: str,
     reaction: ReactionKind,
-    session_id: str | None,
-    email: str | None,
-    password: str | None = None,
+    session_id: Optional[str],
+    email: Optional[str],
+    password: Optional[str] = None,
     auto_login: bool = True,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """Trả ``(normalized_session_id, final_page_url)`` sau khi click reaction."""
 
     return _run_linkedin_post_reaction_playwright(
@@ -454,11 +454,11 @@ def remove_reaction_from_linkedin_post(
     *,
     post_url: str,
     reaction: ReactionKind,
-    session_id: str | None,
-    email: str | None,
-    password: str | None = None,
+    session_id: Optional[str],
+    email: Optional[str],
+    password: Optional[str] = None,
     auto_login: bool = True,
-) -> tuple[str, str]:
+) -> Tuple[str, str]:
     """Gỡ reaction trên LinkedIn bằng click trực tiếp nút reaction đang bật."""
 
     return _run_linkedin_post_reaction_playwright(

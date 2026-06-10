@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Literal, Optional, Set, Tuple, Union
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import re
-from typing import Any, Literal
 from urllib.parse import unquote, urlparse
 
 import httpx
@@ -33,7 +33,7 @@ from app.modules.linkedin.utils.webhook_payload_sanitize import sanitize_webhook
 
 logger = get_logger(__name__)
 
-_POST_URL_KEYS_EXACT: tuple[str, ...] = (
+_POST_URL_KEYS_EXACT: Tuple[str, ...] = (
     "URL_Bài_Viết",
     "URL_Bai_Viet",
     "url_bai_viet",
@@ -42,7 +42,7 @@ _POST_URL_KEYS_EXACT: tuple[str, ...] = (
     "urlbaiviet",
 )
 
-_REACTION_STATE_KEYS_EXACT: tuple[str, ...] = (
+_REACTION_STATE_KEYS_EXACT: Tuple[str, ...] = (
     "reaction",
     "Reaction",
     "reaction_type",
@@ -53,7 +53,7 @@ _REACTION_STATE_KEYS_EXACT: tuple[str, ...] = (
     "Tuong_tac",
 )
 
-_ROW_NUMBER_KEYS_EXACT: tuple[str, ...] = (
+_ROW_NUMBER_KEYS_EXACT: Tuple[str, ...] = (
     "row_number",
     "rowNumber",
     "STT",
@@ -61,7 +61,7 @@ _ROW_NUMBER_KEYS_EXACT: tuple[str, ...] = (
     "Stt",
 )
 
-_REACTION_EMPTY_TOKENS: frozenset[str] = frozenset(
+_REACTION_EMPTY_TOKENS: frozenSet[str] = frozenset(
     {
         "",
         "null",
@@ -84,7 +84,7 @@ class ReactionActionRecord:
     reaction: str
     id_session_crawl: str
     row_number: int
-    sheet_row: dict[str, Any] | None
+    sheet_row: Optional[Dict[str, Any]]
     clear_reaction: bool = False
 
 
@@ -131,7 +131,7 @@ def posts_match_same_linkedin_post(left: str, right: str) -> bool:
     return bool(left_norm and right_norm and left_norm == right_norm)
 
 
-def post_record_post_url(record: dict[str, Any]) -> str:
+def post_record_post_url(record: Dict[str, Any]) -> str:
     for key in _POST_URL_KEYS_EXACT:
         val = _non_empty_str(record.get(key))
         if val:
@@ -149,7 +149,7 @@ def emails_match(left: str, right: str) -> bool:
     return _non_empty_str(left).lower() == _non_empty_str(right).lower()
 
 
-def build_reaction_cell_value(reaction_kind: str, *, triggered_at: str) -> dict[str, str]:
+def build_reaction_cell_value(reaction_kind: str, *, triggered_at: str) -> Dict[str, str]:
     """Ô ``reaction`` trên sheet: loại reaction + thời điểm trigger."""
 
     kind = _non_empty_str(reaction_kind)
@@ -162,7 +162,7 @@ def build_reaction_cell_value(reaction_kind: str, *, triggered_at: str) -> dict[
     }
 
 
-def _reaction_type_from_cell(raw: Any) -> str | None:
+def _reaction_type_from_cell(raw: Any) -> Optional[str]:
     if isinstance(raw, dict):
         for key in ("type", "kind", "reaction", "reaction_type"):
             token = _non_empty_str(raw.get(key)).lower()
@@ -175,7 +175,7 @@ def _reaction_type_from_cell(raw: Any) -> str | None:
     return token or None
 
 
-def read_reaction_token(record: dict[str, Any]) -> str | None:
+def read_reaction_token(record: Dict[str, Any]) -> Optional[str]:
     for key in _REACTION_STATE_KEYS_EXACT:
         if key not in record:
             continue
@@ -188,11 +188,11 @@ def read_reaction_token(record: dict[str, Any]) -> str | None:
     return None
 
 
-def row_has_reaction(record: dict[str, Any]) -> bool:
+def row_has_reaction(record: Dict[str, Any]) -> bool:
     return read_reaction_token(record) is not None
 
 
-def pick_row_number_from_post_record(record: dict[str, Any], *, fallback: int) -> int:
+def pick_row_number_from_post_record(record: Dict[str, Any], *, fallback: int) -> int:
     for key in _ROW_NUMBER_KEYS_EXACT:
         if key not in record:
             continue
@@ -218,7 +218,7 @@ def build_reaction_action_record(
     reaction: str,
     id_session_crawl: str,
     row_number: int,
-    sheet_row: dict[str, Any] | None,
+    sheet_row: Optional[Dict[str, Any]],
     clear_reaction: bool = False,
 ) -> ReactionActionRecord:
     return ReactionActionRecord(
@@ -233,9 +233,9 @@ def build_reaction_action_record(
 
 
 def should_skip_playwright_for_existing_reaction(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     *,
-    reaction_kind: str | None = None,
+    reaction_kind: Optional[str] = None,
 ) -> bool:
     """Tránh toggle trên LinkedIn khi sheet đã ghi đúng loại reaction cần thêm."""
 
@@ -250,13 +250,13 @@ def should_skip_playwright_for_existing_reaction(
     return False
 
 
-def should_skip_playwright_for_clear_reaction(rows: list[dict[str, Any]]) -> bool:
+def should_skip_playwright_for_clear_reaction(rows: List[Dict[str, Any]]) -> bool:
     """Bỏ qua Playwright khi sheet chưa ghi reaction để gỡ."""
 
     return not any(row_has_reaction(row) for row in rows)
 
 
-def fetch_posts_for_email_via_n8n(email: str) -> list[dict[str, Any]]:
+def fetch_posts_for_email_via_n8n(email: str) -> List[Dict[str, Any]]:
     """Bước 3 — gọi webhook get-all-posts (n8n) và trả toàn bộ dòng phẳng."""
 
     owner = _non_empty_str(email)
@@ -293,7 +293,7 @@ def fetch_posts_for_email_via_n8n(email: str) -> list[dict[str, Any]]:
     return [dict(p) for p in posts_raw if isinstance(p, dict)]
 
 
-def _row_sheet_identity(row: dict[str, Any], *, fallback_url: str) -> tuple[str, int, str]:
+def _row_sheet_identity(row: Dict[str, Any], *, fallback_url: str) -> Tuple[str, int, str]:
     sid = session_id_from_post(row) or _non_empty_str(row.get("ID_session_crawl"))
     row_number = pick_row_number_from_post_record(row, fallback=1)
     row_url = post_record_post_url(row) or fallback_url
@@ -302,20 +302,20 @@ def _row_sheet_identity(row: dict[str, Any], *, fallback_url: str) -> tuple[str,
 
 
 def export_sheet_row_for_n8n(
-    row: dict[str, Any],
+    row: Dict[str, Any],
     *,
-    reaction: dict[str, Any] | str | None = None,
-    comments: list[dict[str, Any]] | None = None,
-    post_url: str | None = None,
-    final_url: str | None = None,
-    resolved_playwright_session_id: str | None = None,
+    reaction: Optional[Union[Dict[str, Any], str]] = None,
+    comments: Optional[List[Dict[str, Any]]] = None,
+    post_url: Optional[str] = None,
+    final_url: Optional[str] = None,
+    resolved_playwright_session_id: Optional[str] = None,
     apply_like_bump: bool = False,
     row_number_fallback: int = 1,
     owner_email_webhook_key: Literal["Email_crawl", "email_crawl"] = "Email_crawl",
-) -> dict[str, Any]:
+) -> Dict[str, Any]:
     """Parse một dòng sheet giống webhook reaction cũ: slug tiếng Việt + metric chuẩn."""
 
-    body: dict[str, Any] = {}
+    body: Dict[str, Any] = {}
     merge_sheet_row_into_webhook_body(body, row)
     enrich_webhook_sheet_metrics(body)
 
@@ -334,7 +334,7 @@ def export_sheet_row_for_n8n(
     row_number = pick_row_number_from_post_record(row, fallback=row_number_fallback)
     sync_webhook_body_row_number_aliases(body, row_number)
 
-    reaction_kind: str | None = None
+    reaction_kind: Optional[str] = None
     if reaction is not None:
         body["reaction"] = reaction
         body["Reaction"] = reaction
@@ -361,13 +361,13 @@ def export_sheet_row_for_n8n(
 
 
 def _patch_row_with_reaction(
-    row: dict[str, Any],
+    row: Dict[str, Any],
     *,
     action: ReactionActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
-    reaction_cell: dict[str, str] | str,
-) -> dict[str, Any]:
+    reaction_cell: Union[Dict[str, str], str],
+) -> Dict[str, Any]:
     out = dict(row)
 
     out["reaction"] = reaction_cell
@@ -392,14 +392,14 @@ def _patch_row_with_reaction(
 
 
 def apply_reaction_to_sheet_rows(
-    posts: list[dict[str, Any]],
+    posts: List[Dict[str, Any]],
     *,
     action: ReactionActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
     playwright_executed: bool,
     triggered_at: str,
-) -> tuple[list[dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], int]:
     """Bước 3 — từ get-all chỉ giữ và parse các dòng trùng url bài + email crawl."""
 
     target_url = action.post_url
@@ -407,10 +407,10 @@ def apply_reaction_to_sheet_rows(
     if not target_url or not owner:
         return [], 0
 
-    updated: list[dict[str, Any]] = []
+    updated: List[Dict[str, Any]] = []
     matched_count = 0
     if action.clear_reaction:
-        reaction_cell: dict[str, str] | str = ""
+        reaction_cell: Union[Dict[str, str], str] = ""
     else:
         reaction_cell = build_reaction_cell_value(action.reaction, triggered_at=triggered_at)
 
@@ -467,14 +467,14 @@ def apply_reaction_to_sheet_rows(
 
 
 def merge_trigger_row_into_reaction_rows(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     *,
     action: ReactionActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
-    reaction_cell: dict[str, str] | str,
+    reaction_cell: Union[Dict[str, str], str],
     playwright_executed: bool,
-) -> tuple[list[dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], int]:
     """Gộp dòng trigger từ app vào ``rows`` nếu chưa có trong danh sách khớp."""
 
     identities = {
@@ -523,9 +523,9 @@ def merge_trigger_row_into_reaction_rows(
 def send_sheet_rows_overwrite_webhook(
     *,
     webhook_url: str,
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     matched_row_count: int,
-) -> tuple[int, int, int | None, str | None]:
+) -> Tuple[int, int, Optional[int], Optional[str]]:
     """POST **chỉ** mảng ``rows`` (JSON array) để n8n ghi đè Sheet."""
 
     payload = sanitize_webhook_payload(rows)

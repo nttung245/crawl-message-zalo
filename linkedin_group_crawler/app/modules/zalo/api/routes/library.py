@@ -1,5 +1,5 @@
-import re
 from typing import Optional
+import re
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 
@@ -29,7 +29,7 @@ router = APIRouter(
 )
 
 
-def _normalize_user_id(value: str | None) -> str:
+def _normalize_user_id(value: Optional[str]) -> str:
     raw = (value or "default").strip().lower()
     raw = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
     return raw or "default"

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Literal, Optional
 
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -47,7 +47,7 @@ class StatusDataResponse(BaseModel):
     playwright_persist_session_on_use: bool = False
     default_max_items: int
     default_scroll_times: int
-    cors_origins: list[str]
+    cors_origins: List[str]
     n8n_webhook_configured: bool
     n8n_get_link_webhook_configured: bool
     n8n_webhook_get_post_crawled_configured: bool = False
@@ -93,7 +93,7 @@ class TopPostResponse(BaseModel):
     post_url: str = ""
 
     @classmethod
-    def from_post_dict(cls, data: dict[str, Any]) -> TopPostResponse:
+    def from_post_dict(cls, data: Dict[str, Any]) -> TopPostResponse:
         """Map dict crawl/webhook sang schema cố định (tránh lỗi kiểu dữ liệu)."""
 
         raw_pa = data.get("posted_at")
@@ -129,7 +129,7 @@ class CrawlDataResponse(BaseModel):
     total_posts_scraped: int = Field(default=0)
     total_posts_in_target_date: int = Field(default=0)
     top_post: Optional[TopPostResponse] = None
-    posts: list[TopPostResponse] = Field(
+    posts: List[TopPostResponse] = Field(
         default_factory=list,
         description="Tất cả bài thuộc ngày mục tiêu; hoặc tối đa N bài gần nhất khi fallback.",
     )
@@ -182,7 +182,7 @@ class BulkGroupImportScrapedItem(BaseModel):
 
 
 class BulkGroupImportData(BaseModel):
-    items: list[BulkGroupImportScrapedItem]
+    items: List[BulkGroupImportScrapedItem]
     webhook_http_status: Optional[int] = None
     webhook_response_preview: Optional[str] = Field(
         default=None,
@@ -257,20 +257,20 @@ class SheetLinkFromN8nResponse(BaseResponse):
 class FilterDataResponse(BaseResponse):
     """``data`` = mảng các lần cào (phiên mới nhất trước); mỗi phần tử có ``posts``."""
 
-    data: Optional[list[dict[str, Any]]] = None
+    data: Optional[List[Dict[str, Any]]] = None
 
 
 class GetAllPostsResponse(BaseResponse):
     """``data`` = cùng cấu trúc ``FilterDataResponse`` — chỉ các phiên và bài trong phiên."""
 
-    data: Optional[list[dict[str, Any]]] = None
+    data: Optional[List[Dict[str, Any]]] = None
 
 
 class LinkedinSheetTopPostsData(BaseModel):
     """Đọc từ Google Sheet tab top_posts."""
 
-    headers: list[str]
-    rows: list[dict[str, Any]]
+    headers: List[str]
+    rows: List[Dict[str, Any]]
     row_count: int
 
 
@@ -283,7 +283,7 @@ class LinkedinSheetFilterPostsResponse(BaseResponse):
 
 
 class LinkedinSheetGroupsData(BaseModel):
-    rows: list[dict[str, Any]]
+    rows: List[Dict[str, Any]]
     row_count: int
 
 
@@ -309,7 +309,7 @@ class LinkedinAppCrawlGroupResult(BaseModel):
 
 
 class LinkedinAppCrawlBatchData(BaseModel):
-    results: list[LinkedinAppCrawlGroupResult]
+    results: List[LinkedinAppCrawlGroupResult]
     spreadsheet_id: str
 
 
@@ -347,7 +347,7 @@ class PostCommentData(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
     comment_text: str
-    app_comments: list[dict[str, Any]]
+    app_comments: List[Dict[str, Any]]
     row_number: int
     Email_crawl: str
     ID_session_crawl: str
@@ -419,7 +419,7 @@ class SyncPostProgressData(BaseModel):
 
     post_url: str
     reaction: Optional[str] = None
-    comments: list[dict[str, Any]] = []
+    comments: List[Dict[str, Any]] = []
     total_reactions: int = 0
     total_comments: int = 0
     row_number: Optional[int] = None
@@ -437,7 +437,7 @@ class SyncAllProgressData(BaseModel):
 
     posts_attempted: int
     posts_succeeded: int
-    details: list[SyncPostProgressData]
+    details: List[SyncPostProgressData]
 
 
 class SyncAllProgressResponse(BaseResponse):
@@ -457,17 +457,17 @@ class KpiMemberData(BaseModel):
     role: str = "member"
     profile_slug: Optional[str] = None
     email_leader: Optional[str] = None
-    kpi: list[dict[str, Any]] = []
+    kpi: List[Dict[str, Any]] = []
 
 
 class GetAllKpiResponse(BaseResponse):
     total: int = 0
-    data: list[KpiMemberData] = []
+    data: List[KpiMemberData] = []
 
 
 class GetKpiByEmailResponse(BaseResponse):
     total: int = 0
-    data: list[KpiMemberData] = []
+    data: List[KpiMemberData] = []
 
 
 class AddMemberResponse(BaseResponse):

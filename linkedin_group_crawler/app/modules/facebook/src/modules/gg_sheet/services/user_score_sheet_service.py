@@ -1,5 +1,5 @@
+from typing import Dict, List, Optional
 import logging
-from typing import List, Dict, Optional
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -220,7 +220,7 @@ class UserScoreSheetService:
                     
                     # Lấy điểm cũ
                     try:
-                        old_score = int(existing_scores_list[row_idx - 1]) if row_idx - 1 < len(existing_scores_list) and existing_scores_list[row_idx - 1] else 0
+                        old_score = int(existing_scores_List[row_idx - 1]) if row_idx - 1 < len(existing_scores_list) and existing_scores_List[row_idx - 1] else 0
                     except ValueError:
                         old_score = 0
                         

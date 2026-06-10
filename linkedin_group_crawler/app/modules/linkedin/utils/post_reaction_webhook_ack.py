@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, Optional, Tuple
 import json
-from typing import Any
 
 
 def truthy_success_value(raw: Any) -> bool:
@@ -23,7 +23,7 @@ def truthy_success_value(raw: Any) -> bool:
     return False
 
 
-def _dict_with_success_key(parsed: dict[str, Any]) -> dict[str, Any] | None:
+def _dict_with_success_key(parsed: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     if "success" in parsed:
         return parsed
     for inner_key in ("body", "data", "response"):
@@ -33,7 +33,7 @@ def _dict_with_success_key(parsed: dict[str, Any]) -> dict[str, Any] | None:
     return None
 
 
-def evaluate_post_reaction_webhook_response(http_status: int, response_text: str) -> tuple[bool, str]:
+def evaluate_post_reaction_webhook_response(http_status: int, response_text: str) -> Tuple[bool, str]:
     """HTTP ≥ 400 → lỗi. Body JSON có ``success`` (root hoặc ``body``/``data``) → bắt buộc truthy."""
 
     if http_status >= 400:

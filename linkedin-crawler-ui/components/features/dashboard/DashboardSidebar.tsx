@@ -201,6 +201,20 @@ export function DashboardSidebar() {
               <MaterialIcon name="chat_bubble" className="shrink-0" />
               <span className="min-w-0 leading-snug">Zalo Crawl</span>
             </Link>
+            <Link
+              href="/tai-khoan"
+              className={cn(pathname === "/tai-khoan" ? sideActive : sideIdle)}
+            >
+              <MaterialIcon name="manage_accounts" className="shrink-0" />
+              <span className="min-w-0 leading-snug">Đa tài khoản</span>
+            </Link>
+            <Link
+              href="/chien-dich"
+              className={cn(pathname === "/chien-dich" ? sideActive : sideIdle)}
+            >
+              <MaterialIcon name="campaign" className="shrink-0" />
+              <span className="min-w-0 leading-snug">Auto Send</span>
+            </Link>
 
             {/* Các menu bổ sung cho Facebook workspace */}
             {platform === "facebook" && (

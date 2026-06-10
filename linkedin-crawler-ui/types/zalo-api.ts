@@ -2,6 +2,7 @@ export type ZaloAuthStatus =
   | "waiting_scan"
   | "confirmed"
   | "qr_expired"
+  | "session_expired"
   | "not_logged_in";
 
 export type ZaloJobStatus = "queued" | "running" | "completed" | "failed";
@@ -24,6 +25,7 @@ export interface ZaloCurrentStatusResponse {
   status: ZaloAuthStatus;
   is_logged_in: boolean;
   can_crawl: boolean;
+  session_expired?: boolean;
   login_url: string | null;
   manual_viewer_url?: string | null;
   qr_base64?: string | null;
@@ -53,6 +55,101 @@ export interface ZaloWorkerInfo {
 export interface ZaloWorkersResponse {
   workers: ZaloWorkerInfo[];
   selected_worker_id: string | null;
+}
+
+export interface ZaloAccountInfo {
+  account_id: string;
+  owner_id?: string | null;
+  label: string;
+  phone?: string | null;
+  status?: string | null;
+  is_active?: boolean;
+  has_auth?: boolean;
+  listener?: {
+    running: boolean;
+    connected: boolean;
+    pid?: number | null;
+    last_event_at?: string | null;
+    last_error?: string | null;
+    messages_seen?: number;
+    auth_expired?: boolean;
+  };
+}
+
+export interface ZaloAccountsResponse {
+  owner_id: string;
+  accounts: ZaloAccountInfo[];
+}
+
+export interface ZaloInboxReportAccount {
+  account_id: string;
+  label: string;
+  owner_id: string;
+  message_count: number;
+  customer_count: number;
+  latest_message_at?: string | null;
+}
+
+export interface ZaloInboxReportCustomer {
+  account_id: string;
+  account_label: string;
+  customer_id: string;
+  customer_name: string;
+  conversation_id?: string | null;
+  conversation_name?: string | null;
+  message_count: number;
+  sent_count: number;
+  received_count: number;
+  latest_message_at?: string | null;
+  latest_content?: string | null;
+}
+
+export interface ZaloInboxReportResponse {
+  accounts: ZaloInboxReportAccount[];
+  customers: ZaloInboxReportCustomer[];
+  total_messages: number;
+  total_customers: number;
+}
+
+export interface ZaloConversationSummary {
+  conversation_id: string;
+  conversation_name: string;
+  account_id: string;
+  message_count: number;
+  image_count: number;
+  sent_count: number;
+  received_count: number;
+  latest_message_at?: string | null;
+  latest_content?: string | null;
+  latest_sender_name?: string | null;
+  has_messages?: boolean;
+  sync_status?: "has_messages" | "known_empty" | string;
+  avatar_url?: string | null;
+  unread_count?: number;
+  is_pinned?: boolean;
+}
+
+export interface ZaloConversationListResponse {
+  account_id: string;
+  conversations: ZaloConversationSummary[];
+  total: number;
+}
+
+export interface ZaloSyncRecentGroupResult {
+  group_id: string;
+  group_name: string;
+  messages_saved: number;
+  status: "has_messages" | "empty" | "error" | string;
+  error?: string | null;
+}
+
+export interface ZaloSyncRecentResponse {
+  account_id: string;
+  scanned: number;
+  groups_with_messages: number;
+  messages_saved: number;
+  errors: number;
+  results: ZaloSyncRecentGroupResult[];
 }
 
 export interface ZaloStartCrawlRequest {

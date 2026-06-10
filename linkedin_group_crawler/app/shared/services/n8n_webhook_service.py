@@ -7,10 +7,10 @@ backoff tăng dần.
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple, Union
 import json
 import re
 import time
-from typing import Any
 
 import httpx
 
@@ -27,7 +27,7 @@ _RETRY_BACKOFF_BASE_SEC: float = 2.0
 """Thời gian chờ giữa các lần retry = _RETRY_BACKOFF_BASE_SEC * attempt."""
 
 # Các exception httpx xảy ra ở tầng connect/DNS — luôn nên retry.
-_RETRYABLE_EXCEPTIONS: tuple[type[Exception], ...] = (
+_RETRYABLE_EXCEPTIONS: Tuple[type[Exception], ...] = (
     httpx.ConnectError,      # DNS resolution failure, connection refused
     httpx.ConnectTimeout,    # connect phase timeout (DNS chậm)
     httpx.PoolTimeout,       # connection pool exhausted
@@ -38,7 +38,7 @@ def _post_with_retry(
     *,
     url: str,
     json_body: Any,
-    timeout: httpx.Timeout | float,
+    timeout: Union[httpx.Timeout, float],
     max_retries: int = MAX_WEBHOOK_RETRIES,
 ) -> httpx.Response:
     """POST JSON tới URL với retry khi gặp lỗi mạng/DNS.
@@ -53,7 +53,7 @@ def _post_with_retry(
         Ngoại lệ cuối cùng nếu hết retry.
     """
 
-    last_exc: Exception | None = None
+    last_exc: Optional[Exception] = None
     for attempt in range(1, max_retries + 1):
         try:
             with httpx.Client(timeout=timeout) as client:
@@ -87,10 +87,10 @@ def _post_with_retry(
 def push_credentials_to_n8n_webhook(
     *,
     email: str,
-    password: str | None = None,
-    api_token: str | None = None,
+    password: Optional[str] = None,
+    api_token: Optional[str] = None,
     max_post: int = 0,
-) -> tuple[int, str]:
+) -> Tuple[int, str]:
     """POST JSON payload to configured n8n webhook URL.
 
     SECURITY: Prefer api_token over password. If both provided, api_token takes precedence.
@@ -108,7 +108,7 @@ def push_credentials_to_n8n_webhook(
     if not password and not api_token:
         raise ValueError("Either 'password' or 'api_token' must be provided for authentication.")
 
-    payload: dict[str, Any] = {
+    payload: Dict[str, Any] = {
         "email": email,
         "tai_khoan": email,
         "max_post": max_post,
@@ -151,14 +151,14 @@ def push_start_to_n8n_webhook(
     email: str,
     force_relogin: bool,
     id_session_crawl: str,
-    password: str | None = None,
-    api_token: str | None = None,
-    max_posts: int | None = None,
-    target_date: str | None = None,
-    mode: str | None = None,
-    delay_sec: int | None = None,
-    group_urls: list[str] | None = None,
-) -> tuple[int, str]:
+    password: Optional[str] = None,
+    api_token: Optional[str] = None,
+    max_posts: Optional[int] = None,
+    target_date: Optional[str] = None,
+    mode: Optional[str] = None,
+    delay_sec: Optional[int] = None,
+    group_urls: Optional[List[str]] = None,
+) -> Tuple[int, str]:
     """POST to webhook with email and authentication (token preferred over password).
 
     SECURITY: Prefer api_token over password. If both provided, api_token takes precedence.
@@ -176,7 +176,7 @@ def push_start_to_n8n_webhook(
     if not password and not api_token:
         raise ValueError("Either 'password' or 'api_token' must be provided for authentication.")
 
-    payload: dict[str, Any] = {
+    payload: Dict[str, Any] = {
         "email": email,
         "force_relogin": force_relogin,
         "id_session_crawl": id_session_crawl,
@@ -244,7 +244,7 @@ _SHEET_LINK_JSON_KEYS = (
 )
 
 
-def extract_sheet_link_from_n8n_response_body(raw: str) -> str | None:
+def extract_sheet_link_from_n8n_response_body(raw: str) -> Optional[str]:
     """Cố gắng lấy URL trang tính / Google Sheet từ body JSON hoặc chuỗi thuần."""
 
     text = (raw or "").strip()
@@ -288,7 +288,7 @@ def extract_sheet_link_from_n8n_response_body(raw: str) -> str | None:
     return None
 
 
-def fetch_sheet_link_via_n8n_webhook(*, body: dict[str, Any] | None = None) -> tuple[int, str]:
+def fetch_sheet_link_via_n8n_webhook(*, body: Optional[Dict[str, Any]] = None) -> Tuple[int, str]:
     """POST JSON tới webhook lấy link sheet (URL trong N8n_WEBHOOK_GET_LINK / N8N_WEBHOOK_GET_LINK).
 
     Trả về (http_status, response_text_đầy_đủ) — không raise; caller xử lý lỗi HTTP.
@@ -320,8 +320,8 @@ def post_json_to_n8n_webhook(
     *,
     url: str,
     json_body: Any,
-    timeout_sec: float | None = None,
-) -> tuple[int, str]:
+    timeout_sec: Optional[float] = None,
+) -> Tuple[int, str]:
     """POST JSON tới một URL webhook n8n bất kỳ; trả về (status, body_text) — không raise HTTP.
 
     Chờ đến khi n8n/workflow trả HTTP response (timeout có thể tăng qua ``timeout_sec``).

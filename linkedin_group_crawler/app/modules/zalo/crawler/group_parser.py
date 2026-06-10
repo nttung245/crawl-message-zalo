@@ -1,5 +1,5 @@
-﻿from typing import Any, List
 
+from typing import Any, Dict, List, Optional
 from loguru import logger
 from playwright.async_api import Page, TimeoutError as PlaywrightTimeout
 
@@ -85,7 +85,7 @@ POPUP_DISMISS_TEXTS = [
 ]
 
 
-async def _first_text(item, selectors: list[str]) -> str:
+async def _first_text(item, selectors: List[str]) -> str:
     for selector in selectors:
         try:
             el = await item.query_selector(selector)
@@ -99,7 +99,7 @@ async def _first_text(item, selectors: list[str]) -> str:
     return ""
 
 
-def _clean_group_id(value: str | None) -> str | None:
+def _clean_group_id(value: Optional[str]) -> Optional[str]:
     if not value:
         return None
     value = value.strip()
@@ -108,14 +108,14 @@ def _clean_group_id(value: str | None) -> str | None:
     return value
 
 
-async def wait_for_group_list_ready(page: Page, timeout_ms: int = 15000) -> dict[str, Any]:
+async def wait_for_group_list_ready(page: Page, timeout_ms: int = 15000) -> Dict[str, Any]:
     await ensure_chat_sidebar_ready(page)
 
-    last_counts: dict[str, int] = {}
+    last_counts: Dict[str, int] = {}
     attempts = max(1, timeout_ms // 1000)
 
     for attempt in range(1, attempts + 1):
-        selector_counts: dict[str, int] = {}
+        selector_counts: Dict[str, int] = {}
         for selector in CONV_ITEM_SELECTORS:
             count = await page.locator(selector).count()
             selector_counts[selector] = count
@@ -212,7 +212,7 @@ async def _fallback_conversation_count(page: Page) -> int:
         return 0
 
 
-async def collect_group_debug_info(page: Page) -> dict[str, Any]:
+async def collect_group_debug_info(page: Page) -> Dict[str, Any]:
     title = ""
     body_text = ""
     try:
@@ -225,7 +225,7 @@ async def collect_group_debug_info(page: Page) -> dict[str, Any]:
     except Exception:
         pass
 
-    selector_counts: dict[str, int] = {}
+    selector_counts: Dict[str, int] = {}
     for selector in CONV_ITEM_SELECTORS:
         try:
             selector_counts[selector] = await page.locator(selector).count()
@@ -241,7 +241,7 @@ async def collect_group_debug_info(page: Page) -> dict[str, Any]:
 
 
 async def parse_groups(page: Page) -> List[Group]:
-    groups_by_key: dict[str, Group] = {}
+    groups_by_key: Dict[str, Group] = {}
     selector_used = ""
     stable_rounds = 0
 
@@ -576,7 +576,7 @@ async def _parse_groups_by_text_scan(page: Page) -> List[Group]:
     return groups
 
 
-async def _scroll_group_list(page: Page) -> dict[str, Any]:
+async def _scroll_group_list(page: Page) -> Dict[str, Any]:
     return await page.evaluate(
         """
         (selectors) => {
@@ -613,7 +613,7 @@ async def _scroll_group_list(page: Page) -> dict[str, Any]:
     )
 
 
-async def _parse_item(item) -> Group | None:
+async def _parse_item(item) -> Optional[Group]:
     group_id = _clean_group_id(await item.get_attribute("anim-data-id"))
     if not group_id:
         group_id = _clean_group_id(await item.get_attribute("data-convid"))

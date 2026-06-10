@@ -2,27 +2,27 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 from datetime import datetime
-from typing import Any
 
 from app.core.utils.datetime_utils import is_same_day, normalize_relative_time, parse_target_date
 
 
-def compute_score(post: dict[str, Any]) -> int:
+def compute_score(post: Dict[str, Any]) -> int:
     """Compute post score from engagement values."""
 
     return int(post.get("likes", 0)) + int(post.get("comments", 0)) + int(post.get("reposts", 0))
 
 
 def enrich_and_filter_posts(
-    posts: list[dict[str, Any]],
-    target_date: str | None,
+    posts: List[Dict[str, Any]],
+    target_date: Optional[str],
     crawl_time: datetime,
-) -> tuple[list[dict[str, Any]], datetime.date]:
+) -> Tuple[List[Dict[str, Any]], datetime.date]:
     """Normalize timestamps, compute score, and keep posts matching the target day."""
 
     target_day = parse_target_date(target_date, crawl_time)
-    filtered_posts: list[dict[str, Any]] = []
+    filtered_posts: List[Dict[str, Any]] = []
 
     for post in posts:
         normalized_dt = normalize_relative_time(post.get("posted_at_raw", ""), crawl_time)
@@ -34,7 +34,7 @@ def enrich_and_filter_posts(
     return filtered_posts, target_day
 
 
-def pick_top_post(posts: list[dict[str, Any]]) -> dict[str, Any] | None:
+def pick_top_post(posts: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Pick the top post using score, then likes as tie-breaker."""
 
     if not posts:
@@ -42,7 +42,7 @@ def pick_top_post(posts: list[dict[str, Any]]) -> dict[str, Any] | None:
     return max(posts, key=lambda post: (post.get("score", 0), post.get("likes", 0)))
 
 
-def _parse_posted_at_datetime(post: dict[str, Any]) -> datetime | None:
+def _parse_posted_at_datetime(post: Dict[str, Any]) -> Optional[datetime]:
     raw = post.get("posted_at")
     if not isinstance(raw, str) or not raw.strip():
         return None
@@ -61,13 +61,13 @@ def _parse_posted_at_datetime(post: dict[str, Any]) -> datetime | None:
     return None
 
 
-def select_most_recent_posts(posts: list[dict[str, Any]], *, limit: int) -> list[dict[str, Any]]:
+def select_most_recent_posts(posts: List[Dict[str, Any]], *, limit: int) -> List[Dict[str, Any]]:
     """Chọn các bài có ``posted_at`` mới nhất; không suy được thời gian thì xếp cuối, giữ thứ tự crawl."""
 
     if limit <= 0 or not posts:
         return []
 
-    annotated: list[tuple[datetime | None, int, dict[str, Any]]] = []
+    annotated: List[Tuple[Optional[datetime], int, Dict[str, Any]]] = []
     for index, post in enumerate(posts):
         annotated.append((_parse_posted_at_datetime(post), index, post))
 
@@ -76,7 +76,7 @@ def select_most_recent_posts(posts: list[dict[str, Any]], *, limit: int) -> list
 
     with_dt.sort(key=lambda item: item[0], reverse=True)
 
-    picked: list[dict[str, Any]] = [post for _, _, post in with_dt[:limit]]
+    picked: List[Dict[str, Any]] = [post for _, _, post in with_dt[:limit]]
     remaining = limit - len(picked)
     if remaining > 0:
         picked.extend(without_dt[:remaining])

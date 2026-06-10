@@ -1,6 +1,7 @@
 import { API_BASE_URL, API_KEY } from "@/lib/env";
 import type {
   ZaloAuthInitResponse,
+  ZaloAccountsResponse,
   ZaloAuthStatusResponse,
   ZaloCurrentStatusResponse,
   ZaloCrawledGroupsResponse,
@@ -10,7 +11,9 @@ import type {
   ZaloBroadcastResponse,
   ZaloBroadcastStatusResponse,
   ZaloJobData,
+  ZaloConversationListResponse,
   ZaloLibraryContentKind,
+  ZaloInboxReportResponse,
   ZaloLibraryListResponse,
   ZaloLibraryMessage,
   ZaloLibraryBulkDeleteRequest,
@@ -21,6 +24,7 @@ import type {
   ZaloManualLoginResponse,
   ZaloStartCrawlRequest,
   ZaloStartCrawlResponse,
+  ZaloSyncRecentResponse,
   ZaloVerifyGroupRequestItem,
   ZaloVerifyGroupsResponse,
   ZaloWorkersResponse,
@@ -70,14 +74,125 @@ export function getZaloWorkers(userId = "default"): Promise<ZaloWorkersResponse>
   }, 7000);
 }
 
-function buildHeaders(extra?: HeadersInit): HeadersInit {
+export function getZaloAccounts(ownerId = "default"): Promise<ZaloAccountsResponse> {
+  const params = new URLSearchParams({ owner_id: ownerId });
+  return requestJson<ZaloAccountsResponse>(`/api/zalo/accounts?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "X-User-ID": ownerId,
+    },
+  });
+}
+
+export function createZaloAccount(payload: {
+  account_id?: string;
+  owner_id?: string;
+  label: string;
+  phone?: string;
+}) {
+  return requestJson("/api/zalo/accounts", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function updateZaloAccount(
+  accountId: string,
+  payload: {
+    owner_id?: string;
+    label?: string;
+    phone?: string;
+    status?: string;
+  }
+) {
+  return requestJson(`/api/zalo/accounts/${encodeURIComponent(accountId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function deleteZaloAccount(accountId: string, deleteAuth = false) {
+  const params = new URLSearchParams({ delete_auth: String(deleteAuth) });
+  return requestJson(`/api/zalo/accounts/${encodeURIComponent(accountId)}?${params.toString()}`, {
+    method: "DELETE",
+  });
+}
+
+export function restartZaloAccountListener(accountId: string) {
+  return requestJson(`/api/zalo/accounts/${encodeURIComponent(accountId)}/listener/restart`, {
+    method: "POST",
+  });
+}
+
+export function getZaloInboxReport(ownerId = "default", accountIds: string[] = []): Promise<ZaloInboxReportResponse> {
+  const params = new URLSearchParams({ owner_id: ownerId });
+  for (const accountId of accountIds) params.append("account_id", accountId);
+  return requestJson<ZaloInboxReportResponse>(`/api/zalo/accounts/inbox-report?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "X-User-ID": ownerId,
+    },
+  });
+}
+
+export function getZaloConversations(accountId = "default"): Promise<ZaloConversationListResponse> {
+  const params = new URLSearchParams({ account_id: accountId });
+  return requestJson<ZaloConversationListResponse>(`/api/zalo/conversations?${params.toString()}`, {
+    method: "GET",
+    headers: {
+      "X-User-ID": accountId,
+    },
+  });
+}
+
+export function getZaloConversationMessages(
+  accountId: string,
+  conversationId: string,
+  limit = 100,
+  offset = 0,
+): Promise<ZaloLibraryListResponse> {
+  const params = new URLSearchParams({
+    account_id: accountId,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return requestJson<ZaloLibraryListResponse>(
+    `/api/zalo/conversations/${encodeURIComponent(conversationId)}/messages?${params.toString()}`,
+    {
+      method: "GET",
+      headers: {
+        "X-User-ID": accountId,
+      },
+    },
+  );
+}
+
+export function syncZaloRecentConversations(
+  accountId: string,
+  limit = 50,
+  messagesPerConversation = 50,
+): Promise<ZaloSyncRecentResponse> {
+  return requestJson<ZaloSyncRecentResponse>("/api/zalo/conversations/sync-recent", {
+    method: "POST",
+    headers: {
+      "X-User-ID": accountId,
+    },
+    body: JSON.stringify({
+      account_id: accountId,
+      limit,
+      messages_per_conversation: messagesPerConversation,
+    }),
+  });
+}
+
+function buildHeaders(extra?: HeadersInit, isFormData = false): HeadersInit {
   const baseHeaders: HeadersInit = API_KEY
     ? {
-        ...JSON_HEADERS,
+        ...(isFormData ? {} : JSON_HEADERS),
         "x-api-key": API_KEY,
       }
     : {
-        ...JSON_HEADERS,
+        ...(isFormData ? {} : JSON_HEADERS),
       };
 
   return {
@@ -96,12 +211,14 @@ async function requestJson<TResponse>(
     ? globalThis.setTimeout(() => timeoutController.abort(), timeoutMs)
     : null;
 
+  const isFormData = init?.body instanceof FormData;
+
   let response: Response;
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       ...init,
       credentials: init?.credentials ?? "include",
-      headers: buildHeaders(init?.headers),
+      headers: buildHeaders(init?.headers, isFormData),
       signal: init?.signal ?? timeoutController?.signal,
     });
   } catch (error) {
@@ -455,5 +572,85 @@ export function testAgentExtract(
       body: JSON.stringify(request),
     },
     120000,
+  );
+}
+
+export interface ZaloSendMessageRequest {
+  text: string;
+  thread_type?: number;
+}
+
+export interface ZaloSendMessageResponse {
+  ok: boolean;
+  conversation_id: string;
+  message: string;
+}
+
+export function sendZaloMessage(
+  accountId: string,
+  conversationId: string,
+  payload: ZaloSendMessageRequest,
+): Promise<ZaloSendMessageResponse> {
+  return requestJson<ZaloSendMessageResponse>(
+    `/api/zalo/conversations/${encodeURIComponent(conversationId)}/send`,
+    {
+      method: "POST",
+      headers: buildHeaders({
+        "X-User-ID": accountId,
+      }),
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
+export function sendZaloMessageWithFiles(
+  accountId: string,
+  conversationId: string,
+  text: string,
+  files: File[],
+  threadType?: number,
+): Promise<ZaloSendMessageResponse> {
+  const formData = new FormData();
+  if (text) {
+    formData.append("text", text);
+  }
+  if (threadType !== undefined) {
+    formData.append("thread_type", String(threadType));
+  }
+  for (const file of files) {
+    formData.append("files", file);
+  }
+
+  return requestJson<ZaloSendMessageResponse>(
+    `/api/zalo/conversations/${encodeURIComponent(conversationId)}/send-media`,
+    {
+      method: "POST",
+      headers: {
+        "X-User-ID": accountId,
+      },
+      body: formData,
+    },
+    180000, // 3 minutes timeout for media uploads
+  );
+}
+
+export interface ZaloMarkReadResponse {
+  ok: boolean;
+  conversation_id: string;
+  message: string;
+}
+
+export function markZaloConversationAsRead(
+  accountId: string,
+  conversationId: string,
+): Promise<ZaloMarkReadResponse> {
+  return requestJson<ZaloMarkReadResponse>(
+    `/api/zalo/conversations/${encodeURIComponent(conversationId)}/read`,
+    {
+      method: "POST",
+      headers: buildHeaders({
+        "X-User-ID": accountId,
+      }),
+    },
   );
 }

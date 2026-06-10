@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
 from datetime import date
 import json
-from typing import Any
 
 from app.modules.linkedin.services.n8n_post_filter_service import email_crawl_from_post
 from app.modules.linkedin.services.post_reaction_sync_service import (
@@ -27,7 +27,7 @@ from app.modules.linkedin.utils.webhook_payload_keys import (
 COMMENT_CONTENT_FIELD = "comment_content"
 COMMENT_DAY_FIELD = "ngày comment"
 
-_COMMENT_STATE_KEYS_EXACT: tuple[str, ...] = (
+_COMMENT_STATE_KEYS_EXACT: Tuple[str, ...] = (
     "comment",
     "Comment",
     "comment_sheet",
@@ -47,8 +47,8 @@ class CommentActionRecord:
     post_url: str
     id_session_crawl: str
     row_number: int
-    sheet_row: dict[str, Any] | None
-    comments_cell: list[dict[str, str]]
+    sheet_row: Optional[Dict[str, Any]]
+    comments_cell: List[Dict[str, str]]
 
 
 def _comment_content_from_entry(raw: Any) -> str:
@@ -71,7 +71,7 @@ def _comment_day_from_entry(raw: Any) -> str:
     return ""
 
 
-def normalize_comment_entry(raw: Any) -> dict[str, str] | None:
+def normalize_comment_entry(raw: Any) -> Optional[Dict[str, str]]:
     content = _comment_content_from_entry(raw)
     day = _comment_day_from_entry(raw)
     if not content or not day:
@@ -79,8 +79,8 @@ def normalize_comment_entry(raw: Any) -> dict[str, str] | None:
     return {COMMENT_CONTENT_FIELD: content, COMMENT_DAY_FIELD: day}
 
 
-def parse_comments_from_record(record: dict[str, Any]) -> list[dict[str, str]]:
-    entries: list[dict[str, str]] = []
+def parse_comments_from_record(record: Dict[str, Any]) -> List[Dict[str, str]]:
+    entries: List[Dict[str, str]] = []
     for key in _COMMENT_STATE_KEYS_EXACT:
         if key not in record:
             continue
@@ -107,7 +107,7 @@ def parse_comments_from_record(record: dict[str, Any]) -> list[dict[str, str]]:
     return entries
 
 
-def build_comment_cell_entry(*, comment_content: str, comment_day: str) -> dict[str, str]:
+def build_comment_cell_entry(*, comment_content: str, comment_day: str) -> Dict[str, str]:
     return {
         COMMENT_CONTENT_FIELD: comment_content.strip(),
         COMMENT_DAY_FIELD: comment_day.strip()[:10],
@@ -115,13 +115,13 @@ def build_comment_cell_entry(*, comment_content: str, comment_day: str) -> dict[
 
 
 def merge_comment_entries(
-    existing: list[dict[str, Any]],
+    existing: List[Dict[str, Any]],
     *,
     comment_content: str,
-    comment_day: str | None = None,
-) -> list[dict[str, str]]:
+    comment_day: Optional[str] = None,
+) -> List[Dict[str, str]]:
     day = (comment_day or date.today().isoformat()).strip()[:10]
-    merged: list[dict[str, str]] = []
+    merged: List[Dict[str, str]] = []
     for raw in existing:
         normalized = normalize_comment_entry(raw)
         if normalized:
@@ -131,14 +131,14 @@ def merge_comment_entries(
 
 
 def update_comment_entry(
-    existing: list[dict[str, Any]],
+    existing: List[Dict[str, Any]],
     *,
     old_comment_text: str,
     new_comment_text: str,
-) -> list[dict[str, str]]:
+) -> List[Dict[str, str]]:
     """Tìm entry có nội dung cũ và thay thế bằng nội dung mới."""
     target = old_comment_text.strip().lower()
-    merged: list[dict[str, str]] = []
+    merged: List[Dict[str, str]] = []
     for raw in existing:
         normalized = normalize_comment_entry(raw)
         if not normalized:
@@ -152,13 +152,13 @@ def update_comment_entry(
 
 
 def filter_comment_entries(
-    existing: list[dict[str, Any]],
+    existing: List[Dict[str, Any]],
     *,
     comment_text_to_remove: str,
-) -> list[dict[str, str]]:
+) -> List[Dict[str, str]]:
     """Loại bỏ các entry có nội dung trùng khớp với comment_text_to_remove."""
     target = comment_text_to_remove.strip().lower()
-    merged: list[dict[str, str]] = []
+    merged: List[Dict[str, str]] = []
     for raw in existing:
         normalized = normalize_comment_entry(raw)
         if not normalized:
@@ -176,8 +176,8 @@ def build_comment_action_record(
     post_url: str,
     id_session_crawl: str,
     row_number: int,
-    sheet_row: dict[str, Any] | None,
-    comments_cell: list[dict[str, str]],
+    sheet_row: Optional[Dict[str, Any]],
+    comments_cell: List[Dict[str, str]],
 ) -> CommentActionRecord:
     return CommentActionRecord(
         owner_email=_non_empty_str(owner_email),
@@ -190,13 +190,13 @@ def build_comment_action_record(
 
 
 def _patch_row_with_comments(
-    row: dict[str, Any],
+    row: Dict[str, Any],
     *,
     action: CommentActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
-    comments_cell: list[dict[str, str]],
-) -> dict[str, Any]:
+    comments_cell: List[Dict[str, str]],
+) -> Dict[str, Any]:
     out = dict(row)
     out["comment"] = comments_cell
     out["Comment"] = comments_cell
@@ -219,19 +219,19 @@ def _patch_row_with_comments(
 
 
 def apply_comments_to_sheet_rows(
-    posts: list[dict[str, Any]],
+    posts: List[Dict[str, Any]],
     *,
     action: CommentActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
     playwright_executed: bool,
-) -> tuple[list[dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], int]:
     target_url = action.post_url
     owner = action.owner_email
     if not target_url or not owner:
         return [], 0
 
-    updated: list[dict[str, Any]] = []
+    updated: List[Dict[str, Any]] = []
     matched_count = 0
     comments_cell = list(action.comments_cell)
 
@@ -284,14 +284,14 @@ def apply_comments_to_sheet_rows(
 
 
 def merge_trigger_row_into_comment_rows(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     *,
     action: CommentActionRecord,
     final_url: str,
     resolved_playwright_session_id: str,
-    comments_cell: list[dict[str, str]],
+    comments_cell: List[Dict[str, str]],
     playwright_executed: bool,
-) -> tuple[list[dict[str, Any]], int]:
+) -> Tuple[List[Dict[str, Any]], int]:
     identities = {
         _row_sheet_identity(row, fallback_url=action.post_url)
         for row in rows

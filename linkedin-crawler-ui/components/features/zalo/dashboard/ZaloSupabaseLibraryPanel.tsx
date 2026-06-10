@@ -26,6 +26,7 @@ interface ZaloSupabaseLibraryPanelProps {
 }
 
 const PAGE_SIZE = 20;
+const AUTO_REFRESH_INTERVAL_MS = 5000;
 const emptyDraft: ZaloLibraryMessageCreateRequest = {
   group_name: "",
   sender_name: "",
@@ -35,7 +36,21 @@ const emptyDraft: ZaloLibraryMessageCreateRequest = {
 };
 
 function uploadedAssets(message: ZaloLibraryMessage) {
-  return (message.assets || []).filter((asset) => asset.status === "uploaded" && asset.storage_url);
+  const list = (message.assets || []).filter((asset) => asset.status === "uploaded" && asset.storage_url);
+  const seen = new Set<string>();
+  const deduped: typeof list = [];
+  for (const asset of list) {
+    const src = asset.source_url || "";
+    const filename = src.split("/").pop()?.split("?")[0] || src;
+    if (filename && seen.has(filename)) {
+      continue;
+    }
+    if (filename) {
+      seen.add(filename);
+    }
+    deduped.push(asset);
+  }
+  return deduped;
 }
 
 function failedAssetCount(message: ZaloLibraryMessage) {
@@ -69,13 +84,15 @@ function buildGroupSummariesFromMessages(messages: ZaloLibraryMessage[]): ZaloLi
 
 function formatGroupTime(value?: string | null) {
   if (!value) return "Chưa có";
-  const date = new Date(value);
+  const num = Number(value);
+  const date = !Number.isNaN(num) && String(num) === String(value).trim() ? new Date(num) : new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }
 
@@ -118,8 +135,11 @@ export function ZaloSupabaseLibraryPanel({
     [groups],
   );
 
-  const loadMessages = useCallback(async () => {
-    setIsLoading(true);
+  const loadMessages = useCallback(async (options?: { silent?: boolean }) => {
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      setIsLoading(true);
+    }
     setError(null);
     try {
       const offset = (page - 1) * PAGE_SIZE;
@@ -148,7 +168,9 @@ export function ZaloSupabaseLibraryPanel({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Không thể tải thư viện tin nhắn.");
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }, [contentKind, page, selectedGroupName, userId]);
 
@@ -171,6 +193,16 @@ export function ZaloSupabaseLibraryPanel({
     }, 0);
     return () => window.clearTimeout(timer);
   }, [loadMessages]);
+
+  useEffect(() => {
+    if (!userId || userId === "default") return;
+
+    const timer = window.setInterval(() => {
+      void loadMessages({ silent: true });
+    }, AUTO_REFRESH_INTERVAL_MS);
+
+    return () => window.clearInterval(timer);
+  }, [loadMessages, userId]);
 
   function selectGroup(groupName: string) {
     setSelectedGroupName(groupName);
@@ -531,7 +563,7 @@ export function ZaloSupabaseLibraryPanel({
                         </span>
                         <span className="text-body-sm text-on-surface-variant">
                           {message.sender_name || "Không rõ người gửi"} ·{" "}
-                          {message.time_text || message.timestamp_text || "Không rõ thời gian"}
+                          {formatGroupTime(message.time_text || message.timestamp_text)}
                         </span>
                         <span className="mt-xs flex flex-wrap gap-xs">
                           {assets.length > 0 ? (

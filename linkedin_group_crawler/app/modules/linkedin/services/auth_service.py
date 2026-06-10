@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
 import hashlib
 import json
 import re
@@ -10,7 +11,6 @@ import time
 import unicodedata
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -77,17 +77,17 @@ class LoginFlowResult:
 
     status: Literal["success", "need_otp"]
     session_id: str
-    state_path: Path | None
+    state_path: Optional[Path]
     email: str
-    checkpoint_url: str | None = None
-    pool_prime: dict[str, Any] | None = None
+    checkpoint_url: Optional[str] = None
+    pool_prime: Optional[Dict[str, Any]] = None
 
 
-_pending_login_sessions: dict[str, PendingLoginSession] = {}
+_pending_login_sessions: Dict[str, PendingLoginSession] = {}
 _pending_login_lock = threading.Lock()
 
 
-def normalize_session_id(session_id: str | None) -> str:
+def normalize_session_id(session_id: Optional[str]) -> str:
     """Normalize a user-supplied session ID into a filesystem-safe value."""
 
     raw_value = (session_id or "").strip().lower()
@@ -132,7 +132,7 @@ def default_session_id_for_email(email: str) -> str:
     return email_to_session_basename(email)
 
 
-def resolve_session_id(session_id: str | None, email: str | None = None) -> str:
+def resolve_session_id(session_id: Optional[str], email: Optional[str] = None) -> str:
     """Resolve a stable session ID from explicit input or email fallback."""
 
     if session_id and session_id.strip():
@@ -142,7 +142,7 @@ def resolve_session_id(session_id: str | None, email: str | None = None) -> str:
     return normalize_session_id(None)
 
 
-def build_session_state_path(session_id: str | None, email: str | None = None) -> tuple[str, Path]:
+def build_session_state_path(session_id: Optional[str], email: Optional[str] = None) -> Tuple[str, Path]:
     """Build a resolved session ID and the matching storage-state path."""
 
     normalized_session_id = resolve_session_id(session_id=session_id, email=email)
@@ -201,7 +201,7 @@ def _is_linkedin_authenticated_app_url(current_url: str) -> bool:
     )
 
 
-def _li_at_cookie_is_valid(cookie: dict, *, now: float | None = None) -> bool:
+def _li_at_cookie_is_valid(cookie: dict, *, now: Optional[float] = None) -> bool:
     """``li_at`` có giá trị và chưa hết hạn (nếu có field ``expires``)."""
 
     if str(cookie.get("name", "")).strip() != "li_at":
@@ -265,7 +265,7 @@ def _capture_login_artifacts(page: Page, filename_prefix: str) -> None:
         logger.warning("Could not capture login HTML because page/context/browser was already closed")
 
 
-def _first_visible_locator(page: Page, selectors: list[str], timeout_ms: int = 4000) -> Locator | None:
+def _first_visible_locator(page: Page, selectors: List[str], timeout_ms: int = 4000) -> Optional[Locator]:
     """Return the first selector whose element becomes visible."""
 
     for selector in selectors:
@@ -280,7 +280,7 @@ def _first_visible_locator(page: Page, selectors: list[str], timeout_ms: int = 4
     return None
 
 
-def _first_visible_descendant(container: Locator | Page, selectors: list[str], timeout_ms: int = 3000) -> Locator | None:
+def _first_visible_descendant(container: Union[Locator, Page], selectors: List[str], timeout_ms: int = 3000) -> Optional[Locator]:
     """Return the first visible matching descendant across all selector candidates."""
 
     for selector in selectors:
@@ -300,7 +300,7 @@ def _first_visible_descendant(container: Locator | Page, selectors: list[str], t
     return None
 
 
-def _find_email_input(page: Page) -> Locator | None:
+def _find_email_input(page: Page) -> Optional[Locator]:
     """Find the email field using selectors and accessible labels."""
 
     login_root = page.locator('[data-sdui-screen="com.linkedin.sdui.flagshipnav.login.Login"]')
@@ -332,7 +332,7 @@ def _find_email_input(page: Page) -> Locator | None:
     return None
 
 
-def _find_password_input(page: Page) -> Locator | None:
+def _find_password_input(page: Page) -> Optional[Locator]:
     """Find the password field using selectors and accessible labels."""
 
     login_root = page.locator('[data-sdui-screen="com.linkedin.sdui.flagshipnav.login.Login"]')
@@ -364,7 +364,7 @@ def _find_password_input(page: Page) -> Locator | None:
     return None
 
 
-def _find_submit_button(page: Page) -> Locator | None:
+def _find_submit_button(page: Page) -> Optional[Locator]:
     """Find the sign-in button using selectors and accessible names."""
 
     login_root = page.locator('[data-sdui-screen="com.linkedin.sdui.flagshipnav.login.Login"]')
@@ -572,7 +572,7 @@ def _close_pending_browser_objects(pending: PendingLoginSession) -> None:
 
 def _cleanup_expired_pending_sessions() -> None:
     now = time.time()
-    expired_ids: list[str] = []
+    expired_ids: List[str] = []
     with _pending_login_lock:
         for sid, pending in _pending_login_sessions.items():
             if now - pending.created_at > PENDING_LOGIN_TTL_SEC:
@@ -626,7 +626,7 @@ def _get_pending_session_or_raise(session_id: str) -> PendingLoginSession:
     return pending
 
 
-def _remove_pending_session(session_id: str) -> PendingLoginSession | None:
+def _remove_pending_session(session_id: str) -> Optional[PendingLoginSession]:
     with _pending_login_lock:
         return _pending_login_sessions.pop((session_id or "").strip(), None)
 
@@ -666,7 +666,7 @@ def safe_persist_session_state(context: BrowserContext, state_path: Path) -> boo
     return True
 
 
-def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> dict[str, Any] | None:
+def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> Optional[Dict[str, Any]]:
     """Mở feed một lần trên browser queue sau login (xác nhận session)."""
 
     if not enabled:
@@ -679,7 +679,7 @@ def _prime_playwright_pool_for_state(state_path: Path, *, enabled: bool) -> dict
 def login_and_save_session(
     email: str,
     password: str,
-    session_id: str | None = None,
+    session_id: Optional[str] = None,
     force_relogin: bool = True,
     prime_pool: bool = True,
 ) -> LoginFlowResult:
@@ -818,9 +818,9 @@ def login_and_save_session(
 def verify_pending_login_otp(
     pending_session_id: str,
     otp_code: str,
-    checkpoint_url: str | None = None,
+    checkpoint_url: Optional[str] = None,
     prime_pool: bool = True,
-) -> tuple[str, Path, str, dict[str, Any] | None]:
+) -> Tuple[str, Path, str, Optional[Dict[str, Any]]]:
     """Submit OTP for a pending login session and persist the final state."""
 
     pending = _get_pending_session_or_raise(pending_session_id)

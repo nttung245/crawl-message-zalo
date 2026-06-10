@@ -1,8 +1,8 @@
+from typing import List, Optional
 import os
 import time
 import random
 from dataclasses import dataclass
-from typing import List, Optional
 import sys
 
 from playwright.sync_api import sync_playwright

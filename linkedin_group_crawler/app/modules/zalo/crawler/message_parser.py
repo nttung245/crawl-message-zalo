@@ -1,6 +1,6 @@
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 import base64
 import re
-from typing import Any, List, Set
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -322,7 +322,7 @@ def _is_likely_message_image_url(url: str) -> bool:
     )
 
 
-def _normalize_timestamp(date_text: str | None, time_text: str | None) -> str | None:
+def _normalize_timestamp(date_text: Optional[str], time_text: Optional[str]) -> Optional[str]:
     date_text = (date_text or "").strip()
     time_text = (time_text or "").strip()
     if date_text and time_text and time_text not in date_text:
@@ -330,7 +330,7 @@ def _normalize_timestamp(date_text: str | None, time_text: str | None) -> str | 
     return date_text or time_text or None
 
 
-def _sender_id_from_qid(qid: str | None) -> str | None:
+def _sender_id_from_qid(qid: Optional[str]) -> Optional[str]:
     if not qid:
         return None
     match = re.search(r"@[^_]+_([^_]+)_", qid)
@@ -343,7 +343,7 @@ def _image_urls_from_capture(captured_image_urls: Set[str]) -> List[str]:
     return [url for url in captured_image_urls if _is_zalo_cdn_image(url) and _is_full_res(url)]
 
 
-async def _screenshot_message_image_data_url(item) -> str | None:
+async def _screenshot_message_image_data_url(item) -> Optional[str]:
     selectors = [
         "[id^='image-mCntr_']",
         ".img-msg-v2",
@@ -370,15 +370,15 @@ async def _screenshot_message_image_data_url(item) -> str | None:
     return None
 
 
-async def parse_messages(root: Page | Frame | Locator, captured_image_urls: Set[str]) -> List[Message]:
+async def parse_messages(root: Union[Page, Frame, Locator], captured_image_urls: Set[str]) -> List[Message]:
     messages: List[Message] = []
-    last_named_sender: str | None = None
+    last_named_sender: Optional[str] = None
 
     items = []
     selector_used = None
-    selector_counts: dict[str, dict[str, int]] = {}
+    selector_counts: Dict[str, Dict[str, int]] = {}
     target_label = "message-root"
-    targets: list[tuple[str, Page | Frame | Locator]] = [("message-root", root)]
+    targets: List[Tuple[str, Union[Page, Frame, Locator]]] = [("message-root", root)]
     if isinstance(root, Page):
         for index, frame in enumerate(root.frames):
             if frame is root.main_frame:
@@ -386,9 +386,9 @@ async def parse_messages(root: Page | Frame | Locator, captured_image_urls: Set[
             frame_url = (frame.url or "").strip()
             targets.append((f"frame[{index}] {frame_url or '(about:blank)'}", frame))
 
-    best_match: tuple[int, str, str, list] | None = None
+    best_match: Optional[Tuple[int, str, str, list]] = None
     for label, target in targets:
-        per_target_counts: dict[str, int] = {}
+        per_target_counts: Dict[str, int] = {}
         for selector in MSG_CONTAINER_SELECTORS:
             if isinstance(target, Locator):
                 found = await target.locator(selector).element_handles()
@@ -459,8 +459,8 @@ async def parse_messages(root: Page | Frame | Locator, captured_image_urls: Set[
     return messages
 
 
-async def _parse_message(item, captured_image_urls: Set[str]) -> Message | None:
-    data: dict[str, Any] = await item.evaluate(_JS_EXTRACT_MESSAGE)
+async def _parse_message(item, captured_image_urls: Set[str]) -> Optional[Message]:
+    data: Dict[str, Any] = await item.evaluate(_JS_EXTRACT_MESSAGE)
 
     message_id = data.get("message_id") or data.get("qid")
     if not message_id:

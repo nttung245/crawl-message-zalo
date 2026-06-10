@@ -11,10 +11,10 @@ Nguyên tắc:
 
 from __future__ import annotations
 
+from typing import Any, Callable, Dict, Generator, Optional, Tuple, TypeVar, Union
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Callable, Generator, TypeVar
 
 from playwright.sync_api import BrowserContext, Page, sync_playwright
 
@@ -32,7 +32,7 @@ logger = get_logger(__name__)
 T = TypeVar("T")
 
 # ── Chromium flags ────────────────────────────────────────────────────────────
-_CHROMIUM_ARGS: tuple[str, ...] = (
+_CHROMIUM_ARGS: Tuple[str, ...] = (
     "--disable-gpu",
     "--disable-dev-shm-usage",
     "--no-sandbox",
@@ -44,7 +44,7 @@ _CHROMIUM_ARGS: tuple[str, ...] = (
 
 # ── Per-file lock (tránh 2 tác vụ cùng ghi đè cookie của 1 tài khoản) ────────
 _locks_guard = threading.Lock()
-_file_locks: dict[str, threading.Lock] = {}
+_file_locks: Dict[str, threading.Lock] = {}
 
 
 def _lock_for(state_path: Path) -> threading.Lock:
@@ -64,7 +64,7 @@ def shutdown_playwright_pool() -> None:
     logger.info("[playwright] shutdown skipped — no persistent browser to stop")
 
 
-def prime_linkedin_session_on_pool(state_path: Path | str) -> dict[str, Any]:
+def prime_linkedin_session_on_pool(state_path: Union[Path, str]) -> Dict[str, Any]:
     """Không dùng pool → trả về kết quả dummy thành công ngay lập tức."""
     logger.info("[playwright] prime skipped (stateless mode) for %s", Path(state_path).name)
     return {"total_workers": 1, "primed_workers": 1, "outcomes": [{"worker": "stateless", "ok": True}]}
@@ -113,7 +113,7 @@ def _open_browser_with_session(
 def run_with_linkedin_session_page(
     *,
     state_path: Path,
-    persist_state: bool | None = None,
+    persist_state: Optional[bool] = None,
     action: Callable[[Page], T],
 ) -> T:
     """

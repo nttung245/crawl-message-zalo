@@ -1,9 +1,9 @@
+from typing import Optional, Tuple
 import os
 import re
 import shutil
 import subprocess
 from pathlib import Path
-from typing import Optional
 
 from loguru import logger
 from playwright.async_api import Browser, BrowserContext, Error as PlaywrightError, Page, async_playwright
@@ -58,7 +58,7 @@ def _kill_stale_chromium_processes() -> None:
         logger.warning(f"Could not kill stale chromium processes: {exc}")
 
 
-def _resolve_browser_executable() -> str | None:
+def _resolve_browser_executable() -> Optional[str]:
     configured_path = (settings.browser_executable_path or "").strip()
     if configured_path:
         return configured_path
@@ -92,7 +92,7 @@ def _display_socket_exists(display: str) -> bool:
     return os.path.exists(f"/tmp/.X11-unix/X{display_num}")
 
 
-async def create_browser(user_id: str = "default") -> tuple[Optional[Browser], BrowserContext, Page]:
+async def create_browser(user_id: str = "default") -> Tuple[Optional[Browser], BrowserContext, Page]:
     playwright = await async_playwright().start()
     launch_args = [
         "--no-sandbox",
@@ -111,9 +111,9 @@ async def create_browser(user_id: str = "default") -> tuple[Optional[Browser], B
     headless = settings.browser_headless
     if not headless and _should_force_headless():
         logger.warning(
-            "Running headed browser in a headless runtime. "
-            "Ensure Xvfb/noVNC (or equivalent display server) is available."
+            "Forcing headless browser because this runtime has no usable display server."
         )
+        headless = True
     launch_kwargs: dict = {
         "headless": headless,
         "args": launch_args,
@@ -128,8 +128,10 @@ async def create_browser(user_id: str = "default") -> tuple[Optional[Browser], B
         if not _display_socket_exists(display):
             logger.warning(
                 f"DISPLAY={display} is set but the X11 socket is missing. "
-                "Start Zalo with the VNC/Xvfb entrypoint or set ZALO_BROWSER_HEADLESS=true."
+                "Forcing headless browser for this launch."
             )
+            headless = True
+            launch_kwargs["headless"] = True
     executable_path = _resolve_browser_executable()
     if executable_path:
         launch_kwargs["executable_path"] = executable_path

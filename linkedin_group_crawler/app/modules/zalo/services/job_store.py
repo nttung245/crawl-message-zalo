@@ -1,5 +1,5 @@
-﻿from typing import Dict, List, Optional
 
+from typing import Dict, List, Optional
 from app.modules.zalo.schemas.job import JobData
 from app.modules.zalo.services.job_events import publish_job_event
 

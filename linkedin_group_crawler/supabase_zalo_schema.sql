@@ -11,6 +11,21 @@ create table if not exists public.zalo_users (
   updated_at timestamptz not null default now()
 );
 
+create table if not exists public.zalo_accounts (
+  account_id text primary key,
+  owner_id text not null default 'default',
+  label text not null,
+  phone text,
+  zalo_id text,
+  avatar_url text,
+  status text not null default 'unknown',
+  is_active boolean not null default true,
+  last_login_at timestamptz,
+  last_seen_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists public.zalo_crawl_jobs (
   job_id text primary key,
   user_id text not null,
@@ -32,10 +47,28 @@ create table if not exists public.zalo_groups (
   user_id text not null,
   group_id text not null,
   group_name text not null,
+  avatar_url text,
+  unread_count integer default 0,
+  last_message_at timestamptz,
+  last_message_content text,
+  last_sender_id text,
+  last_sender_name text,
+  last_message_type text,
+  is_pinned boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (user_id, group_id)
 );
+
+-- Migration cho bảng zalo_groups đã tồn tại (an toàn chạy nhiều lần).
+alter table public.zalo_groups add column if not exists avatar_url text;
+alter table public.zalo_groups add column if not exists unread_count integer default 0;
+alter table public.zalo_groups add column if not exists last_message_at timestamptz;
+alter table public.zalo_groups add column if not exists last_message_content text;
+alter table public.zalo_groups add column if not exists last_sender_id text;
+alter table public.zalo_groups add column if not exists last_sender_name text;
+alter table public.zalo_groups add column if not exists last_message_type text;
+alter table public.zalo_groups add column if not exists is_pinned boolean not null default false;
 
 create table if not exists public.zalo_messages (
   id uuid primary key default gen_random_uuid(),
@@ -115,5 +148,8 @@ create table if not exists public.zalo_broadcast_logs (
 
 create index if not exists idx_zalo_messages_user_group on public.zalo_messages(user_id, group_name);
 create index if not exists idx_zalo_messages_created_at on public.zalo_messages(created_at desc);
+create index if not exists idx_zalo_accounts_owner on public.zalo_accounts(owner_id, is_active, updated_at desc);
+create index if not exists idx_zalo_groups_order on public.zalo_groups(user_id, is_pinned desc, last_message_at desc);
+create index if not exists idx_zalo_messages_user_sender on public.zalo_messages(user_id, sender_id, created_at desc);
 create index if not exists idx_zalo_message_assets_cleanup on public.zalo_message_assets(status, created_at);
 create index if not exists idx_zalo_broadcast_logs_campaign on public.zalo_broadcast_logs(campaign_id, created_at);

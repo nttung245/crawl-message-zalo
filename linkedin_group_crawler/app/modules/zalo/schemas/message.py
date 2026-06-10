@@ -1,5 +1,5 @@
-﻿from pydantic import BaseModel
-from typing import Optional, List
+from typing import List, Optional
+from pydantic import BaseModel
 
 
 class Message(BaseModel):
@@ -14,4 +14,6 @@ class Message(BaseModel):
     reply_to_id: Optional[str] = None
     is_deleted: bool = False
     is_sent: bool = False
+    group_id: Optional[str] = None
+
 

@@ -18,3 +18,8 @@ storage/chromium-profile
 storage/chromium-profile/**
 credentials/**
 google-service-account.json
+node_modules/
+local-test-logs/
+data/output/**
+data/raw/**
+*.log

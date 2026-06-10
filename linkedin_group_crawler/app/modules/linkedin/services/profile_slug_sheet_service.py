@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional, Tuple
 import json
 from dataclasses import dataclass
-from typing import Any
 
 import httpx
 
@@ -19,16 +19,16 @@ logger = get_logger(__name__)
 _EMAIL_KEYS = ("email", "Email_crawl", "email_crawl", "userEmail")
 
 
-def normalize_email_for_match(value: str | None) -> str:
+def normalize_email_for_match(value: Optional[str]) -> str:
     return (value or "").strip().lower()
 
 
-def sheet_webhook_body_email(email: str) -> dict[str, str]:
+def sheet_webhook_body_email(email: str) -> Dict[str, str]:
     e = email.strip()
     return {"email": e, "Email_crawl": e, "userEmail": e}
 
 
-def normalize_sheet_data_rows(data_field: Any) -> list[dict[str, Any]]:
+def normalize_sheet_data_rows(data_field: Any) -> List[Dict[str, Any]]:
     """Chuẩn hoá ``data`` từ webhook (mảng object, JSON string, hoặc wrapper dict)."""
 
     if data_field is None:
@@ -57,7 +57,7 @@ def normalize_sheet_data_rows(data_field: Any) -> list[dict[str, Any]]:
     return []
 
 
-def row_matches_owner_email(row: dict[str, Any], target_normalized: str) -> bool:
+def row_matches_owner_email(row: Dict[str, Any], target_normalized: str) -> bool:
     if not target_normalized:
         return False
     for key in _EMAIL_KEYS:
@@ -67,7 +67,7 @@ def row_matches_owner_email(row: dict[str, Any], target_normalized: str) -> bool
     return False
 
 
-def extract_profile_slug_hint(row: dict[str, Any] | None) -> str | None:
+def extract_profile_slug_hint(row: Optional[Dict[str, Any]]) -> Optional[str]:
     """Lấy slug gợi ý từ một dòng sheet (cột slug hoặc URL chứa ``/in/<slug>``)."""
 
     if not row:
@@ -100,9 +100,9 @@ def extract_profile_slug_hint(row: dict[str, Any] | None) -> str | None:
 
 
 def should_skip_playwright_slug_fetch(
-    rows: list[dict[str, Any]],
+    rows: List[Dict[str, Any]],
     owner_email: str,
-) -> tuple[bool, dict[str, Any] | None]:
+) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """Chỉ bỏ qua cào slug khi **đã có email trong sheet và đã có slug/URL**."""
 
     found, matched = find_owner_row(rows, owner_email)
@@ -113,7 +113,7 @@ def should_skip_playwright_slug_fetch(
     return False, matched
 
 
-def find_owner_row(rows: list[dict[str, Any]], owner_email: str) -> tuple[bool, dict[str, Any] | None]:
+def find_owner_row(rows: List[Dict[str, Any]], owner_email: str) -> Tuple[bool, Optional[Dict[str, Any]]]:
     """True + row đầu tiên khớp email."""
 
     target = normalize_email_for_match(owner_email)
@@ -137,7 +137,7 @@ def fetch_sheet_rows_via_webhook(
     webhook_url: str,
     email: str,
     timeout_sec: float,
-) -> tuple[int, list[dict[str, Any]], Any, str]:
+) -> Tuple[int, List[Dict[str, Any]], Any, str]:
     """POST webhook lấy slug sheet → (http_status, rows, parsed_body_or_None, preview)."""
 
     url = (webhook_url or "").strip()
@@ -156,8 +156,8 @@ def fetch_sheet_rows_via_webhook(
     except Exception:
         parsed = None
 
-    rows: list[dict[str, Any]] = []
-    total: int | None = None
+    rows: List[Dict[str, Any]] = []
+    total: Optional[int] = None
     if isinstance(parsed, dict):
         total_raw = parsed.get("total")
         try:
@@ -180,7 +180,7 @@ def register_profile_slug_via_webhook(
     profile_slug: str,
     profile_url: str,
     timeout_sec: float,
-) -> tuple[int, Any, str]:
+) -> Tuple[int, Any, str]:
     """POST webhook để ghi slug mới lên sheet / workflow."""
 
     url = (webhook_url or "").strip()
@@ -211,8 +211,8 @@ def register_profile_slug_via_webhook(
 class SheetCheckOutcome:
     http_status: int
     email_found_in_sheet: bool
-    matched_row: dict[str, Any] | None
-    rows: list[dict[str, Any]]
+    matched_row: Optional[Dict[str, Any]]
+    rows: List[Dict[str, Any]]
     response_preview: str
     parsed: Any
 

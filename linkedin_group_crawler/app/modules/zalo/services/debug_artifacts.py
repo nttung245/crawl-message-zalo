@@ -1,7 +1,7 @@
-﻿import json
+from typing import Any, Dict, Optional
+import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any
 
 from loguru import logger
 from playwright.async_api import Page
@@ -20,7 +20,7 @@ def _artifact_base(name: str) -> Path:
     return _artifact_dir() / f"{timestamp}-{name}"
 
 
-async def save_page_artifacts(page: Page, name: str, metadata: dict[str, Any] | None = None) -> dict[str, str]:
+async def save_page_artifacts(page: Page, name: str, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, str]:
     base = _artifact_base(name)
     html_path = base.with_suffix(".html")
     png_path = base.with_suffix(".png")

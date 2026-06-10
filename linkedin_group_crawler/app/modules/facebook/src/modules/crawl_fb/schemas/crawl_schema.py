@@ -1,6 +1,6 @@
+from typing import List, Optional
 # src/schemas/crawl_schema.py
 from pydantic import BaseModel, HttpUrl
-from typing import List, Optional
 class CrawlTriggerRequest(BaseModel):
     name: str
     url: str  # Có thể dùng HttpUrl thay cho str để FastAPI tự kiểm tra xem URL có hợp lệ không

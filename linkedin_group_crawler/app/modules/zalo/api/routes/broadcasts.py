@@ -1,3 +1,4 @@
+from typing import List, Optional
 import asyncio
 import re
 
@@ -7,7 +8,6 @@ from loguru import logger
 from app.modules.zalo.api.security import verify_zalo_api_key
 from app.modules.zalo.config import settings
 from app.modules.zalo.crawler.broadcast_sender import send_broadcast_to_targets
-from app.modules.zalo.crawler.qr_login import check_login_status
 from app.modules.zalo.schemas.broadcast import (
     ZaloBroadcastPreviewItem,
     ZaloBroadcastPreviewResponse,
@@ -18,9 +18,11 @@ from app.modules.zalo.schemas.broadcast import (
 from app.modules.zalo.services.session_store import (
     get_latest_session_for_user,
     get_session_lock,
-    save_session,
 )
 from app.modules.zalo.services.browser_operation_lock import zalo_browser_operation_lock
+from app.modules.zalo.services.session_browser import ensure_session_browser_ready
+from app.modules.zalo.services.zca_auth_store import ensure_session_zca_auth
+from app.modules.zalo.services.zca_broadcast_sender import send_zca_broadcast_to_targets
 from app.modules.zalo.services.supabase_service import (
     SupabaseNotConfigured,
     add_broadcast_log,
@@ -39,7 +41,7 @@ router = APIRouter(
 _BROADCAST_WORKER_LOCK = zalo_browser_operation_lock
 
 
-def _normalize_user_id(value: str | None) -> str:
+def _normalize_user_id(value: Optional[str]) -> str:
     raw = (value or "default").strip().lower()
     raw = re.sub(r"[^a-z0-9._-]+", "-", raw).strip("-._")
     return raw or "default"
@@ -57,8 +59,8 @@ def _failed_asset_count(message: dict) -> int:
     return sum(1 for asset in message.get("assets") or [] if asset.get("status") == "failed")
 
 
-def _asset_preview_urls(message: dict) -> list[str]:
-    urls: list[str] = []
+def _asset_preview_urls(message: dict) -> List[str]:
+    urls: List[str] = []
     for asset in message.get("assets") or []:
         if asset.get("status") != "uploaded":
             continue
@@ -68,9 +70,9 @@ def _asset_preview_urls(message: dict) -> list[str]:
     return urls
 
 
-def _build_preview(messages: list[dict], target_count: int, content_mode: str) -> ZaloBroadcastPreviewResponse:
-    items: list[ZaloBroadcastPreviewItem] = []
-    warnings: list[str] = []
+def _build_preview(messages: List[dict], target_count: int, content_mode: str) -> ZaloBroadcastPreviewResponse:
+    items: List[ZaloBroadcastPreviewItem] = []
+    warnings: List[str] = []
     sendable_item_count = 0
     for message in messages:
         image_count = _asset_count(message)
@@ -80,7 +82,7 @@ def _build_preview(messages: list[dict], target_count: int, content_mode: str) -
         send_images = content_mode in {"image", "both"} and image_count > 0
         if send_text or send_images:
             sendable_item_count += 1
-        item_warnings: list[str] = []
+        item_warnings: List[str] = []
         if content_mode == "image" and image_count == 0:
             item_warnings.append("Tin này không có ảnh đã lưu được trong Supabase Storage")
         if content_mode == "text" and not send_text:
@@ -145,11 +147,11 @@ async def create_broadcast(
     session = await get_latest_session_for_user(user_id, preferred_statuses={"confirmed"})
     if not session:
         raise HTTPException(status_code=401, detail="No confirmed Zalo session found, please login first")
-    live_status = await check_login_status(session.page)
-    session.status = live_status
-    await save_session(session)
-    if live_status != "confirmed":
-        raise HTTPException(status_code=403, detail=f"Login not completed yet (status={live_status})")
+    zca_auth = await ensure_session_zca_auth(session)
+    if not zca_auth:
+        live_status = await ensure_session_browser_ready(session)
+        if live_status != "confirmed":
+            raise HTTPException(status_code=403, detail=f"Login not completed yet (status={live_status})")
 
     try:
         messages = await fetch_messages_by_ids(user_id, body.message_ids)
@@ -202,8 +204,8 @@ async def _run_broadcast(
     campaign_id: str,
     user_id: str,
     session_id: str,
-    messages: list[dict],
-    targets: list[dict],
+    messages: List[dict],
+    targets: List[dict],
     content_mode: str,
 ) -> None:
     try:
@@ -217,11 +219,24 @@ async def _run_broadcast(
                 session = await get_session(session_id)
             if not session:
                 raise RuntimeError("Zalo session expired before broadcast started")
+            zca_auth = await ensure_session_zca_auth(session)
+            if zca_auth:
+                await send_zca_broadcast_to_targets(
+                    zca_auth,
+                    user_id,
+                    campaign_id,
+                    messages,
+                    targets,
+                    content_mode,
+                    settings.broadcast_delay_seconds,
+                    add_broadcast_log,
+                )
+                await update_campaign_status(campaign_id, "completed")
+                return
+
             session_lock = await get_session_lock(session.session_id)
             async with session_lock:
-                live_status = await check_login_status(session.page)
-                session.status = live_status
-                await save_session(session)
+                live_status = await ensure_session_browser_ready(session)
                 if live_status != "confirmed":
                     raise RuntimeError(f"Login not completed yet (status={live_status})")
                 await send_broadcast_to_targets(

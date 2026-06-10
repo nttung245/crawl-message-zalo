@@ -1,9 +1,9 @@
+from typing import Any, Dict, Optional
 # src/modules/facebook/services/session_manager.py
 import threading
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Any
 
 @dataclass
 class AuthSession:

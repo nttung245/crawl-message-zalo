@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from typing import Optional, Tuple
 import json
 import re
 from pathlib import Path
@@ -41,7 +42,7 @@ def _state_has_li_at_cookie(state_path: Path) -> bool:
         return False
 
 
-def parse_profile_slug_from_href(href: str) -> tuple[str, str]:
+def parse_profile_slug_from_href(href: str) -> Tuple[str, str]:
     """Trả về (slug, profile_url chuẩn https://www.linkedin.com/in/<slug>/)."""
 
     raw = (href or "").strip()
@@ -65,7 +66,7 @@ def parse_profile_slug_from_href(href: str) -> tuple[str, str]:
     return slug, profile_url
 
 
-def _slug_tuple_from_page_url(page: Page) -> tuple[str, str] | None:
+def _slug_tuple_from_page_url(page: Page) -> Optional[Tuple[str, str]]:
     """Lấy slug từ URL hiện tại nếu đã là profile ``/in/<slug>`` (không phải ``/in/me``)."""
 
     url = (page.url or "").strip()
@@ -80,7 +81,7 @@ def _slug_tuple_from_page_url(page: Page) -> tuple[str, str] | None:
     return slug, profile_url
 
 
-def _try_resolve_slug_via_me_redirect(page: Page) -> tuple[str, str] | None:
+def _try_resolve_slug_via_me_redirect(page: Page) -> Optional[Tuple[str, str]]:
     """LinkedIn thường redirect ``/in/me/`` → canonical ``/in/<public-id>/``."""
 
     page.goto(LINKEDIN_ME_REDIRECT_URL, wait_until="domcontentloaded", timeout=300000)
@@ -104,7 +105,7 @@ def _try_resolve_slug_via_me_redirect(page: Page) -> tuple[str, str] | None:
     return None
 
 
-def _try_resolve_slug_via_me_page(page: Page) -> tuple[str, str] | None:
+def _try_resolve_slug_via_me_page(page: Page) -> Optional[Tuple[str, str]]:
     """Navigate thẳng tới ``/me/`` — LinkedIn redirect về ``/in/<slug>/``.
 
     Ổn định hơn cách dùng menu Me/Feed vì không phụ thuộc DOM nav bar.
@@ -158,7 +159,7 @@ def _try_resolve_slug_via_me_page(page: Page) -> tuple[str, str] | None:
     return None
 
 
-def _slug_tuple_from_url_string(url: str) -> tuple[str, str] | None:
+def _slug_tuple_from_url_string(url: str) -> Optional[Tuple[str, str]]:
     """Parse slug từ chuỗi URL (không cần Page object)."""
     try:
         slug, profile_url = parse_profile_slug_from_href(url)
@@ -169,7 +170,7 @@ def _slug_tuple_from_url_string(url: str) -> tuple[str, str] | None:
         return None
 
 
-def get_my_profile_slug(*, session_id: str | None, email: str | None) -> tuple[str, str, str]:
+def get_my_profile_slug(*, session_id: Optional[str], email: Optional[str]) -> Tuple[str, str, str]:
     """Đọc slug profile của session hiện tại.
 
     Returns:
@@ -205,7 +206,7 @@ def get_my_profile_slug(*, session_id: str | None, email: str | None) -> tuple[s
         page = context.new_page()
 
         try:
-            resolved: tuple[str, str] | None = None
+            resolved: Optional[Tuple[str, str]] = None
 
             try:
                 resolved = _try_resolve_slug_via_me_redirect(page)

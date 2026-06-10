@@ -1,3 +1,4 @@
+from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
@@ -16,8 +17,8 @@ router = APIRouter(
 
 
 class CleanupAssetsRequest(BaseModel):
-    retention_days: int | None = Field(default=None, ge=1, le=365)
-    limit: int | None = Field(default=None, ge=1, le=1000)
+    retention_days: Optional[int] = Field(default=None, ge=1, le=365)
+    limit: Optional[int] = Field(default=None, ge=1, le=1000)
 
 
 class CleanupAssetsResponse(BaseModel):
@@ -27,11 +28,11 @@ class CleanupAssetsResponse(BaseModel):
     scanned: int
     deleted_storage_objects: int
     expired_assets: int
-    failed: list[dict]
+    failed: List[dict]
 
 
 @router.post("/cleanup-assets", response_model=CleanupAssetsResponse)
-async def cleanup_assets(body: CleanupAssetsRequest | None = None):
+async def cleanup_assets(body: Optional[CleanupAssetsRequest] = None):
     retention_days = (
         body.retention_days
         if body and body.retention_days is not None

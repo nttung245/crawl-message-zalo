@@ -1,5 +1,5 @@
+from typing import Any, Dict, List, Optional
 import logging
-from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from datetime import datetime
 

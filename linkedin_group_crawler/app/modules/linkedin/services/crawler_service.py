@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 import json
 import random
-from typing import Any
 from urllib.parse import urlparse
 
 from playwright.sync_api import Error, Page, sync_playwright
@@ -153,8 +153,8 @@ def _extract_group_name(page: Page) -> str:
 
 def _next_scroll_delay_ms(
     *,
-    scroll_delay_min_ms: int | None = None,
-    scroll_delay_max_ms: int | None = None,
+    scroll_delay_min_ms: Optional[int] = None,
+    scroll_delay_max_ms: Optional[int] = None,
 ) -> int:
     """Return a randomized delay between scroll actions."""
 
@@ -166,15 +166,15 @@ def _next_scroll_delay_ms(
 
 
 def open_group_and_collect_posts(
-    session_id: str | None,
-    email: str | None,
+    session_id: Optional[str],
+    email: Optional[str],
     group_url: str,
-    max_items: int | None = None,
+    max_items: Optional[int] = None,
     save_raw_html: bool = True,
-    scroll_times_override: int | None = None,
-    scroll_delay_min_ms: int | None = None,
-    scroll_delay_max_ms: int | None = None,
-) -> dict[str, Any]:
+    scroll_times_override: Optional[int] = None,
+    scroll_delay_min_ms: Optional[int] = None,
+    scroll_delay_max_ms: Optional[int] = None,
+) -> Dict[str, Any]:
     """Open a LinkedIn group page, scroll, and parse post data."""
 
     normalized_session_id, state_path = build_session_state_path(session_id=session_id, email=email)
@@ -266,7 +266,7 @@ def open_group_and_collect_posts(
                 html_path = settings.raw_data_dir / "last_group_page.html"
                 save_text_file(html_path, page.content())
 
-            posts: list[dict[str, Any]] = []
+            posts: List[Dict[str, Any]] = []
             for index in range(total_found):
                 item = locator.nth(index)
                 parsed = parse_post_locator(item)
