@@ -43,6 +43,7 @@ from app.modules.zalo.api.proxy import router as zalo_proxy_router
 from app.modules.zalo.api.security import verify_zalo_api_key
 from app.modules.zalo.config import settings as zalo_settings
 from app.modules.apartment_agent.router import router as apartment_agent_router
+from app.modules.zalo.api.routes.villa_sync import router as villa_sync_router
 from app.modules.zalo.services.worker_pool import is_zalo_browser_proxy_configured
 from app.modules.zalo.services.session_store import (
     start_cleanup_scheduler,
@@ -269,3 +270,6 @@ if _FACEBOOK_ENABLED and _fb_api_router is not None:
 
 # Apartment Agent — LLM-based apartment extraction pipeline
 app.include_router(apartment_agent_router)
+
+# Villa Sync — sync Zalo crawl data to GoDaNang villas table
+app.include_router(villa_sync_router)

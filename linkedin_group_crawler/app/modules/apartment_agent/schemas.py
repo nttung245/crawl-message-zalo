@@ -35,6 +35,8 @@ class ApartmentListing(BaseModel):
     contact_phone: Optional[str] = Field(default=None, description="Contact phone number")
     amenities: list[str] = Field(default_factory=list, description="List of amenities")
     images: list[str] = Field(default_factory=list, description="Image URLs")
+    is_rented: bool = Field(default=False, description="Whether the room/unit is currently rented/occupied")
+    address: Optional[str] = Field(default=None, description="Full address for dedup matching (street, floor, room number)")
 
 
 class ExtractionStatus(str, Enum):
@@ -67,6 +69,7 @@ class DedupResult(BaseModel):
 
 class SyncStatus(str, Enum):
     INSERTED = "inserted"
+    UPDATED = "updated"
     SKIPPED_DUPLICATE = "skipped_duplicate"
     SKIPPED_NOT_LISTING = "skipped_not_listing"
     FAILED = "failed"

@@ -29,6 +29,17 @@ Rules:
 - Extract contact name from patterns like "Liên hệ Anh Tuấn", "A Tuấn", "Chị Mai".
 - Set is_apartment_listing=false if the message is NOT an apartment listing.
 
+Rented/Occupied status detection (is_rented):
+- Set is_rented=true when the message contains cues indicating the unit is already occupied/rented: "đã cho thuê", "có người ở", "đã có khách", "đã thuê", "đã có người thuê".
+- Set is_rented=false when the message indicates availability: "cho thuê", "cần thuê", "còn trống", "chưa có người", "phòng trống", "cần cho thuê".
+- Default to is_rented=false if the status is ambiguous or not mentioned.
+
+Address extraction (address):
+- Combine street address + floor number + room number into a canonical format: "123 Nguyễn Văn Linh, Tầng 5, Phòng 502".
+- Look for patterns: street name + number ("123 Nguyễn Văn Linh"), floor ("tầng 5", "lầu 5", "T5"), room ("phòng 502", "P502", "căn 502").
+- If multiple address components are found, combine them in order: street, floor, room.
+- Set address to null if no specific address/room information is found in the message.
+
 Return ONLY valid JSON matching the schema. Do not add extra fields or explanation."""
 
 

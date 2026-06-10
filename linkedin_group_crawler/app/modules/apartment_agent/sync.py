@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import re
 import unicodedata
+from typing import Optional
 
 import httpx
 from loguru import logger
@@ -79,7 +80,7 @@ def _build_insert_payload(listing: ApartmentListing) -> dict:
         "description": description,
         "amenities": listing.amenities or [],
         "images": listing.images or [],
-        "status": "active",
+        "status": "inactive" if listing.is_rented else "active",
     }
 
 
@@ -118,8 +119,148 @@ async def insert_apartment(listing: ApartmentListing) -> SyncResult:
         )
 
 
-async def insert_batch(dedup_results: list[DedupResult]) -> list[SyncResult]:
-    """Insert non-duplicate apartments with configurable delay."""
+
+def _extract_room_identifier(title: str) -> Optional[str]:
+    """Extract room/floor identifier from listing title.
+
+    Examples: 'Phong 502' -> '502', 'Tang 5' -> '5', 'P.301' -> '301'
+    """
+    # Match common Vietnamese room/floor patterns
+    patterns = [
+        r"[Pp](?:hong|\.)\s*(\d+)",    # Phong 502, P.301
+        r"[Tt](?:ang|\.)\s*(\d+)",     # Tang 5, T.3
+        r"(?:Room|Unit)\s*(\d+)",       # Room 502, Unit 301
+        r"#\s*(\d+)",                   # #502
+        r"(\d{3,})",                    # bare 3+ digit number like 502
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, title, re.IGNORECASE)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _build_update_payload(listing: ApartmentListing) -> dict:
+    """Build payload for update (PUT), excluding images field."""
+    payload = _build_insert_payload(listing)
+    payload.pop("images", None)
+    return payload
+
+
+async def update_apartment(apt_id: int, listing: ApartmentListing) -> SyncResult:
+    """Update an existing apartment in GoDaNang Supabase via PUT."""
+    url = f"{settings.godanang_supabase_url}/rest/v1/villas?id=eq.{apt_id}"
+    headers = {
+        "apikey": settings.godanang_supabase_service_key,
+        "Authorization": f"Bearer {settings.godanang_supabase_service_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+    payload = _build_update_payload(listing)
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.put(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+
+            logger.info(f"Sync: UPDATED id={apt_id} title='{listing.title}'")
+            return SyncResult(
+                message_id="",
+                extraction_status=ExtractionStatus.SUCCESS,
+                sync_status=SyncStatus.UPDATED,
+                apartment_id=apt_id,
+            )
+    except Exception as exc:
+        logger.error(f"Sync: UPDATE FAILED id={apt_id} title='{listing.title}': {exc}")
+        return SyncResult(
+            message_id="",
+            extraction_status=ExtractionStatus.SUCCESS,
+            sync_status=SyncStatus.FAILED,
+            error_message=str(exc),
+        )
+
+
+async def find_existing_villa(address: str, name: str) -> Optional[dict]:
+    """Query GoDaNang villas table for an existing villa matching address and room identifier.
+
+    Returns the matching villa dict (id, images, description) or None.
+    """
+    if not address or not name:
+        return None
+
+    room_id = _extract_room_identifier(name)
+    if not room_id:
+        logger.debug(f"find_existing_villa: no room identifier in '{name}'")
+        return None
+
+    url = f"{settings.godanang_supabase_url}/rest/v1/villas"
+    headers = {
+        "apikey": settings.godanang_supabase_service_key,
+        "Authorization": f"Bearer {settings.godanang_supabase_service_key}",
+        "Content-Type": "application/json",
+    }
+    params = {
+        "select": "id,images,description",
+        "description": f"ilike.%{address}%",
+        "name": f"ilike.%{room_id}%",
+        "limit": "1",
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if data:
+                logger.debug(f"find_existing_villa: found id={data[0].get('id')} for address='{address}' room='{room_id}'")
+                return data[0]
+            return None
+    except Exception as exc:
+        logger.error(f"find_existing_villa: query failed for address='{address}': {exc}")
+        return None
+
+
+async def fetch_latest_villa_timestamp() -> Optional[str]:
+    """Fetch the MAX(created_at) from GoDaNang villas table.
+
+    Returns the timestamp string or None if the table is empty.
+    """
+    url = f"{settings.godanang_supabase_url}/rest/v1/villas"
+    headers = {
+        "apikey": settings.godanang_supabase_service_key,
+        "Authorization": f"Bearer {settings.godanang_supabase_service_key}",
+        "Content-Type": "application/json",
+    }
+    params = {
+        "select": "created_at",
+        "order": "created_at.desc",
+        "limit": "1",
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            if data and data[0].get("created_at"):
+                return data[0]["created_at"]
+            return None
+    except Exception as exc:
+        logger.error(f"fetch_latest_villa_timestamp: query failed: {exc}")
+        return None
+
+
+
+async def insert_batch(
+    dedup_results: list[DedupResult],
+    update_existing: bool = True,
+) -> list[SyncResult]:
+    """Insert or update non-duplicate apartments with configurable delay.
+
+    When *update_existing* is True, each listing is first checked against the
+    existing villas table.  If a match is found the record is updated via PUT;
+    otherwise a new row is inserted.
+    """
     delay_s = settings.insert_delay_ms / 1000.0
     results: list[SyncResult] = []
 
@@ -134,6 +275,17 @@ async def insert_batch(dedup_results: list[DedupResult]) -> list[SyncResult]:
                 )
             )
             continue
+
+        if update_existing:
+            address = dr.listing.address or ""
+            existing = await find_existing_villa(address, dr.listing.title)
+            if existing:
+                apt_id = existing["id"]
+                result = await update_apartment(apt_id, dr.listing)
+                results.append(result)
+                if delay_s > 0:
+                    await asyncio.sleep(delay_s)
+                continue
 
         result = await insert_apartment(dr.listing)
         results.append(result)
