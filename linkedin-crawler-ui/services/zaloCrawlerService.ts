@@ -444,3 +444,16 @@ export function getZaloBroadcast(
     },
   );
 }
+
+export function testAgentExtract(
+  request: { group_name?: string; texts?: string[] },
+): Promise<import("@/types/zalo-api").AgentTestExtractResponse> {
+  return requestJson<import("@/types/zalo-api").AgentTestExtractResponse>(
+    "/api/apartment-agent/test-extract",
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+    120000,
+  );
+}

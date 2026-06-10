@@ -29,6 +29,7 @@ from app.modules.zalo.api.routes.maintenance import router as zalo_maintenance_r
 from app.modules.zalo.api.proxy import legacy_groups_router as zalo_proxy_legacy_groups_router
 from app.modules.zalo.api.proxy import router as zalo_proxy_router
 from app.modules.zalo.config import settings as zalo_settings
+from app.modules.apartment_agent.router import router as apartment_agent_router
 from app.modules.zalo.services.worker_pool import is_zalo_browser_proxy_configured
 from app.modules.zalo.services.session_store import (
     start_cleanup_scheduler,
@@ -179,3 +180,6 @@ else:
 # FIX C-5: Chỉ đăng ký Facebook router nếu module import thành công
 if _FACEBOOK_ENABLED and _fb_api_router is not None:
     app.include_router(_fb_api_router, prefix="/facebook/api/v1")
+
+# Apartment Agent — LLM-based apartment extraction pipeline
+app.include_router(apartment_agent_router)

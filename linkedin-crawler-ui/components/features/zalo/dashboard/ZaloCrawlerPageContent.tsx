@@ -10,6 +10,7 @@ import { ZaloCrawlProgressPanel } from "./ZaloCrawlProgressPanel";
 import { ZaloCrawlResultSection } from "./ZaloCrawlResultSection";
 import { ZaloCrawlerConfigCard } from "./ZaloCrawlerConfigCard";
 import { ZaloSupabaseLibraryPanel } from "./ZaloSupabaseLibraryPanel";
+import { ZaloAgentTestPanel } from "./ZaloAgentTestPanel";
 
 function InlineBanner({
   tone,
@@ -34,7 +35,7 @@ function InlineBanner({
 
 export function ZaloCrawlerPageContent() {
   const flow = useZaloCrawlerFlow();
-  const [activeTab, setActiveTab] = useState<"crawl" | "library" | "broadcast">("crawl");
+  const [activeTab, setActiveTab] = useState<"crawl" | "library" | "broadcast" | "agent">("crawl");
   const [libraryMessages, setLibraryMessages] = useState<ZaloLibraryMessage[]>([]);
   const [selectedMessageIds, setSelectedMessageIds] = useState<string[]>([]);
   const selectedMessages = useMemo(
@@ -66,11 +67,12 @@ export function ZaloCrawlerPageContent() {
           ["crawl", "Crawl"],
           ["library", "Thư viện tin"],
           ["broadcast", "Chiến dịch gửi"],
+          ["agent", "Agent"],
         ].map(([value, label]) => (
           <button
             key={value}
             type="button"
-            onClick={() => setActiveTab(value as "crawl" | "library" | "broadcast")}
+            onClick={() => setActiveTab(value as "crawl" | "library" | "broadcast" | "agent")}
             className={`rounded-xl px-md py-sm text-body-sm font-semibold transition ${
               activeTab === value ? "bg-primary text-on-primary" : "text-on-surface hover:bg-surface-container-high"
             }`}
@@ -110,6 +112,10 @@ export function ZaloCrawlerPageContent() {
           selectedMessageIds={selectedMessageIds}
           selectedMessages={selectedMessages}
         />
+      ) : null}
+
+      {activeTab === "agent" ? (
+        <ZaloAgentTestPanel userId={flow.userId} />
       ) : null}
     </div>
   );

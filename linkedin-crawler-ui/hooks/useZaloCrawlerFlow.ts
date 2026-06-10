@@ -937,7 +937,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       return [
         ...previous,
         {
-          id: `zalo-group-${nextSeed}-${crypto.randomUUID()}`,
+          id: `zalo-group-${nextSeed}-${(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36))}`,
           groupName: "",
           sheetTab: "",
           verifyStatus: "unchecked",
@@ -993,7 +993,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       return [
         ...previous,
         {
-          id: `zalo-group-${previous.length}-${crypto.randomUUID()}`,
+          id: `zalo-group-${previous.length}-${(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36))}`,
           groupName,
           sheetTab,
           verifyStatus: "unchecked",

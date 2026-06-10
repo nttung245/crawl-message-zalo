@@ -156,8 +156,10 @@ async def create_broadcast(
         if len(messages) != len(set(body.message_ids)):
             raise HTTPException(status_code=400, detail="Some selected messages were not found")
         preview = _build_preview(messages, len(body.targets), body.content_mode)
-        if preview.warnings:
-            raise HTTPException(status_code=400, detail="; ".join(preview.warnings))
+        # Only block on hard errors (missing targets/messages), not soft warnings (missing text/images)
+        hard_errors = [w for w in preview.warnings if "Chưa chọn" in w or "khong co tin nao" in w.lower()]
+        if hard_errors:
+            raise HTTPException(status_code=400, detail="; ".join(hard_errors))
 
         campaign_id = await create_broadcast_campaign(
             user_id,

@@ -43,6 +43,7 @@ function normalizeTargets(
   const targets = new Map<string, ZaloBroadcastTarget>();
 
   for (const item of conversations) {
+    if (!item.group_id) continue; // Skip crawled groups without real Zalo IDs
     if (!selectedIds.includes(item.group_id)) continue;
     const name = item.name.trim();
     const key = normalizeSearchText(name);
@@ -50,11 +51,14 @@ function normalizeTargets(
     targets.set(key, { group_id: item.group_id, group_name: name });
   }
 
+  // Manual entries merge with existing targets (don't overwrite)
   for (const line of manualText.split("\n")) {
     const name = line.trim();
     const key = normalizeSearchText(name);
     if (!key) continue;
-    targets.set(key, { group_name: name });
+    if (!targets.has(key)) {
+      targets.set(key, { group_name: name });
+    }
   }
 
   return Array.from(targets.values());
@@ -64,7 +68,7 @@ function savedToLiveConversation(group: ZaloCrawledGroupItem): ZaloLiveGroup | n
   const name = (group.group_name || group.sheet_tab || "").trim();
   if (!name) return null;
   return {
-    group_id: name,
+    group_id: null,
     name,
     avatar_url: null,
     last_message: `${group.message_count ?? 0} tin đã lưu`,
@@ -73,11 +77,16 @@ function savedToLiveConversation(group: ZaloCrawledGroupItem): ZaloLiveGroup | n
 }
 
 function conversationKey(item: Pick<ZaloLiveGroup, "group_id" | "name">): string {
-  return normalizeSearchText(item.name || item.group_id);
+  const normalizedName = normalizeSearchText(item.name || "");
+  return item.group_id ? `${normalizedName}|${item.group_id}` : normalizedName;
 }
 
-function mergeConversations(previous: ZaloLiveGroup[], incoming: ZaloLiveGroup[]): ZaloLiveGroup[] {
+function mergeConversations(
+  previous: ZaloLiveGroup[],
+  incoming: ZaloLiveGroup[],
+): { merged: ZaloLiveGroup[]; idRemaps: Map<string, string> } {
   const byKey = new Map<string, ZaloLiveGroup>();
+  const idRemaps = new Map<string, string>(); // old group_id → new group_id
 
   for (const item of previous) {
     const key = conversationKey(item);
@@ -88,16 +97,24 @@ function mergeConversations(previous: ZaloLiveGroup[], incoming: ZaloLiveGroup[]
     const key = conversationKey(item);
     if (!key) continue;
     const existing = byKey.get(key);
+    const newGroupId = item.group_id || existing?.group_id || null;
+    // Track remap if existing had a different group_id
+    if (existing?.group_id && newGroupId && existing.group_id !== newGroupId) {
+      idRemaps.set(existing.group_id, newGroupId);
+    }
     byKey.set(key, {
       ...existing,
       ...item,
-      group_id: item.group_id || existing?.group_id || item.name,
-      name: item.name || existing?.name || item.group_id,
+      group_id: newGroupId,
+      name: item.name || existing?.name || "",
       last_message: item.last_message || existing?.last_message || null,
     });
   }
 
-  return Array.from(byKey.values()).sort((left, right) => left.name.localeCompare(right.name, "vi"));
+  return {
+    merged: Array.from(byKey.values()).sort((left, right) => left.name.localeCompare(right.name, "vi")),
+    idRemaps,
+  };
 }
 
 function uploadedAssetCount(message: ZaloLibraryMessage | undefined): number {
@@ -129,6 +146,7 @@ export function ZaloBroadcastPanel({
   const [isPreviewing, setIsPreviewing] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasLiveTargets, setHasLiveTargets] = useState(false);
 
   const selectedMessageKey = selectedMessageIds.join("|");
 
@@ -165,12 +183,15 @@ export function ZaloBroadcastPanel({
     async function loadSavedTargets() {
       try {
         const response = await getZaloCrawledGroups(userId);
-        if (isCancelled) return;
+        if (isCancelled || hasLiveTargets) return; // Skip if live data already loaded
         const saved = response.groups
           .map(savedToLiveConversation)
           .filter((item): item is ZaloLiveGroup => item !== null);
         if (saved.length > 0) {
-          setLiveConversations((current) => mergeConversations(current, saved));
+          setLiveConversations((current) => {
+            const { merged } = mergeConversations(current, saved);
+            return merged;
+          });
         }
       } catch {
         // Saved targets are a convenience fallback; direct manual input still works.
@@ -181,7 +202,7 @@ export function ZaloBroadcastPanel({
     return () => {
       isCancelled = true;
     };
-  }, [userId]);
+  }, [userId, hasLiveTargets]);
 
   useEffect(() => {
     if (!campaignId) return;
@@ -201,7 +222,17 @@ export function ZaloBroadcastPanel({
     setError(null);
     try {
       const conversations = await getZaloLiveGroups(userId);
-      setLiveConversations((current) => mergeConversations(current, conversations));
+      setHasLiveTargets(true); // Mark live data as loaded
+      setLiveConversations((current) => {
+        const { merged, idRemaps } = mergeConversations(current, conversations);
+        // Remap selectedConversationIds when group_id changes
+        if (idRemaps.size > 0) {
+          setSelectedConversationIds((ids) =>
+            ids.map((id) => idRemaps.get(id) ?? id)
+          );
+        }
+        return merged;
+      });
       if (conversations.length === 0) {
         setError("Zalo chưa trả thêm người nhận live. Danh sách đã crawl/lưu vẫn được giữ lại để chọn.");
       }
@@ -231,6 +262,12 @@ export function ZaloBroadcastPanel({
   }
 
   async function handleSend() {
+    // Validate that all targets have real group IDs
+    const invalidTargets = targets.filter((t) => !t.group_id);
+    if (invalidTargets.length > 0) {
+      setError("Một số người nhận chưa có ID Zalo thực. Vui lòng bấm 'Tải người nhận Zalo' trước khi gửi.");
+      return;
+    }
     setIsSending(true);
     setError(null);
     try {
@@ -250,7 +287,9 @@ export function ZaloBroadcastPanel({
   }
 
   function toggleVisibleTargets() {
-    const visibleIds = visibleConversations.map((item) => item.group_id);
+    const visibleIds = visibleConversations
+      .filter((item) => !!item.group_id)
+      .map((item) => item.group_id as string);
     if (allVisibleSelected) {
       setSelectedConversationIds((current) => current.filter((id) => !visibleIds.includes(id)));
       return;
@@ -366,31 +405,37 @@ export function ZaloBroadcastPanel({
                 </div>
 
                 <div className="grid max-h-80 gap-sm overflow-auto sm:grid-cols-2">
-                  {visibleConversations.map((item) => (
+                  {visibleConversations.map((item) => {
+                    const isSelectable = !!item.group_id;
+                    const itemId = item.group_id ?? `crawled-${item.name}`;
+                    return (
                     <label
-                      key={item.group_id}
+                      key={itemId}
                       className={`border-outline-variant flex gap-sm rounded-lg border px-sm py-xs text-body-sm ${
-                        selectedConversationIds.includes(item.group_id)
+                        selectedConversationIds.includes(itemId)
                           ? "bg-primary-container text-on-primary-container"
                           : ""
-                      }`}
+                      } ${!isSelectable ? "opacity-60" : ""}`}
                     >
                       <input
                         type="checkbox"
-                        checked={selectedConversationIds.includes(item.group_id)}
+                        disabled={!isSelectable}
+                        checked={selectedConversationIds.includes(itemId)}
                         onChange={(event) => {
                           if (event.target.checked) {
                             setSelectedConversationIds((current) =>
-                              current.includes(item.group_id) ? current : [...current, item.group_id],
+                              current.includes(itemId) ? current : [...current, itemId],
                             );
                           } else {
-                            setSelectedConversationIds((current) => current.filter((id) => id !== item.group_id));
+                            setSelectedConversationIds((current) => current.filter((id) => id !== itemId));
                           }
                         }}
                       />
                       <span>{item.name}</span>
+                      {!isSelectable && <span className="text-xs text-orange-500">Cần tải live</span>}
                     </label>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 {selectedLiveConversations.length > 0 ? (

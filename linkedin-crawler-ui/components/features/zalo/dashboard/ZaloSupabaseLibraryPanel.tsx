@@ -159,11 +159,11 @@ export function ZaloSupabaseLibraryPanel({
   useEffect(() => {
     setMessages([]);
     setMessageCache({});
-    onSelectedMessageIdsChange([]);
+    // Don't clear selected message IDs on userId change - preserve user's selection
     setSelectedGroupName("");
     setGroupSearch("");
     setPage(1);
-  }, [onSelectedMessageIdsChange, userId]);
+  }, [userId]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

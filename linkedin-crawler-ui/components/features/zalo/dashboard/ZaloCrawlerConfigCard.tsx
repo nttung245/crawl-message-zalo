@@ -109,20 +109,17 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
                 User phiên: <span className="font-mono">{flow.userId}</span>
               </div>
               <div className="text-body-sm mt-xs opacity-80">
-                Worker ha tang:{" "}
+                Worker hiện tại:{" "}
                 {flow.isLoadingWorkers
-                  ? "Dang kiem tra"
+                  ? "Đang kiểm tra"
                   : (() => {
-                      const worker =
-                        flow.workers.find((item) => item.id === flow.selectedWorkerId) ??
-                        { id: "auto", label: "Tu dong", status: "unknown", queue_state: "unknown" };
-                      if (!worker) return "Tu dong";
+                      const worker = flow.workers.find((item) => item.id === flow.selectedWorkerId);
+                      if (!worker) return "Tự động";
                       return `${worker.label || worker.id} - ${worker.status ?? "unknown"}`;
                     })()}
               </div>
-              {false ? null : null}
-              {false ? (
-              <div className="hidden">
+              {flow.workers.length > 0 ? (
+              <div>
                 <label
                   className="text-label-md font-semibold uppercase opacity-80"
                   htmlFor="zalo-worker-select"
@@ -147,10 +144,8 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
                     "Đang tải account..."
                   ) : (
                     (() => {
-                      const worker =
-                        flow.workers.find((item) => item.id === flow.selectedWorkerId) ??
-                        { id: "auto", label: "Tu dong", status: "unknown", queue_state: "unknown" };
-                      if (worker === undefined) return "unknown";
+                      const worker = flow.workers.find((item) => item.id === flow.selectedWorkerId);
+                      if (!worker) return "Tự động";
                       return `${worker.status ?? "unknown"} · ${worker.queue_state ?? "unknown"}`;
                     })()
                   )}
@@ -319,7 +314,17 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
                 min={1}
                 max={500}
                 value={flow.maxMessagesPerGroup}
-                onChange={(event) => flow.setMaxMessagesPerGroup(Number(event.target.value))}
+                onChange={(event) => {
+                  const val = event.target.value;
+                  if (val === "") return; // Allow empty while typing
+                  const num = Number(val);
+                  if (!Number.isNaN(num)) flow.setMaxMessagesPerGroup(num);
+                }}
+                onBlur={(event) => {
+                  if (event.target.value === "") {
+                    flow.setMaxMessagesPerGroup(50); // Reset to default on blur if empty
+                  }
+                }}
                 disabled={flow.isSubmittingGroups || flow.isVerifyingGroups}
                 className="border-outline-variant bg-surface h-10 w-28 rounded-lg border px-sm text-body-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
               />

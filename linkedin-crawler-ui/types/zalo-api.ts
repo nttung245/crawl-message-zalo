@@ -190,7 +190,7 @@ export interface ZaloLibraryMessageUpdateRequest {
 }
 
 export interface ZaloLiveGroup {
-  group_id: string;
+  group_id: string | null;
   name: string;
   avatar_url?: string | null;
   last_message?: string | null;
@@ -279,4 +279,40 @@ export interface ZaloBroadcastStatusResponse {
   targets: Record<string, unknown>[];
   items: Record<string, unknown>[];
   logs: Record<string, unknown>[];
+}
+
+// Agent Test Extract Types
+export interface AgentTestExtractRequest {
+  group_name?: string;
+  texts?: string[];
+}
+
+export interface AgentTestListing {
+  apartment_name?: string | null;
+  district?: string | null;
+  address?: string | null;
+  bedrooms?: number | null;
+  price_vnd?: number | null;
+  area_m2?: number | null;
+  contact_phone?: string | null;
+  contact_zalo?: string | null;
+  image_count: number;
+  images: string[];
+  raw_text: string;
+}
+
+export interface AgentTestExtractResult {
+  raw_message_id: string;
+  raw_text: string;
+  status: "extracted" | "not_listing" | "failed";
+  listing?: AgentTestListing | null;
+  error_message?: string | null;
+}
+
+export interface AgentTestExtractResponse {
+  total: number;
+  extracted: number;
+  not_listing: number;
+  failed: number;
+  results: AgentTestExtractResult[];
 }

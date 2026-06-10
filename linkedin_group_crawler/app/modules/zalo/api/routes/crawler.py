@@ -23,6 +23,7 @@ from app.modules.zalo.services.session_store import (
 )
 from app.modules.zalo.services.browser_operation_lock import zalo_browser_operation_lock
 from app.modules.zalo.api.security import verify_zalo_api_key
+from app.modules.apartment_agent.config import settings as agent_settings
 
 router = APIRouter(
     prefix="/api/zalo/crawl",
@@ -245,6 +246,21 @@ async def _run_crawl(job_id: str, session_id: str, user_id: str, body: CrawlRequ
             )
 
         logger.info(f"Job {job_id} completed: {len(messages)} messages")
+
+        # Post-crawl hook: auto-trigger apartment agent if enabled
+        if agent_settings.auto_process:
+            try:
+                from app.modules.apartment_agent.pipeline import process_messages
+                agent_messages = [
+                    {"id": str(m.message_id or ""), "text": m.content or ""}
+                    for m in messages
+                    if m.content
+                ]
+                if agent_messages:
+                    logger.info(f"Auto-triggering apartment agent for {len(agent_messages)} messages")
+                    asyncio.create_task(process_messages(agent_messages))
+            except Exception as agent_exc:
+                logger.warning(f"Apartment agent auto-trigger failed: {agent_exc}")
 
     except Exception as e:
         logger.error(f"Job {job_id} failed: {e}")

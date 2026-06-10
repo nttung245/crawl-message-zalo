@@ -4,6 +4,7 @@ const nextConfig = {
   assetPrefix: "/minhhoang-scraper",
   reactStrictMode: true,
   output: "standalone",
+  allowedDevOrigins: ["10.30.194.50", "localhost", "127.0.0.1"],
   images: {
     remotePatterns: [
       {
@@ -12,6 +13,14 @@ const nextConfig = {
         pathname: "/**",
       },
     ],
+  },
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: "http://127.0.0.1:8001/api/:path*",
+      },
+    ];
   },
   async headers() {
     return [

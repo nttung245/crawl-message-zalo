@@ -17,3 +17,4 @@ data/raw/*.html
 storage/chromium-profile
 storage/chromium-profile/**
 credentials/**
+google-service-account.json
