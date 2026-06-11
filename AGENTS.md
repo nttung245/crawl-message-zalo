@@ -12,7 +12,7 @@ Multi-platform social media crawler. **Zalo** (Vietnamese messenger) is the prim
   - **Direct mode (default)**: single FastAPI process owns the Playwright browser. Single container, single worker.
   - **Proxy mode**: set `ZALO_BROWSER_SERVICE_URL=http://zalo-browser:8000` — `zalo-api` runs multi-worker Uvicorn and routes to a separate `zalo-browser` container. The browser **MUST stay single-worker** (live Playwright objects). Use `docker-compose.zalo-multi.yml`. See `app/main.py:252-266` for the router branch.
 - **Facebook module is optional.** `app/main.py:66-72` guards the import in `try/except`; if it fails, the rest of the server still starts and the rest of the API still works.
-- **Apartment Agent is a real module** (`app/modules/apartment_agent/`): LLM-based extraction that upserts to **GoDaNang's** `villas` Supabase table, not this project's. Routers wired in `app/main.py:288-290` (`apartment_agent`, `villa_sync`). Config keys live under `GODANANG_*` and `APARTMENT_AGENT_*` in `app/core/config.py` / `.env.example`.
+- **Apartment Agent is a real module** (`app/modules/apartment_agent/`): LLM-based extraction that upserts to **GoDaNang's** `villas` Supabase table, not this project's. Routers wired in `app/main.py:288-290` (`apartment_agent`, `villa_sync`). Config keys live under `GODANANG_*` and `APARTMENT_AGENT_*` in `app/core/config.py` / `.env.example`. Has an opt-in `APARTMENT_AGENT_CLASSIFIER_ENABLED` text classifier (`classifier.py`), a `POST /preview` endpoint that returns per-listing payloads without writing, a typed `ApartmentAgentError` envelope for config-validation errors, and a preview-then-push UI in the FE Agent tab.
 - **Spec-driven changes use OpenSpec.** Skills: `.claude/skills/openspec-{propose,apply,archive,sync,explore}/`. Slash commands: `.claude/commands/opsx/*.md`. Active changes in `openspec/changes/`, archived in `openspec/changes/archive/`. For non-trivial work, write a proposal first.
 - **Frontend dev port is 3000, not 3101.** `package.json` has bare `"dev": "next dev"` (no `-p` flag). CORS allows 3000, 3111, and 10.30.50.29:{3111,8111}.
 - **No `ecosystem.config.js` exists in this repo.** The old "PM2" section is aspirational. Use Docker Compose for production (`ZALO_VPS_DEPLOY.md`).
@@ -108,7 +108,7 @@ All Zalo calls send `x-api-key`; backend `app/modules/zalo/api/security.py::veri
 Copy from `.env.example`. Required for Zalo to start:
 `API_KEY`, `ZALO_GOOGLE_CREDENTIALS_PATH`, `ZALO_DEFAULT_SHEET_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SPREADSHEET_ID`. Run `supabase_zalo_schema.sql` in Supabase SQL editor before the first crawl.
 
-Common knobs: `HEADLESS`, `PLAYWRIGHT_POOL_SIZE` (1 recommended), `PLAYWRIGHT_WARMUP_ON_STARTUP` (`true` warms up Chromium in background; `/health` is fast either way), `LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT`, reaction timing constants.
+Common knobs: `HEADLESS`, `PLAYWRIGHT_POOL_SIZE` (1 recommended), `PLAYWRIGHT_WARMUP_ON_STARTUP` (`true` warms up Chromium in background; `/health` is fast either way), `LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT`, reaction timing constants, `APARTMENT_AGENT_CLASSIFIER_ENABLED` (opt-in text classifier for apartment agent).
 
 ## Docker / deploy
 
@@ -136,8 +136,8 @@ Health check: `curl -s http://127.0.0.1:8000/health`. Authenticated smoke: `curl
 
 ## Testing
 
-- 19 tests under `linkedin_group_crawler/tests/`, all pytest. Pattern: `from fastapi.testclient import TestClient; from app.main import app`.
-- 4 new `test_apartment_agent_*.py` cover the apartment agent pipeline.
+- 20 tests under `linkedin_group_crawler/tests/`, all pytest. Pattern: `from fastapi.testclient import TestClient; from app.main import app`.
+- 5 new `test_apartment_agent_*.py` cover the apartment agent pipeline.
 - No Zalo-specific tests yet. No frontend tests configured.
 - `pytest` order is not enforced — run individual files when iterating on a module.
 
