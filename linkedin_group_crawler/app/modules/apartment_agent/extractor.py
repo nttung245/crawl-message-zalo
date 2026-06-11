@@ -40,22 +40,61 @@ Address extraction (address):
 - If multiple address components are found, combine them in order: street, floor, room.
 - Set address to null if no specific address/room information is found in the message.
 
+Title formatting rules (title):
+- Produce a short, professional listing title in the form "<Project> <Unit>" or "<Project> <Type>".
+- STRIP leading all-caps prefixes: "CHO THUÊ", "CẦN CHO THUÊ", "BÁN", "CẦN BÁN", "CHO THUÊ GẤP", "PHÒNG TRỌ", etc.
+- STRIP emoji and trailing marketing fluff ("👇", "📞", "liên hệ ngay", "giá rẻ", "view đẹp", etc.).
+- Use Title Case (capitalize first letter of each word). Keep Vietnamese diacritics.
+- Detect the project / building name first (e.g. "Sunshine Riverside", "Monarchy", "FPT City", "The Ocean Villa", "Đà Nẵng Plaza").
+- Detect the unit code in patterns: "căn 1205", "P502", "phòng 502", "tầng 5", "T5", or a bare 3+ digit number.
+- If a project AND unit are both present: "Sunshine Riverside A1205", "Monarchy Bạch Đằng 2001", "FPT City 801".
+- If only the project: "Sunshine Riverside" (do NOT fabricate a unit).
+- If only a type/district: "Căn hộ Hải Châu" (use the most specific available).
+- If nothing useful is found: leave title as the cleanest substring of the original first line.
+
 Return ONLY valid JSON matching the schema. Do not add extra fields or explanation."""
 
 
 def _get_client() -> AsyncOpenAI:
-    return AsyncOpenAI(api_key=settings.llm_api_key, base_url=settings.llm_base_url)
+    return AsyncOpenAI(
+        api_key=settings.llm_api_key,
+        base_url=settings.llm_base_url,
+        timeout=60.0,
+        max_retries=2,
+    )
 
 
-async def extract_listing(message_text: str, message_id: str = "") -> ExtractionResult:
-    """Extract structured apartment data from a single Zalo message."""
+async def extract_listing(
+    message_text: str,
+    message_id: str = "",
+    image_urls: Optional[list[str]] = None,
+) -> ExtractionResult:
+    """Extract structured apartment data from a single Zalo message.
+
+    Args:
+        message_text: The plain-text body of the Zalo message.
+        message_id: Stable identifier used for tracing and for the LLM to reference.
+        image_urls: Optional list of Supabase Storage URLs (or any image URLs) that
+            the crawler already downloaded. They are appended to the user message
+            as additional context so the LLM can reason about unit count, view
+            cues, and decor style. They are NEVER passed to a vision model — the
+            current deployment uses text-only LLMs.
+    """
+    user_content: str = message_text
+    if image_urls:
+        # Cap appended URL list length defensively in case the caller passes a huge list.
+        joined = "\n".join(image_urls[:50])
+        user_content = (
+            f"{message_text}\n\n--- Attached image URLs ({len(image_urls)}) ---\n{joined}"
+        )
+
     try:
         client = _get_client()
         response = await client.beta.chat.completions.parse(
             model=settings.llm_model,
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": message_text},
+                {"role": "user", "content": user_content},
             ],
             response_format=ApartmentListing,
         )
@@ -81,12 +120,26 @@ async def extract_listing(message_text: str, message_id: str = "") -> Extraction
             listing=listing,
         )
 
-    except Exception as exc:
-        logger.error(f"Extraction failed for message {message_id}: {exc}")
+    except BaseException as exc:
+        # Catch BaseException (not just Exception) so CancelledError and other
+        # asyncio base exceptions are surfaced as EXTRACTION_FAILED with a clear
+        # message, instead of bubbling up as an unhandled 500.
+        if isinstance(exc, Exception):
+            logger.exception(
+                f"Extraction failed for message {message_id}: {exc}"
+            )
+        else:
+            # asyncio.CancelledError and friends — re-raise after logging so
+            # task cancellation still propagates correctly.
+            logger.warning(
+                f"Extraction interrupted for message {message_id}: "
+                f"{type(exc).__name__}: {exc}"
+            )
+            raise
         return ExtractionResult(
             raw_message_id=message_id,
             status=ExtractionStatus.EXTRACTION_FAILED,
-            error_message=str(exc),
+            error_message=str(exc) or type(exc).__name__,
         )
 
 
@@ -97,7 +150,10 @@ async def extract_batch(
     """Process multiple messages with controlled concurrency.
 
     Args:
-        messages: List of dicts with 'id' and 'text' keys.
+        messages: List of dicts. Each dict supports:
+            - 'id': stable message identifier (required)
+            - 'text': message body (required)
+            - 'image_urls': optional list of Supabase Storage URLs
         concurrency: Max concurrent LLM calls. Defaults to config.
     """
     sem = asyncio.Semaphore(concurrency or settings.batch_concurrency)
@@ -107,6 +163,7 @@ async def extract_batch(
             return await extract_listing(
                 message_text=msg["text"],
                 message_id=str(msg.get("id", "")),
+                image_urls=msg.get("image_urls"),
             )
 
     results = await asyncio.gather(*[_process(m) for m in messages])

@@ -22,7 +22,18 @@ class ApartmentListing(BaseModel):
         default=False,
         description="Whether the message is actually an apartment listing",
     )
-    title: str = Field(default="", description="Listing title")
+    title: str = Field(
+        default="",
+        description=(
+            "Short professional listing title, formatted as '<Project> <Unit>' "
+            "(e.g. 'Sunshine Riverside A1205', 'Monarchy Bach Dang 2001', "
+            "'FPT City 801'). Strip leading all-caps prefixes like 'CHO THUE' / "
+            "'CAN CHO THUE' / 'BAN' / 'CAN BAN', strip emoji and marketing "
+            "fluff. Use Title Case with Vietnamese diacritics. Fall back to "
+            "'<Project>' or '<District> apartment' if no project name is "
+            "detected. Never invent a unit code."
+        ),
+    )
     price: Optional[float] = Field(default=None, description="Price in VND")
     area_sqm: Optional[float] = Field(default=None, description="Area in square meters")
     bedrooms: Optional[int] = Field(default=None, description="Number of bedrooms")
@@ -36,7 +47,13 @@ class ApartmentListing(BaseModel):
     contact_name: Optional[str] = Field(default=None, description="Contact person name")
     contact_phone: Optional[str] = Field(default=None, description="Contact phone number")
     amenities: list[str] = Field(default_factory=list, description="List of amenities")
-    images: list[str] = Field(default_factory=list, description="Image URLs")
+    images: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Image URLs. The extractor should pass through any URLs the "
+            "caller appended to the user message — do not invent URLs."
+        ),
+    )
     is_rented: bool = Field(default=False, description="Whether the room/unit is currently rented/occupied")
     address: Optional[str] = Field(default=None, description="Full address for dedup matching (street, floor, room number)")
 

@@ -12,7 +12,10 @@ interface ZaloCrawlProgressPanelProps {
   onRetryGroup: (rowId: string) => Promise<void>;
 }
 
-function statusClasses(status: ZaloTrackedJobState["status"]): string {
+function statusClasses(status: ZaloTrackedJobState["status"], stalled: boolean): string {
+  if (stalled) {
+    return "bg-warning/15 text-warning border-warning/40";
+  }
   switch (status) {
     case "queued":
       return "bg-surface-container-high text-on-surface border-outline-variant";
@@ -26,8 +29,21 @@ function statusClasses(status: ZaloTrackedJobState["status"]): string {
 }
 
 function statusLabel(job: ZaloTrackedJobState): string {
-  if (job.stalled && job.status === "running") return "stalled";
+  if (job.stalled && (job.status === "running" || job.status === "queued")) {
+    return "stalled";
+  }
   return job.status;
+}
+
+function stalledHint(job: ZaloTrackedJobState): string | null {
+  if (!job.stalled) return null;
+  if (job.status === "queued") {
+    return "Đã xếp hàng quá lâu — có thể backend đang bận hoặc proxy mode chưa được bật.";
+  }
+  if (job.status === "running") {
+    return "Job không cập nhật quá 45s. Kiểm tra log backend.";
+  }
+  return null;
 }
 
 export function ZaloCrawlProgressPanel({
@@ -133,19 +149,28 @@ export function ZaloCrawlProgressPanel({
                     </div>
                   </div>
                   <div
-                    className={`rounded-full border px-sm py-xs text-xs font-bold uppercase ${statusClasses(job.status)}`}
+                    className={`rounded-full border px-sm py-xs text-xs font-bold uppercase ${statusClasses(job.status, job.stalled)}`}
                   >
                     <span className="inline-flex items-center gap-1.5">
                       {job.status === "running" ? (
                         <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
                       ) : null}
-                      {job.status === "queued" ? (
+                      {job.status === "queued" && !job.stalled ? (
                         <span className="h-3 w-3 animate-pulse rounded-full bg-current/70" />
+                      ) : null}
+                      {job.stalled ? (
+                        <MaterialIcon name="warning" className="text-base" />
                       ) : null}
                       {statusLabel(job)}
                     </span>
                   </div>
                 </div>
+
+                {stalledHint(job) ? (
+                  <div className="border-warning-container bg-warning/10 text-warning mb-sm rounded-lg border px-md py-sm text-body-sm">
+                    {stalledHint(job)}
+                  </div>
+                ) : null}
 
                 {job.status === "running" ? (
                   <div className="mb-sm">

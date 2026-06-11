@@ -17,6 +17,22 @@ from app.modules.apartment_agent.schemas import (
 client = TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def _mock_settings():
+    """Ensure settings are populated so validate_settings passes."""
+    with patch("app.modules.apartment_agent.config.settings") as mock:
+        mock.llm_api_key = "sk-test"
+        mock.llm_base_url = "https://api.openai.com/v1"
+        mock.llm_model = "gpt-4o-mini"
+        mock.classifier_enabled = False
+        mock.godanang_supabase_url = "https://fake-godanang.supabase.co"
+        mock.godanang_supabase_service_key = "fake-service-key"
+        mock.insert_delay_ms = 0
+        mock.batch_concurrency = 5
+        mock.dedup_threshold = 85
+        yield mock
+
+
 def _make_listing(text="Test apartment") -> ApartmentListing:
     return ApartmentListing(
         is_apartment_listing=True,
@@ -76,11 +92,16 @@ class TestTestExtract:
                     listing=MagicMock(
                         apartment_name="Test apartment",
                         district="Hải Châu",
+                        address=None,
                         bedrooms=2,
                         price_vnd=5000000.0,
                         area_m2=50.0,
+                        contact_name="Test",
                         contact_phone="0905123456",
                         contact_zalo=None,
+                        listing_type="rent",
+                        is_rented=False,
+                        amenities=[],
                         image_count=0,
                         images=[],
                         raw_text="Test apartment 2PN",

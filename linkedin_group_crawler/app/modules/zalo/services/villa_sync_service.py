@@ -9,6 +9,9 @@ from loguru import logger
 
 from app.modules.apartment_agent.config import settings as agent_settings
 from app.modules.apartment_agent.extractor import extract_batch
+from app.modules.apartment_agent.image_filter import (
+    extract_image_urls_from_assets,
+)
 from app.modules.apartment_agent.schemas import (
     ExtractionStatus,
     SyncStatus,
@@ -50,12 +53,15 @@ async def fetch_incremental_messages(
 ) -> list[dict]:
     """Fetch Zalo messages newer than the latest villa in GoDaNang.
 
-    Returns list of dicts with 'id', 'text', 'timestamp' keys.
+    Returns list of dicts with 'id', 'text', 'timestamp', 'image_urls' keys.
+    The image URLs are pulled from the joined `zalo_message_assets` table
+    so the agent and sync layer can attach the already-downloaded images
+    to the GoDaNang villa row.
     """
     latest_ts = await fetch_latest_villa_timestamp()
 
     params: dict = {
-        "select": "id,content,timestamp_text,created_at",
+        "select": "id,content,timestamp_text,created_at,assets:zalo_message_assets(storage_url,status)",
         "user_id": f"eq.{user_id}",
         "order": "created_at.desc",
         "limit": str(limit),
@@ -78,6 +84,9 @@ async def fetch_incremental_messages(
                     "id": row["id"],
                     "text": content,
                     "timestamp": row.get("created_at", ""),
+                    "image_urls": extract_image_urls_from_assets(
+                        row.get("assets")
+                    ),
                 })
         logger.info(f"VillaSync: fetched {len(messages)} messages for processing")
         return messages
@@ -114,7 +123,10 @@ async def sync_villas(
                 rows = await _rest(
                     "GET",
                     "zalo_messages",
-                    params={"select": "id,content", "id": f"eq.{mid}"},
+                    params={
+                        "select": "id,content,created_at,assets:zalo_message_assets(storage_url,status)",
+                        "id": f"eq.{mid}",
+                    },
                 ) or []
                 if rows:
                     content = rows[0].get("content", "")
@@ -123,6 +135,9 @@ async def sync_villas(
                             "id": rows[0]["id"],
                             "text": content,
                             "timestamp": rows[0].get("created_at", ""),
+                            "image_urls": extract_image_urls_from_assets(
+                                rows[0].get("assets")
+                            ),
                         })
             except Exception as exc:
                 summary.errors.append(f"Failed to fetch listing {mid}: {exc}")

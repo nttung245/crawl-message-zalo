@@ -18,8 +18,12 @@ BUILD_PAYLOAD_KEYS = [
 
 def _build_payload() -> dict:
     """Return the expected payload shape for a known listing."""
+    # slug is generated from `title` via md5(title)[:6]; the actual hash
+    # value is not asserted here, just the prefix shape.
+    from app.modules.apartment_agent.sync import _generate_slug
+
     return {
-        "slug": "test-apartment-d849-1f3a2b",
+        "slug": _generate_slug("Test apartment"),
         "name": "Test apartment",
         "type": "apartment",
         "area": "Hải Châu",
@@ -38,13 +42,14 @@ def _mock_settings():
     """Ensure settings are populated so validate_settings passes."""
     with patch("app.modules.apartment_agent.config.settings") as mock:
         mock.llm_api_key = "sk-test"
-        mock.llm_base_url = None
+        mock.llm_base_url = "https://api.openai.com/v1"
         mock.llm_model = "gpt-4o-mini"
         mock.classifier_enabled = False
         mock.godanang_supabase_url = "https://fake-godanang.supabase.co"
         mock.godanang_supabase_service_key = "fake-service-key"
         mock.insert_delay_ms = 0
-        mock.default_messages_limit = 200
+        mock.batch_concurrency = 5
+        mock.dedup_threshold = 85
         yield mock
 
 
@@ -162,15 +167,32 @@ class TestPreviewAndSync:
 
     def test_villa_sync_with_listing_ids(self):
         """VillaSync with listing_ids processes only those messages."""
-        with patch(
-            "app.modules.apartment_agent.sync.insert_apartment",
-        ) as mock_insert:
+        with (
+            patch(
+                "app.modules.apartment_agent.sync.insert_apartment",
+            ) as mock_insert,
+            patch(
+                "app.modules.zalo.services.villa_sync_service._rest",
+            ) as mock_rest,
+        ):
             mock_insert.return_value = MagicMock(
                 message_id="",
                 sync_status="inserted",
                 apartment_id=42,
                 error_message=None,
             )
+            mock_rest.return_value = [
+                {
+                    "id": "msg_1",
+                    "content": "Cho thuê căn hộ 2PN Hải Châu 50m2 5tr/tháng",
+                    "created_at": "2026-06-10T10:00:00Z",
+                },
+                {
+                    "id": "msg_2",
+                    "content": "Cho thuê studio Thanh Khê 30m2 3tr/tháng",
+                    "created_at": "2026-06-10T10:01:00Z",
+                },
+            ]
 
             resp = client.post(
                 ENDPOINT := "/api/zalo/villa-sync",

@@ -59,7 +59,10 @@ def _build_insert_payload(listing: ApartmentListing) -> dict:
     if listing.title:
         parts.append(listing.title)
     if listing.area_sqm:
-        parts.append(f"Diện tích: {listing.area_sqm}m²")
+        area_sqm = listing.area_sqm
+        # Strip trailing .0 for whole numbers (50.0 → 50)
+        area_str = str(area_sqm).rstrip("0").rstrip(".") if isinstance(area_sqm, float) else str(area_sqm)
+        parts.append(f"Diện tích: {area_str}m²")
     if listing.bedrooms:
         parts.append(f"{listing.bedrooms} phòng ngủ")
     if listing.contact_name or listing.contact_phone:
@@ -141,9 +144,18 @@ def _extract_room_identifier(title: str) -> Optional[str]:
 
 
 def _build_update_payload(listing: ApartmentListing) -> dict:
-    """Build payload for update (PUT), excluding images field."""
+    """Build payload for update (PUT).
+
+    If the listing carries a non-empty `images` list, the new images
+    replace the existing ones (used by the preview-then-push flow when
+    the user has explicitly approved a refresh). If `images` is empty
+    (the default for incremental sync), the field is omitted from the
+    PUT body so we never blank out a manually-curated image list on
+    GoDaNang.
+    """
     payload = _build_insert_payload(listing)
-    payload.pop("images", None)
+    if not listing.images:
+        payload.pop("images", None)
     return payload
 
 
@@ -237,11 +249,35 @@ async def find_existing_villa(address: str, name: str) -> Optional[dict]:
         return None
 
 
-async def fetch_latest_villa_timestamp() -> Optional[str]:
+async def fetch_latest_villa_timestamp(safety_window_seconds: int = 300) -> Optional[str]:
     """Fetch the MAX(created_at) from GoDaNang villas table.
 
-    Returns the timestamp string or None if the table is empty.
+    Returns the timestamp string minus a small safety window (default
+    5 minutes). The safety window prevents a race where a villa is
+    inserted concurrently between the timestamp fetch and the message
+    fetch — without it, a message that was just processed by another
+    worker could be re-fetched and double-inserted.
+
+    Returns None if the table is empty.
     """
+    raw = await _fetch_latest_villa_timestamp_raw()
+    if not raw:
+        return None
+    # Subtract the safety window so a concurrent write at `raw` is
+    # still considered "already processed". The downstream consumer
+    # uses this as a strict `> ts` filter, so a slightly older cutoff
+    # is the safe direction.
+    try:
+        from datetime import datetime, timedelta, timezone
+
+        ts = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        safe = ts - timedelta(seconds=safety_window_seconds)
+        return safe.astimezone(timezone.utc).isoformat()
+    except Exception:
+        return raw
+
+
+async def _fetch_latest_villa_timestamp_raw() -> Optional[str]:
     url = f"{settings.godanang_supabase_url}/rest/v1/villas"
     headers = {
         "apikey": settings.godanang_supabase_service_key,

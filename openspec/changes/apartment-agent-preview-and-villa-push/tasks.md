@@ -63,7 +63,7 @@ Specs: `apartment-agent-villa-column-mapping`, `apartment-agent-preview`, `apart
 
 ## 8. Wrap up
 
-- [ ] 8.1 Run `pytest linkedin_group_crawler/tests/` to confirm all 4 new test files plus the existing 19 tests pass.
-- [ ] 8.2 Run `npm run check` (or the project's equivalent) in `linkedin-crawler-ui/` to confirm typecheck and lint pass.
+- [x] 8.1 Run `pytest linkedin_group_crawler/tests/` to confirm all 4 new test files plus the existing 19 tests pass.
+- [x] 8.2 Run `npm run check` (or the project's equivalent) in `linkedin-crawler-ui/` to confirm typecheck and lint pass. (7 pre-existing TS errors in `ZaloBroadcastPanel.tsx` and `ZaloLiveGroupPicker.tsx` — same on `main`, not from this change.)
 - [x] 8.3 Update `AGENTS.md` to mention the new `APARTMENT_AGENT_CLASSIFIER_ENABLED` env var, the preview endpoint, and the error-safety envelope.
 - [ ] 8.4 Open a single PR that contains the 6 commits in order. The user will archive `zalo-apartment-filter-pipeline` and `zalo-to-godanang-villa-sync` after the PR merges.

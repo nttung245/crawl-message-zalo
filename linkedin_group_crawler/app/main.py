@@ -301,6 +301,24 @@ if _FACEBOOK_ENABLED and _fb_api_router is not None:
 
 # Apartment Agent — LLM-based apartment extraction pipeline
 app.include_router(apartment_agent_router)
+try:
+    _aa_routes = ", ".join(
+        f"{','.join(sorted(r.methods or {}))} {r.path}"
+        for r in apartment_agent_router.routes
+        if hasattr(r, "methods")
+    )
+except Exception:  # pragma: no cover — defensive
+    _aa_routes = "<introspection failed>"
+logger.info(f"Apartment-agent routes mounted: {_aa_routes}")
 
 # Villa Sync — sync Zalo crawl data to GoDaNang villas table
 app.include_router(villa_sync_router)
+try:
+    _vs_routes = ", ".join(
+        f"{','.join(sorted(r.methods or {}))} {r.path}"
+        for r in villa_sync_router.routes
+        if hasattr(r, "methods")
+    )
+except Exception:  # pragma: no cover — defensive
+    _vs_routes = "<introspection failed>"
+logger.info(f"Villa-sync routes mounted: {_vs_routes}")

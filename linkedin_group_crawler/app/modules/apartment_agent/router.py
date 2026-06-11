@@ -48,8 +48,12 @@ class TestExtractListing(BaseModel):
     bedrooms: Optional[int] = None
     price_vnd: Optional[float] = None
     area_m2: Optional[float] = None
+    contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
     contact_zalo: Optional[str] = None
+    listing_type: Optional[str] = None
+    is_rented: bool = False
+    amenities: list[str] = Field(default_factory=list)
     image_count: int = 0
     images: list[str] = Field(default_factory=list)
     raw_text: str = ""
@@ -125,6 +129,9 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
 
     # Fetch messages from Zalo Supabase
     from app.modules.zalo.services.supabase_service import _rest
+    from app.modules.apartment_agent.image_filter import (
+        extract_image_urls_from_assets,
+    )
 
     if req.message_ids:
         # Fetch specific messages by ID
@@ -135,32 +142,48 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
                     "GET",
                     "zalo_messages",
                     params={
-                        "select": "id,content,group_name",
+                        "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
                         "id": f"eq.{mid}",
                         "limit": "1",
                     },
                 ) or []
                 if rows:
                     messages.append(
-                        {"id": rows[0]["id"], "text": rows[0]["content"]}
+                        {
+                            "id": rows[0]["id"],
+                            "text": rows[0].get("content") or "",
+                            "image_urls": extract_image_urls_from_assets(
+                                rows[0].get("assets")
+                            ),
+                        }
                     )
             except Exception as exc:
-                logger.warning(f"Failed to fetch message {mid}: {exc}")
+                logger.exception(f"Failed to fetch message {mid}: {exc}")
     elif req.group_name:
         try:
             rows = await _rest(
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name",
+                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
                     "group_name": f"eq.{req.group_name}",
                     "limit": "500",
                 },
             ) or []
             messages = [
-                {"id": row["id"], "text": row["content"]} for row in rows
+                {
+                    "id": row["id"],
+                    "text": row.get("content") or "",
+                    "image_urls": extract_image_urls_from_assets(
+                        row.get("assets")
+                    ),
+                }
+                for row in rows
             ]
         except Exception as exc:
+            logger.exception(
+                f"[request_id={request_id}] process: failed to fetch messages: {exc}"
+            )
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch messages: {exc}"
             )
@@ -193,20 +216,33 @@ async def process_all_endpoint(req: ProcessAllRequest) -> PipelineResult:
         )
 
     from app.modules.zalo.services.supabase_service import _rest
+    from app.modules.apartment_agent.image_filter import (
+        extract_image_urls_from_assets,
+    )
 
     try:
         rows = await _rest(
             "GET",
             "zalo_messages",
             params={
-                "select": "id,content",
+                "select": "id,content,assets:zalo_message_assets(storage_url,status)",
                 "limit": str(req.limit),
             },
         ) or []
         messages = [
-            {"id": row["id"], "text": row["content"]} for row in rows
+            {
+                "id": row["id"],
+                "text": row.get("content") or "",
+                "image_urls": extract_image_urls_from_assets(
+                    row.get("assets")
+                ),
+            }
+            for row in rows
         ]
     except Exception as exc:
+        logger.exception(
+            f"[request_id={request_id}] process-all: failed to fetch messages: {exc}"
+        )
         raise HTTPException(
             status_code=500, detail=f"Failed to fetch messages: {exc}"
         )
@@ -239,7 +275,10 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
     from app.modules.apartment_agent.pipeline import extract_only
 
     if req.texts:
-        messages = [{"id": f"text_{i}", "text": t} for i, t in enumerate(req.texts)]
+        messages = [
+            {"id": f"text_{i}", "text": t, "image_urls": None}
+            for i, t in enumerate(req.texts)
+        ]
     elif req.group_name:
         from app.modules.zalo.services.supabase_service import _rest
 
@@ -248,15 +287,29 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name",
+                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
                     "group_name": f"eq.{req.group_name}",
                     "limit": "50",
                 },
             ) or []
+            from app.modules.apartment_agent.image_filter import (
+                extract_image_urls_from_assets,
+            )
+
             messages = [
-                {"id": row["id"], "text": row["content"]} for row in rows
+                {
+                    "id": row["id"],
+                    "text": row.get("content") or "",
+                    "image_urls": extract_image_urls_from_assets(
+                        row.get("assets")
+                    ),
+                }
+                for row in rows
             ]
         except Exception as exc:
+            logger.exception(
+                f"[request_id={request_id}] test-extract: failed to fetch messages: {exc}"
+            )
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch messages: {exc}"
             )
@@ -269,7 +322,20 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
     if not messages:
         return TestExtractResponse()
 
-    return await extract_only(messages)
+    try:
+        return await extract_only(messages)
+    except Exception as exc:
+        logger.exception(
+            f"[request_id={request_id}] test-extract: pipeline crashed: {exc}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=ApartmentAgentError(
+                kind="validation",
+                message=f"Extraction pipeline failed: {exc}",
+                request_id=request_id,
+            ).model_dump(),
+        )
 
 
 @router.post("/preview", response_model=PreviewResponse)
@@ -295,7 +361,10 @@ async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
     from app.modules.apartment_agent.pipeline import preview_only
 
     if req.texts:
-        messages = [{"id": f"text_{i}", "text": t} for i, t in enumerate(req.texts)]
+        messages = [
+            {"id": f"text_{i}", "text": t, "image_urls": None}
+            for i, t in enumerate(req.texts)
+        ]
     elif req.group_name:
         from app.modules.zalo.services.supabase_service import _rest
 
@@ -304,15 +373,29 @@ async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name",
+                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
                     "group_name": f"eq.{req.group_name}",
                     "limit": "200",
                 },
             ) or []
+            from app.modules.apartment_agent.image_filter import (
+                extract_image_urls_from_assets,
+            )
+
             messages = [
-                {"id": row["id"], "text": row["content"]} for row in rows
+                {
+                    "id": row["id"],
+                    "text": row.get("content") or "",
+                    "image_urls": extract_image_urls_from_assets(
+                        row.get("assets")
+                    ),
+                }
+                for row in rows
             ]
         except Exception as exc:
+            logger.exception(
+                f"[request_id={request_id}] preview: failed to fetch messages: {exc}"
+            )
             raise HTTPException(
                 status_code=500, detail=f"Failed to fetch messages: {exc}"
             )
@@ -324,7 +407,20 @@ async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
     if not messages:
         return PreviewResponse()
 
-    return await preview_only(messages)
+    try:
+        return await preview_only(messages)
+    except Exception as exc:
+        logger.exception(
+            f"[request_id={request_id}] preview: pipeline crashed: {exc}"
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=ApartmentAgentError(
+                kind="validation",
+                message=f"Preview pipeline failed: {exc}",
+                request_id=request_id,
+            ).model_dump(),
+        )
 
 
 # ── Fake test data ──────────────────────────────────────────────────────────

@@ -752,9 +752,56 @@ function ResultCard({ item, index }: { item: AgentTestExtractResult; index: numb
             value={item.listing.area_m2 ? `${item.listing.area_m2}m²` : null}
           />
           <Field label="SĐT" value={item.listing.contact_phone} />
-          <Field label="Ảnh" value={`${item.listing.image_count} ảnh`} />
+          <Field
+            label="Ảnh"
+            value={
+              item.listing.image_count > 0
+                ? `${item.listing.image_count} ảnh`
+                : "0"
+            }
+          />
         </div>
       )}
+
+      {item.listing && item.listing.images.length > 0 ? (
+        <div className="mt-sm flex flex-wrap gap-xs">
+          {item.listing.images.slice(0, 8).map((url, i) => (
+            // Plain <img> is used here on purpose: the agent test result is
+            // a transient preview of arbitrary Supabase Storage URLs, and
+            // we don't want next/image's optimization roundtrip to mask
+            // broken URLs with fallback placeholders. The next.config.js
+            // remotePatterns allowlist covers these origins.
+            <a
+              key={`${item.raw_message_id}-img-${i}`}
+              href={url}
+              target="_blank"
+              rel="noreferrer"
+              className="border-outline-variant bg-surface-container-lowest hover:border-primary block h-16 w-16 overflow-hidden rounded-md border transition"
+              title={url}
+            >
+              <img
+                src={url}
+                alt={`Ảnh ${i + 1} của ${item.listing?.apartment_name ?? "listing"}`}
+                className="h-full w-full object-cover"
+                loading="lazy"
+                onError={(e) => {
+                  const target = e.currentTarget;
+                  target.style.opacity = "0.3";
+                }}
+              />
+            </a>
+          ))}
+          {item.listing.images.length > 8 ? (
+            <span className="border-outline-variant text-on-surface-variant flex h-16 w-16 items-center justify-center rounded-md border text-xs font-semibold">
+              +{item.listing.images.length - 8}
+            </span>
+          ) : null}
+        </div>
+      ) : item.listing && item.listing.image_count > 0 ? (
+        <p className="text-body-xs text-on-surface-variant mt-xs italic">
+          {item.listing.image_count} ảnh đính kèm (chưa hiển thị — kiểm tra zalo_message_assets)
+        </p>
+      ) : null}
     </div>
   );
 }

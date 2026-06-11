@@ -101,8 +101,14 @@ async def extract_only(
             bedrooms=listing.bedrooms,
             price_vnd=listing.price,
             area_m2=listing.area_sqm,
+            contact_name=listing.contact_name or None,
             contact_phone=listing.contact_phone,
             contact_zalo=None,
+            listing_type=listing.listing_type.value
+            if listing.listing_type
+            else None,
+            is_rented=listing.is_rented,
+            amenities=list(listing.amenities or []),
             image_count=len(listing.images),
             images=listing.images,
             raw_text=raw_text,
@@ -269,8 +275,14 @@ async def preview_only(
     for tr in test_result.results:
         if tr.status == "extracted" and tr.listing:
             seen_classified += 1
-            # Build the ApartmentListing from the TestExtractListing
-            from app.modules.apartment_agent.schemas import ApartmentListing
+            # Rebuild a full ApartmentListing from the TestExtractListing
+            # so the sync layer's _build_insert_payload sees the same
+            # shape (listing_type, is_rented, amenities) the LLM
+            # originally produced.
+            from app.modules.apartment_agent.schemas import (
+                ApartmentListing,
+                ListingType,
+            )
 
             apt = ApartmentListing(
                 is_apartment_listing=True,
@@ -280,6 +292,14 @@ async def preview_only(
                 bedrooms=tr.listing.bedrooms,
                 district=tr.listing.district,
                 images=tr.listing.images,
+                listing_type=ListingType(tr.listing.listing_type)
+                if tr.listing.listing_type
+                in {lt.value for lt in ListingType}
+                else None,
+                is_rented=tr.listing.is_rented,
+                amenities=list(tr.listing.amenities or []),
+                contact_name=tr.listing.contact_name or "",
+                contact_phone=tr.listing.contact_phone or "",
             )
             existing = await find_existing_villa(
                 address=tr.listing.address or "",
