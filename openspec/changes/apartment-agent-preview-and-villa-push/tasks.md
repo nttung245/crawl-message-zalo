@@ -56,9 +56,9 @@ Spec: `apartment-agent-villa-column-mapping`.
 
 Specs: `apartment-agent-villa-column-mapping`, `apartment-agent-preview`, `apartment-agent-error-safety`.
 
-- [ ] 7.1 Add `linkedin_group_crawler/tests/test_apartment_agent_e2e.py` that drives the full chain via `TestClient`: `POST /api/apartment-agent/preview` → assert per-listing `payload` matches `_build_insert_payload` byte-for-byte → mock `httpx.AsyncClient` to intercept `POST https://<godanang>/rest/v1/villas` → assert request body equals preview payload.
-- [ ] 7.2 Re-run the `information_schema.columns` query (or a `select <each column>` smoke) inside the test setup and assert every key in `_build_insert_payload` exists in the result. This locks the column mapping at test time.
-- [ ] 7.3 Commit: `test(apartment-agent): e2e crawl→extract→sync golden path`. Verify with `pytest linkedin_group_crawler/tests/test_apartment_agent_e2e.py -v` (passes; the test fails loudly if any key is missing from the verified-columns list).
+- [x] 7.1 Add `linkedin_group_crawler/tests/test_apartment_agent_e2e.py` that drives the full chain via `TestClient`: `POST /api/apartment-agent/preview` → assert per-listing `payload` matches `_build_insert_payload` byte-for-byte → mock `httpx.AsyncClient` to intercept `POST https://<godanang>/rest/v1/villas` → assert request body equals preview payload.
+- [x] 7.2 Re-run the `information_schema.columns` query (or a `select <each column>` smoke) inside the test setup and assert every key in `_build_insert_payload` exists in the result. This locks the column mapping at test time.
+- [x] 7.3 Commit: `test(apartment-agent): e2e crawl→extract→sync golden path`. Verify with `pytest linkedin_group_crawler/tests/test_apartment_agent_e2e.py -v` (passes; the test fails loudly if any key is missing from the verified-columns list).
 - [ ] 7.4 Manual staging run: trigger a real crawl on a known group with one listing, run the preview, send to GoDaNang staging, and confirm the GoDaNang FE's existing realtime channel picks up the new row. Record the run in the PR description.
 
 ## 8. Wrap up
