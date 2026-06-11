@@ -1120,11 +1120,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
       return [
         ...previous,
         {
-<<<<<<< HEAD
           id: `zalo-group-${previous.length}-${(typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36))}`,
-=======
-          id: `zalo-group-${previous.length}-${globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)}`,
->>>>>>> 6b16e686e98426109380f125cb80bddbbd4d6f08
           groupName,
           sheetTab,
           verifyStatus: "unchecked",

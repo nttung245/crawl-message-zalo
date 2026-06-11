@@ -121,7 +121,14 @@ async def _get_confirmed_session_for_user(user_id: str, session_id: Optional[str
     if session.user_id != user_id:
         raise HTTPException(status_code=403, detail="Session does not belong to current user")
 
-    live_status = await ensure_session_browser_ready(session)
+    try:
+        live_status = await ensure_session_browser_ready(session)
+    except Exception as exc:
+        logger.error(f"Failed to ensure browser ready for session {session.session_id}: {exc}")
+        raise HTTPException(
+            status_code=503,
+            detail=f"Browser initialization failed: {exc}. Please try again or restart the session.",
+        )
     if live_status != "confirmed":
         raise HTTPException(
             status_code=403,

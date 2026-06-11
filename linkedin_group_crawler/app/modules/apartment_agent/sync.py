@@ -181,16 +181,25 @@ async def update_apartment(apt_id: int, listing: ApartmentListing) -> SyncResult
 
 
 async def find_existing_villa(address: str, name: str) -> Optional[dict]:
-    """Query GoDaNang villas table for an existing villa matching address and room identifier.
+    """Query GoDaNang villas table for an existing villa matching by name and slug.
 
-    Returns the matching villa dict (id, images, description) or None.
+    Matching strategy (Option A):
+    - Extract room_id from title (e.g., 'Phong 502' -> '502')
+    - Generate slug from title, use prefix (before hash) for fuzzy matching
+    - Query by name + slug instead of description (which may be empty)
+
+    Returns the matching villa dict (id, images, description, slug, name) or None.
     """
-    if not address or not name:
+    if not name:
         return None
 
     room_id = _extract_room_identifier(name)
-    if not room_id:
-        logger.debug(f"find_existing_villa: no room identifier in '{name}'")
+    slug = _generate_slug(name)
+    # Use slug prefix (before the 6-char hash suffix) for matching
+    slug_prefix = slug.rsplit("-", 1)[0] if "-" in slug else slug
+
+    if not room_id and not slug_prefix:
+        logger.debug(f"find_existing_villa: no room_id or slug from '{name}'")
         return None
 
     url = f"{settings.godanang_supabase_url}/rest/v1/villas"
@@ -199,12 +208,17 @@ async def find_existing_villa(address: str, name: str) -> Optional[dict]:
         "Authorization": f"Bearer {settings.godanang_supabase_service_key}",
         "Content-Type": "application/json",
     }
-    params = {
-        "select": "id,images,description",
-        "description": f"ilike.%{address}%",
-        "name": f"ilike.%{room_id}%",
+    params: dict[str, str] = {
+        "select": "id,images,description,slug,name",
         "limit": "1",
     }
+
+    # Match by room_id in name AND slug prefix for title similarity
+    if room_id and slug_prefix:
+        params["name"] = f"ilike.%{room_id}%"
+        params["slug"] = f"ilike.%{slug_prefix}%"
+    elif slug_prefix:
+        params["slug"] = f"ilike.%{slug_prefix}%"
 
     try:
         async with httpx.AsyncClient() as client:
@@ -212,11 +226,14 @@ async def find_existing_villa(address: str, name: str) -> Optional[dict]:
             resp.raise_for_status()
             data = resp.json()
             if data:
-                logger.debug(f"find_existing_villa: found id={data[0].get('id')} for address='{address}' room='{room_id}'")
+                logger.debug(
+                    f"find_existing_villa: found id={data[0].get('id')} "
+                    f"for name='{name}' room='{room_id}' slug_prefix='{slug_prefix}'"
+                )
                 return data[0]
             return None
     except Exception as exc:
-        logger.error(f"find_existing_villa: query failed for address='{address}': {exc}")
+        logger.error(f"find_existing_villa: query failed for name='{name}': {exc}")
         return None
 
 

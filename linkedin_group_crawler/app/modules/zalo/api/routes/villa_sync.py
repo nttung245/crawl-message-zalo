@@ -46,19 +46,11 @@ async def villa_sync_endpoint(req: VillaSyncRequest) -> VillaSyncResponse:
             detail=f"Missing required settings: {', '.join(missing)}",
         )
 
-    from app.modules.zalo.services.supabase_service import supabase_client
     from app.modules.zalo.services.villa_sync_service import sync_villas
-
-    if not supabase_client or not supabase_client.client:
-        raise HTTPException(
-            status_code=500,
-            detail="Supabase client not configured for Zalo messages",
-        )
 
     try:
         logger.info(f"VillaSync API: starting sync (user_id={req.user_id}, dry_run={req.dry_run})")
         summary = await sync_villas(
-            supabase_client=supabase_client,
             user_id=req.user_id,
             dry_run=req.dry_run,
         )

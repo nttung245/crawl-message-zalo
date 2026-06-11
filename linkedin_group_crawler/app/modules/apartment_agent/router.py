@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from app.modules.apartment_agent.config import validate_settings
+from app.modules.apartment_agent.config import settings, validate_settings
 from app.modules.apartment_agent.pipeline import process_messages
-from app.modules.apartment_agent.schemas import PipelineResult
+from app.modules.apartment_agent.schemas import (
+    ApartmentAgentError,
+    PipelineResult,
+)
 
 router = APIRouter(prefix="/api/apartment-agent", tags=["apartment-agent"])
 
@@ -78,43 +82,55 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
     Provide either message_ids to process specific messages,
     or group_name to process all messages from a crawled group.
     """
+    request_id = str(uuid4())
     missing = validate_settings()
     if missing:
         raise HTTPException(
             status_code=500,
-            detail=f"Missing required settings: {', '.join(missing)}",
+            detail=ApartmentAgentError(
+                kind="missing_config",
+                message="Missing required settings",
+                missing=missing,
+                request_id=request_id,
+            ).model_dump(),
         )
 
     # Fetch messages from Zalo Supabase
-    from app.modules.zalo.services.supabase_service import supabase_client
+    from app.modules.zalo.services.supabase_service import _rest
 
     if req.message_ids:
         # Fetch specific messages by ID
         messages = []
         for mid in req.message_ids:
             try:
-                resp = (
-                    supabase_client.client.table("zalo_messages")
-                    .select("id, content, group_name")
-                    .eq("id", mid)
-                    .execute()
-                )
-                if resp.data:
+                rows = await _rest(
+                    "GET",
+                    "zalo_messages",
+                    params={
+                        "select": "id,content,group_name",
+                        "id": f"eq.{mid}",
+                        "limit": "1",
+                    },
+                ) or []
+                if rows:
                     messages.append(
-                        {"id": resp.data[0]["id"], "text": resp.data[0]["content"]}
+                        {"id": rows[0]["id"], "text": rows[0]["content"]}
                     )
             except Exception as exc:
                 logger.warning(f"Failed to fetch message {mid}: {exc}")
     elif req.group_name:
         try:
-            resp = (
-                supabase_client.client.table("zalo_messages")
-                .select("id, content, group_name")
-                .eq("group_name", req.group_name)
-                .execute()
-            )
+            rows = await _rest(
+                "GET",
+                "zalo_messages",
+                params={
+                    "select": "id,content,group_name",
+                    "group_name": f"eq.{req.group_name}",
+                    "limit": "500",
+                },
+            ) or []
             messages = [
-                {"id": row["id"], "text": row["content"]} for row in (resp.data or [])
+                {"id": row["id"], "text": row["content"]} for row in rows
             ]
         except Exception as exc:
             raise HTTPException(
@@ -135,24 +151,32 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
 @router.post("/process-all", response_model=PipelineResult)
 async def process_all_endpoint(req: ProcessAllRequest) -> PipelineResult:
     """Reprocess all crawled Zalo messages (up to limit)."""
+    request_id = str(uuid4())
     missing = validate_settings()
     if missing:
         raise HTTPException(
             status_code=500,
-            detail=f"Missing required settings: {', '.join(missing)}",
+            detail=ApartmentAgentError(
+                kind="missing_config",
+                message="Missing required settings",
+                missing=missing,
+                request_id=request_id,
+            ).model_dump(),
         )
 
-    from app.modules.zalo.services.supabase_service import supabase_client
+    from app.modules.zalo.services.supabase_service import _rest
 
     try:
-        resp = (
-            supabase_client.client.table("zalo_messages")
-            .select("id, content")
-            .limit(req.limit)
-            .execute()
-        )
+        rows = await _rest(
+            "GET",
+            "zalo_messages",
+            params={
+                "select": "id,content",
+                "limit": str(req.limit),
+            },
+        ) or []
         messages = [
-            {"id": row["id"], "text": row["content"]} for row in (resp.data or [])
+            {"id": row["id"], "text": row["content"]} for row in rows
         ]
     except Exception as exc:
         raise HTTPException(
@@ -172,23 +196,37 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
     Provide either group_name to test with crawled messages,
     or texts to test with raw text directly.
     """
+    request_id = str(uuid4())
+    missing = validate_settings()
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=ApartmentAgentError(
+                kind="missing_config",
+                message="Missing required settings",
+                missing=missing,
+                request_id=request_id,
+            ).model_dump(),
+        )
     from app.modules.apartment_agent.pipeline import extract_only
 
     if req.texts:
         messages = [{"id": f"text_{i}", "text": t} for i, t in enumerate(req.texts)]
     elif req.group_name:
-        from app.modules.zalo.services.supabase_service import supabase_client
+        from app.modules.zalo.services.supabase_service import _rest
 
         try:
-            resp = (
-                supabase_client.client.table("zalo_messages")
-                .select("id, content, group_name")
-                .eq("group_name", req.group_name)
-                .limit(50)
-                .execute()
-            )
+            rows = await _rest(
+                "GET",
+                "zalo_messages",
+                params={
+                    "select": "id,content,group_name",
+                    "group_name": f"eq.{req.group_name}",
+                    "limit": "50",
+                },
+            ) or []
             messages = [
-                {"id": row["id"], "text": row["content"]} for row in (resp.data or [])
+                {"id": row["id"], "text": row["content"]} for row in rows
             ]
         except Exception as exc:
             raise HTTPException(

@@ -6,6 +6,7 @@ import { useZaloCrawlerFlow } from "@/hooks/useZaloCrawlerFlow";
 import { ZaloDashboardView } from "./ZaloDashboardView";
 import { ZaloChatView } from "./ZaloChatView";
 import { ZaloAgentTestPanel } from "./ZaloAgentTestPanel";
+import { ZaloCrawlerConfigCard } from "./ZaloCrawlerConfigCard";
 
 function InlineBanner({
   tone,
@@ -32,7 +33,7 @@ export function ZaloCrawlerPageContent() {
   const flow = useZaloCrawlerFlow();
   // Separate local view state from flow.userId to avoid routing conflicts
   const [activeAccountId, setActiveAccountId] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"dashboard" | "agent">("dashboard");
+  const [activeTab, setActiveTab] = useState<"dashboard" | "crawl" | "agent">("dashboard");
 
   function handleEnterChat(accountId: string) {
     // Switch to the account context in the flow and then set local view
@@ -57,6 +58,7 @@ export function ZaloCrawlerPageContent() {
       <div className="border-outline-variant bg-surface-container-lowest flex flex-wrap gap-sm rounded-2xl border p-sm">
         {([
           ["dashboard", "Dashboard"],
+          ["crawl", "Crawl"],
           ["agent", "Agent Test"],
         ] as const).map(([value, label]) => (
           <button
@@ -74,6 +76,8 @@ export function ZaloCrawlerPageContent() {
 
       {activeTab === "agent" ? (
         <ZaloAgentTestPanel userId={flow.userId} />
+      ) : activeTab === "crawl" ? (
+        <ZaloCrawlerConfigCard flow={flow} />
       ) : isInChatView ? (
         <ZaloChatView flow={flow} onBackToDashboard={handleBackToDashboard} />
       ) : (

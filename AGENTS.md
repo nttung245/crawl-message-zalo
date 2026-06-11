@@ -1,180 +1,161 @@
 # Crawl Message Zalo — Agent Guide
 
-## Project Overview
+Multi-platform social media crawler. **Zalo** (Vietnamese messenger) is the primary focus; LinkedIn is legacy; Facebook is optional. Backend = Python/FastAPI + Playwright + `zca-js`. Frontend = Next.js 16 (App Router, standalone output, hardcoded `basePath: "/minhhoang-scraper"`).
 
-Multi-platform social media crawler and automation monorepo. Originally a LinkedIn group scraper, now primarily focused on **Zalo** (Vietnamese messaging platform) with Facebook capabilities.
+## Things you will get wrong without this file
 
-**Core capabilities:**
-- Zalo Web login via QR code scanning (Playwright-driven)
-- Group chat message crawling (text + images)
-- Persistence to Supabase (PostgreSQL + Storage) and Google Sheets
-- Real-time web dashboard for crawl session management
-- Broadcast campaigns to Zalo groups from crawled message library
-- LinkedIn group crawling, engagement, KPI tracking
-- Facebook crawling (in progress)
+- **Backend port is 8000, not 8101.** `linkedin-crawler-ui/next.config.js` rewrites `/api/:path*` → `http://127.0.0.1:8000/api/:path*`; `linkedin-crawler-ui/lib/env.ts` falls back to `http://localhost:8000`. The number 8101 in old notes is stale.
+- **Next.js 16 here is not the Next.js you know.** `linkedin-crawler-ui/AGENTS.md` and `rule/nextjs-typescript-coding-standards.md` carry the warnings. Read `linkedin-crawler-ui/node_modules/next/dist/docs/` before writing any FE code — APIs, conventions, and file structure all differ from training data.
+- **Frontend `basePath: "/minhhoang-scraper"`** is hardcoded in `linkedin-crawler-ui/next.config.js`. All routes are prefixed; `NEXT_PUBLIC_LINKEDIN_CRAWLER_API_URL` in `.env.local` already includes the basePath.
+- **ZCA (`zca-js`) is the default Zalo login path.** `ZALO_QR_LOGIN_MODE=zca` triggers a Node.js bridge (`linkedin_group_crawler/scripts/zca_*.js` + the backend's own `package.json` with `zca-js` + `image-size`). The Playwright QR path still works but is no longer the default. Backend ships its own `package.json` — run `npm install` in `linkedin_group_crawler/` too.
+- **Two worker modes are selected by env var, not config file.**
+  - **Direct mode (default)**: single FastAPI process owns the Playwright browser. Single container, single worker.
+  - **Proxy mode**: set `ZALO_BROWSER_SERVICE_URL=http://zalo-browser:8000` — `zalo-api` runs multi-worker Uvicorn and routes to a separate `zalo-browser` container. The browser **MUST stay single-worker** (live Playwright objects). Use `docker-compose.zalo-multi.yml`. See `app/main.py:252-266` for the router branch.
+- **Facebook module is optional.** `app/main.py:66-72` guards the import in `try/except`; if it fails, the rest of the server still starts and the rest of the API still works.
+- **Apartment Agent is a real module** (`app/modules/apartment_agent/`): LLM-based extraction that upserts to **GoDaNang's** `villas` Supabase table, not this project's. Routers wired in `app/main.py:288-290` (`apartment_agent`, `villa_sync`). Config keys live under `GODANANG_*` and `APARTMENT_AGENT_*` in `app/core/config.py` / `.env.example`.
+- **Spec-driven changes use OpenSpec.** Skills: `.claude/skills/openspec-{propose,apply,archive,sync,explore}/`. Slash commands: `.claude/commands/opsx/*.md`. Active changes in `openspec/changes/`, archived in `openspec/changes/archive/`. For non-trivial work, write a proposal first.
+- **Frontend dev port is 3000, not 3101.** `package.json` has bare `"dev": "next dev"` (no `-p` flag). CORS allows 3000, 3111, and 10.30.50.29:{3111,8111}.
+- **No `ecosystem.config.js` exists in this repo.** The old "PM2" section is aspirational. Use Docker Compose for production (`ZALO_VPS_DEPLOY.md`).
+- **`components/nguyen/`** in the frontend is a developer's working folder — be careful with bulk operations there.
 
-## Tech Stack
-
-### Backend (`linkedin_group_crawler/`)
-- **Python 3.8+** with FastAPI 0.110.0 + Uvicorn 0.27.0
-- **Playwright** 1.60.0 + `playwright-stealth` for browser automation
-- **Pydantic** 2.5.3 + `pydantic-settings` for config/models
-- **Supabase** via REST API (httpx, no SDK)
-- **Google Sheets API** via `gspread` + `google-api-python-client`
-- **Redis** 5.0.1 (optional, multi-worker session storage)
-- **Loguru** for structured logging
-- **n8n webhooks** for workflow automation
-
-### Frontend (`linkedin-crawler-ui/`)
-- **Next.js** 16.2.6 (App Router, standalone output)
-- **React** 19.2.4 + TypeScript 5
-- **Tailwind CSS** 4
-- **Zod** 4.4.3 + `react-hook-form` for form validation
-- **sonner** for toast notifications
-
-### Infrastructure
-- Docker with multiple compose variants (prod, VNC rescue, multi-worker)
-- PM2 for production process management
-- Express.js reverse proxy for unified URL routing
-- noVNC / x11vnc / Xvfb for headless browser debugging
-
-## Project Structure
+## Layout
 
 ```
-crawl-message-zalo/
-├── linkedin_group_crawler/          # BACKEND (Python/FastAPI)
-│   ├── app/
-│   │   ├── main.py                  # FastAPI entrypoint, router registration
-│   │   ├── core/                    # Config, logger, browser pool, utils
-│   │   ├── modules/
-│   │   │   ├── zalo/                # PRIMARY: Zalo crawler module
-│   │   │   │   ├── api/routes/      # auth, crawler, jobs, groups, library, broadcasts, maintenance
-│   │   │   │   ├── crawler/         # browser, qr_login, scroll_handler, message_parser, group_parser
-│   │   │   │   ├── schemas/         # Pydantic models (session, job, message, group, library, broadcast)
-│   │   │   │   └── services/        # session_store, job_store, supabase_service, gsheet_service, worker_pool
-│   │   │   ├── linkedin/            # LinkedIn crawler module
-│   │   │   └── facebook/            # Facebook crawler module
-│   │   └── shared/services/         # google_sheet_service, n8n_webhook_service
-│   ├── tests/                       # 15 pytest files (LinkedIn-focused)
-│   ├── scripts/                     # Shell/PowerShell helpers
-│   ├── requirements.txt
-│   ├── Dockerfile / Dockerfile.vnc
-│   └── docker-compose.zalo-*.yml    # 5 deployment variants
-│
-├── linkedin-crawler-ui/             # FRONTEND (Next.js/React)
-│   ├── app/
-│   │   ├── layout.tsx               # Root layout
-│   │   ├── (dashboard)/             # Dashboard shell
-│   │   │   ├── zalo-crawl/page.tsx  # Zalo crawler page
-│   │   │   └── ...                  # Other pages (crawl-data, Interaction, admin)
-│   │   └── loginFb/
-│   ├── components/features/zalo/    # Zalo UI components
-│   │   └── dashboard/               # ZaloCrawlerPageContent, ConfigCard, GroupInputList, etc.
-│   ├── hooks/
-│   │   ├── useZaloCrawlerFlow.ts    # Main Zalo orchestration hook (~1430 lines)
-│   │   └── useDashboardCrawler.ts   # LinkedIn dashboard hook
-│   ├── services/                    # API clients (zaloCrawlerService, linkedinCrawlerService)
-│   ├── types/zalo-api.ts            # TypeScript interfaces
-│   └── AGENTS.md                    # Frontend-specific agent rules
-│
-└── docs/
-    ├── CRAWL_DATA_LINKEDIN_MAP.md   # Architecture map
-    └── zalo-crawler-ui-requirements.md  # UI requirements (375 lines)
+linkedin_group_crawler/                 # Backend (Python/FastAPI)
+  app/
+    main.py                             # Entrypoint, lifespan, router registration, CORS
+    core/                               # config.py (Settings dataclass), playwright_browser_pool, logger
+    modules/
+      zalo/                             # PRIMARY
+        api/routes/                     # auth, crawler, jobs, groups, library, broadcasts,
+                                        # maintenance, listener, accounts, conversations, villa_sync
+        services/                       # session_store, job_store, supabase_service,
+                                        # gsheet_service, worker_pool, zca_persistent_listener
+        crawler/                        # browser, qr_login, scroll_handler, message_parser, group_parser
+        zalo-manual-login-mode.md       # noVNC rescue flow
+        config.py                       # pydantic-settings (ZALO_* env)
+      linkedin/                         # Legacy. router + jobs.
+      facebook/                         # Optional, guarded import in main.py
+      apartment_agent/                  # LLM extraction → GoDaNang villas table
+    shared/services/                    # google_sheet_service, n8n_webhook_service
+  scripts/
+    zca_*.js                            # Node bridges to zca-js
+    run_api_windows.py                  # Windows ProactorEventLoop launcher
+    start_local_stack.ps1               # Boots API + cloudflared tunnel
+    start_zalo_vnc.sh                   # Used by docker-compose.zalo-vnc.yml
+  tests/                                # 19 pytest files (LinkedIn + apartment_agent)
+  package.json                          # ⚠ zca-js + image-size (run `npm install`)
+  ZALO_VPS_DEPLOY.md                    # Canonical deploy runbook
+  .env.example                          # Backend env template (137 lines)
+  supabase_zalo_schema.sql              # Run in Supabase SQL editor before first crawl
+
+linkedin-crawler-ui/                    # Frontend (Next.js 16, React 19, TS)
+  app/(dashboard)/                      # zalo-crawl, crawl-data, Interaction,
+                                        # quan-ly-nhom, chien-dich, tai-khoan, admin
+  components/features/{zalo,linkedin,facebook,accounts,campaigns,dashboard,auth,nguyen}
+  hooks/{useZaloCrawlerFlow.ts,useDashboardCrawler.ts,useEngagementTaskQueue.ts}
+  lib/env.ts                            # API_BASE_URL + API_KEY resolution (see below)
+  scripts/copy-standalone-assets.mjs    # Runs as `postbuild` after `next build`
+  AGENTS.md                             # ⚠ Read first — "This is NOT the Next.js you know"
+  rule/nextjs-typescript-coding-standards.md
+
+openspec/                               # Spec-driven change workflow
+  changes/                              # Active: zalo-apartment-filter-pipeline,
+                                        #         zalo-to-godanang-villa-sync
+  changes/archive/2026-06-09-fix-zalo-broadcast-bugs/
+  specs/                                # zalo-broadcast-target-fixes,
+                                        # zalo-campaign-soft-warnings,
+                                        # zalo-worker-selector-fix
+
+.claude/skills/                         # openspec-* + global gstack skills
 ```
 
-## Key Entry Points
+## Dev commands
 
-### Backend
-- **`linkedin_group_crawler/app/main.py`** — FastAPI app with lifespan management. Conditionally includes proxy routers (multi-worker) or direct routers based on `ZALO_BROWSER_SERVICE_URL`.
-- **Key Zalo routes:**
-  - `POST /api/zalo/auth/init` — QR login session
-  - `GET /api/zalo/auth/events` — SSE stream for auth status
-  - `POST /api/zalo/crawl` — Start crawl job
-  - `GET /api/zalo/jobs/events` — SSE stream for job progress
-  - `POST /api/zalo/groups/verify` — Verify group names
-  - `GET /api/zalo/library/messages` — Query stored messages
-  - `POST /api/zalo/broadcasts` — Broadcast campaigns
-
-### Frontend
-- **`linkedin-crawler-ui/app/(dashboard)/zalo-crawl/page.tsx`** — Zalo crawler page
-- **`hooks/useZaloCrawlerFlow.ts`** — Central orchestration hook managing auth, SSE, group verification, job creation, progress tracking
-
-## Configuration
-
-| File | Purpose |
-|---|---|
-| `linkedin_group_crawler/.env.example` | Full backend env template (117 lines) |
-| `linkedin_group_crawler/app/core/config.py` | Global Settings dataclass |
-| `linkedin_group_crawler/app/modules/zalo/config.py` | Zalo-specific settings |
-| `linkedin-crawler-ui/next.config.js` | Next.js config: `basePath: "/minhhoang-scraper"`, `output: "standalone"` |
-
-## Development Commands
-
-### Backend
+### Backend (from `linkedin_group_crawler/`)
 ```bash
-cd linkedin_group_crawler
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
+npm install                                     # for zca-js + image-size
 playwright install chromium
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8101
-pytest                                    # Run tests
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+pytest                                            # all 19 tests
+pytest tests/test_health.py                      # single test
+pytest tests/test_apartment_agent_dedup.py -v    # one suite
 ```
 
-### Frontend
+Windows: `python scripts/run_api_windows.py --port 8000` (sets `ProactorEventLoop` required by Playwright on Windows). The `linkedin_group_crawler/app/main.py:12-13` branch also patches the loop policy automatically.
+
+### Frontend (from `linkedin-crawler-ui/`)
 ```bash
-cd linkedin-crawler-ui
 npm install
-npm run dev                               # Dev server on port 3101
-npm run build                             # Production build (standalone)
-npm run lint                              # ESLint
+npm run dev                # next dev — default port 3000
+npm run build              # runs `postbuild` → scripts/copy-standalone-assets.mjs
+npm run start:standalone   # node .next/standalone/server.js (after build)
+npm run check              # type-check && lint — use before commit
 ```
 
-### Docker (Production)
-```bash
-cd linkedin_group_crawler
-docker compose -f docker-compose.zalo-prod.yml up -d      # Production
-docker compose -f docker-compose.zalo-vnc.yml up -d        # VNC rescue mode
-docker compose -f docker-compose.zalo-multi.yml up -d      # Multi-worker
-```
+## Frontend env resolution
 
-### PM2 (Production VM)
-```bash
-pm2 start ecosystem.config.js
-pm2 restart minhhoang-backend
-pm2 restart minhhoang-frontend
-pm2 restart minhhoang-proxy
-```
+`linkedin-crawler-ui/lib/env.ts`:
+- `API_BASE_URL` = `NEXT_PUBLIC_ZALO_API_BASE_URL` → `NEXT_PUBLIC_LINKEDIN_CRAWLER_API_URL` → `http://localhost:8000`
+- `API_KEY` = `NEXT_PUBLIC_ZALO_API_KEY` → `NEXT_PUBLIC_LINKEDIN_CRAWLER_API_KEY` → `""`
+
+All Zalo calls send `x-api-key`; backend `app/modules/zalo/api/security.py::verify_zalo_api_key` checks it. The legacy name is kept for back-compat — use the new `NEXT_PUBLIC_ZALO_*` form in fresh code.
+
+## Backend env (must set in `linkedin_group_crawler/.env`)
+
+Copy from `.env.example`. Required for Zalo to start:
+`API_KEY`, `ZALO_GOOGLE_CREDENTIALS_PATH`, `ZALO_DEFAULT_SHEET_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SPREADSHEET_ID`. Run `supabase_zalo_schema.sql` in Supabase SQL editor before the first crawl.
+
+Common knobs: `HEADLESS`, `PLAYWRIGHT_POOL_SIZE` (1 recommended), `PLAYWRIGHT_WARMUP_ON_STARTUP` (`true` warms up Chromium in background; `/health` is fast either way), `LINKEDIN_AUTO_LOGIN_BEFORE_ENGAGEMENT`, reaction timing constants.
+
+## Docker / deploy
+
+All compose files live in `linkedin_group_crawler/`. Canonical runbook: `ZALO_VPS_DEPLOY.md`.
+
+| Compose file | Mode |
+|---|---|
+| `docker-compose.zalo-prod.yml` | `zalo-browser` (headed Chromium under Xvfb) + `zalo-api` (4 workers). **Default production mode.** |
+| `docker-compose.zalo-vnc.yml` | Adds x11vnc + noVNC for manual login rescue. Use only when QR scan fails. |
+| `docker-compose.zalo-multi.yml` | `zalo-api` (4 workers, stateless proxy) → `zalo-browser` (1 worker). Set `ZALO_API_WORKERS=4`. Point clients at `zalo-api:8000`. |
+| `docker-compose.zalo-multiaccount.yml` | Multi-account per `X-User-ID` (profile stored under `storage/chromium-profile/<user-id>`). |
+| `docker-compose.zalo-multiaccount-rescue.yml` | Multi-account + noVNC. |
+
+Health check: `curl -s http://127.0.0.1:8000/health`. Authenticated smoke: `curl -H "x-api-key: $API_KEY" http://127.0.0.1:8000/api/zalo/auth/current-status`.
+
+## Multi-worker / session model
+
+- Zalo Playwright sessions are live browser objects — **must** run in a single process. `app/modules/zalo/services/worker_pool.py::is_zalo_browser_proxy_configured()` reads `ZALO_BROWSER_SERVICE_URL`; the branch in `app/main.py:252-266` decides direct vs proxy routers.
+- LinkedIn uses Redis-backed session storage (`REDIS_URL`) when multi-worker. Zalo ignores Redis and uses `ZALO_SESSION_STORE=memory` — do not switch Zalo to Redis.
+- LinkedIn sets `LINKEDIN_ENGAGEMENT_PASSWORDS_JSON` or `LINKEDIN_DEFAULT_ENGAGEMENT_PASSWORD` so reaction/comment flows can auto-relogin.
+
+## CORS
+
+`app/main.py::_cors_origins()` allows by default: `http://localhost:3000`, `http://127.0.0.1:3000`, `http://localhost:3111`, `http://127.0.0.1:3111`, `http://10.30.50.29:3111`, `http://10.30.50.29:8111`. Add more via `CORS_ORIGINS` or `ZALO_CORS_ORIGINS` (comma-separated env).
 
 ## Testing
 
-- **Framework:** pytest 7.4.4
-- **Location:** `linkedin_group_crawler/tests/`
-- **Coverage:** 15 test files, all LinkedIn-focused. No dedicated Zalo tests yet.
-- **No frontend tests** configured.
+- 19 tests under `linkedin_group_crawler/tests/`, all pytest. Pattern: `from fastapi.testclient import TestClient; from app.main import app`.
+- 4 new `test_apartment_agent_*.py` cover the apartment agent pipeline.
+- No Zalo-specific tests yet. No frontend tests configured.
+- `pytest` order is not enforced — run individual files when iterating on a module.
 
-## Deployment
+## Conventions
 
-- **Production:** PM2-managed on VPS at `/opt/apps/minhhoang-linkedin-scraper/`
-  - Backend: `127.0.0.1:8101`
-  - Frontend: `127.0.0.1:3101`
-  - Proxy: `0.0.0.0:18080` (public)
-  - URL namespace: `/minhhoang-scraper/`
-- **Docker variants:** 5 compose files for different modes (prod, VNC, multi-worker, multi-account)
-- **Base image:** `mcr.microsoft.com/playwright/python:v1.58.0-jammy`
+- Backend: async FastAPI + Pydantic 2 + Loguru. Global `Settings` is a dataclass in `app/core/config.py`; Zalo has its own pydantic-settings in `app/modules/zalo/config.py` (with `AliasChoices` so env keys work with or without `ZALO_` prefix).
+- Frontend: React 19 hooks + Zod + sonner. No Redux/Zustand. SSE for auth and job progress.
+- Storage paths under `linkedin_group_crawler/storage/`: `session/`, `sessions/`, `chromium-profile/`, `runtime/` (logs + n8n URL state), `linkedin_state.json`. All gitignored.
+- Branch / PR: no documented model. For non-trivial work, write an OpenSpec proposal first.
 
-## Code Conventions
+## Reference docs in this repo
 
-- **Backend:** Python with Pydantic models, async FastAPI endpoints, Loguru logging
-- **Frontend:** React 19 with hooks, TypeScript strict, Tailwind CSS 4, Zod validation
-- **SSE:** Real-time updates via Server-Sent Events (auth status, job progress)
-- **State management:** Custom hooks (`useZaloCrawlerFlow`), no Redux/Zustand
-- **API client:** Frontend uses custom service modules (`zaloCrawlerService.ts`)
-- **Error handling:** Loguru structured logging backend, sonner toasts frontend
-
-## Key Patterns
-
-- **Browser automation:** Playwright with stealth mode, shared Chromium pool
-- **Session management:** In-memory store with optional Redis backing for multi-worker
-- **Multi-worker:** Proxy router distributes requests across multiple Zalo browser instances
-- **SSE streaming:** Real-time auth and job status updates from backend to frontend
-- **Data persistence:** Supabase REST API (messages, assets) + Google Sheets (optional)
+- `linkedin_group_crawler/README.md` — original LinkedIn-focused README.
+- `linkedin_group_crawler/HUONG_DAN_CHAY.txt` — Vietnamese run guide.
+- `linkedin_group_crawler/ZALO_VPS_DEPLOY.md` — deploy runbook (canonical).
+- `linkedin_group_crawler/app/modules/zalo/zalo-manual-login-mode.md` — noVNC rescue flow.
+- `linkedin-crawler-ui/AGENTS.md` — Next.js 16 warnings (read first).
+- `linkedin-crawler-ui/rule/nextjs-typescript-coding-standards.md` — FE coding standards (Vietnamese).
+- `CRAWL_DATA_LINKEDIN_MAP.md` — LinkedIn data architecture (40 KB; legacy but referenced).
+- `zalo-crawler-ui-requirements.md` — Zalo FE requirements.
+- `openspec/changes/*/proposal.md` — current in-flight specs.

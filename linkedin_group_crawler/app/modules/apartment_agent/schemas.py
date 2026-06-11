@@ -5,6 +5,8 @@ from __future__ import annotations
 from enum import Enum
 from typing import Optional
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -86,6 +88,24 @@ class SyncResult(BaseModel):
         default=None, description="ID of inserted apartment"
     )
     error_message: Optional[str] = None
+
+
+class ClassificationResult(BaseModel):
+    """Result of the classifier step for a single message."""
+
+    is_listing: bool = Field(description="Whether this message is an apartment listing")
+    reason: str = Field(default="", description="Classifier reasoning")
+    confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Confidence score")
+
+
+class ApartmentAgentError(BaseModel):
+    """Typed error envelope for the apartment agent module."""
+
+    kind: Literal["missing_config", "llm_auth", "llm_schema", "llm_rate_limit", "godanang_rest", "validation"]
+    message: str
+    missing: list[str] = Field(default_factory=list)
+    status: int | None = None
+    request_id: str = ""
 
 
 class PipelineResult(BaseModel):

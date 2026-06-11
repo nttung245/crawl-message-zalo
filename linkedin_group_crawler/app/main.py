@@ -19,7 +19,7 @@ if not hasattr(asyncio, "to_thread"):
 
     asyncio.to_thread = _asyncio_to_thread
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -227,6 +227,37 @@ async def request_validation_exception_handler(_, exc: RequestValidationError) -
             "success": False,
             "message": "Invalid request body",
             "data": {"errors": error_messages},
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def generic_exception_handler(_, exc: Exception) -> JSONResponse:
+    """Catch-all exception handler — return JSON instead of plain text 500."""
+    from uuid import uuid4
+    from loguru import logger as _logger
+
+    request_id = str(uuid4())
+    _logger.exception("[request_id={}] Unhandled exception: {}", request_id, exc)
+
+    # If the exception detail is already an ApartmentAgentError envelope, pass it through
+    try:
+        from app.modules.apartment_agent.schemas import ApartmentAgentError
+        if isinstance(exc, HTTPException) and isinstance(exc.detail, dict) and exc.detail.get("kind") in ("missing_config", "llm_auth", "llm_schema", "llm_rate_limit", "godanang_rest", "validation"):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content={"success": False, "error": exc.detail},
+            )
+    except ImportError:
+        pass
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "message": f"Internal Server Error: {type(exc).__name__}: {exc}",
+            "data": None,
+            "request_id": request_id,
         },
     )
 

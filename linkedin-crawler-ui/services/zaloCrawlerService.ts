@@ -230,12 +230,33 @@ async function requestJson<TResponse>(
     if (timeoutId) globalThis.clearTimeout(timeoutId);
   }
 
-  const payload = (await response.json()) as TResponse;
+  let payload: TResponse;
+  try {
+    payload = (await response.json()) as TResponse;
+  } catch {
+    throw new Error(
+      `API ${response.status}: phản hồi không phải JSON (${API_BASE_URL}${path})`,
+    );
+  }
 
   if (!response.ok) {
     const errorPayload = payload as
-      | { message?: unknown; detail?: unknown }
+      | { message?: unknown; detail?: unknown; error?: { kind?: string; message?: string; missing?: string[]; request_id?: string } }
       | undefined;
+
+    // Check for typed ApartmentAgentError envelope
+    const agentError = errorPayload?.error;
+    if (agentError?.kind) {
+      let msg = agentError.message || "";
+      if (agentError.kind === "missing_config" && agentError.missing?.length) {
+        msg = `Thiếu ${agentError.missing.join(", ")} trong .env — xem .env.example`;
+      }
+      if (agentError.request_id) {
+        msg += ` [request_id: ${agentError.request_id}]`;
+      }
+      throw new Error(`API ${response.status}: ${msg}`);
+    }
+
     const normalizeErrorValue = (value: unknown): string => {
       if (typeof value === "string") return value.trim();
       if (!value) return "";
@@ -572,6 +593,32 @@ export function testAgentExtract(
       body: JSON.stringify(request),
     },
     120000,
+  );
+}
+
+export interface VillaSyncResponse {
+  total_messages_processed: number;
+  apartments_found: number;
+  new_villas_created: number;
+  villas_updated: number;
+  villas_marked_rented: number;
+  errors: string[];
+  dry_run: boolean;
+}
+
+export function villaSync(
+  request: { user_id?: string; dry_run?: boolean } = {},
+): Promise<VillaSyncResponse> {
+  return requestJson<VillaSyncResponse>(
+    "/api/zalo/villa-sync",
+    {
+      method: "POST",
+      body: JSON.stringify({
+        user_id: request.user_id || "default",
+        dry_run: request.dry_run ?? false,
+      }),
+    },
+    600000,
   );
 }
 

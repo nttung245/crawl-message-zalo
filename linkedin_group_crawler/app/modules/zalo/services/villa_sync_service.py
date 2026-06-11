@@ -19,6 +19,7 @@ from app.modules.apartment_agent.sync import (
     insert_apartment,
     update_apartment,
 )
+from app.modules.zalo.services.supabase_service import _rest
 
 
 class VillaSyncSummary:
@@ -44,7 +45,6 @@ class VillaSyncSummary:
 
 
 async def fetch_incremental_messages(
-    supabase_client,
     user_id: str = "default",
     limit: int = 200,
 ) -> list[dict]:
@@ -54,24 +54,24 @@ async def fetch_incremental_messages(
     """
     latest_ts = await fetch_latest_villa_timestamp()
 
-    query = (
-        supabase_client.client.table("zalo_messages")
-        .select("id, content, timestamp_text, created_at")
-        .eq("user_id", user_id)
-        .order("created_at", desc=True)
-        .limit(limit)
-    )
+    params: dict = {
+        "select": "id,content,timestamp_text,created_at",
+        "user_id": f"eq.{user_id}",
+        "order": "created_at.desc",
+        "limit": str(limit),
+        "content": "not.is.null",
+    }
 
     if latest_ts:
         logger.info(f"VillaSync: fetching messages newer than {latest_ts}")
-        query = query.gt("created_at", latest_ts)
+        params["created_at"] = f"gt.{latest_ts}"
     else:
         logger.info("VillaSync: no existing villas, fetching most recent messages")
 
     try:
-        resp = query.execute()
+        rows = await _rest("GET", "zalo_messages", params=params) or []
         messages = []
-        for row in (resp.data or []):
+        for row in rows:
             content = row.get("content", "")
             if content and content.strip():
                 messages.append({
@@ -87,7 +87,6 @@ async def fetch_incremental_messages(
 
 
 async def sync_villas(
-    supabase_client,
     user_id: str = "default",
     dry_run: bool = False,
     batch_size: int = 20,
@@ -105,7 +104,7 @@ async def sync_villas(
 
     # Step 1: Fetch incremental messages
     try:
-        messages = await fetch_incremental_messages(supabase_client, user_id)
+        messages = await fetch_incremental_messages(user_id)
     except Exception as exc:
         summary.errors.append(f"Failed to fetch messages: {exc}")
         return summary

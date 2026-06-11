@@ -34,7 +34,7 @@ async def extract_only(messages: list[dict]) -> "TestExtractResponse":
     extractions = await extract_batch(messages)
 
     for ext in extractions:
-        raw_text = message_map.get(ext.raw_message_id, {}).get("text", "")
+        raw_text = message_map.get(ext.raw_message_id, {}).get("text", "") or ""
         if ext.status == ExtractionStatus.NOT_LISTING:
             result.not_listing += 1
             result.results.append(

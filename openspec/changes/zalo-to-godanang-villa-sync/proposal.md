@@ -1,3 +1,8 @@
+> **Status: SUPERSEDED** — This change has been superseded by
+> `apartment-agent-preview-and-villa-push`. See
+> `openspec/changes/apartment-agent-preview-and-villa-push/`.
+> The parent will archive this change after the new change ships.
+
 ## Why
 
 The Zalo crawler extracts apartment/room listings from Zalo group chats but currently only stores them in a generic `zalo_messages` table. There's no pipeline to push this data into the godanang project's `villas` table, which is what end users actually see. Manual data entry is slow and error-prone. We need an automated flow: **Crawl → Filter/Extract → Sync to villas table** — so new listings appear on the godanang site automatically.

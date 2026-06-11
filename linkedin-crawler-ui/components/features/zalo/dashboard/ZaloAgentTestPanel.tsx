@@ -2,14 +2,15 @@
 
 import { useCallback, useEffect, useState } from "react";
 
-import { getZaloCrawledGroups, testAgentExtract } from "@/services/zaloCrawlerService";
+import { getZaloCrawledGroups, testAgentExtract, villaSync } from "@/services/zaloCrawlerService";
+import type { VillaSyncResponse } from "@/services/zaloCrawlerService";
 import type {
   AgentTestExtractResponse,
   AgentTestExtractResult,
   ZaloCrawledGroupItem,
 } from "@/types/zalo-api";
 
-type InputMode = "fake" | "text" | "group";
+type InputMode = "fake" | "text" | "group" | "villa-sync";
 
 interface FakeGroup {
   group_name: string;
@@ -37,6 +38,11 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [groupsError, setGroupsError] = useState<string | null>(null);
 
+  // Villa sync state
+  const [villaSyncResult, setVillaSyncResult] = useState<VillaSyncResponse | null>(null);
+  const [villaSyncLoading, setVillaSyncLoading] = useState(false);
+  const [villaSyncError, setVillaSyncError] = useState<string | null>(null);
+
   const handleGenerateFake = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -58,7 +64,14 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
         throw new Error(`API ${res.status}: ${res.statusText}`);
       }
 
-      const data: FakeDataResponse = await res.json();
+      let data: FakeDataResponse;
+      try {
+        data = await res.json();
+      } catch {
+        throw new Error(
+          `API ${res.status}: phản hồi không phải JSON (${process.env.NEXT_PUBLIC_LINKEDIN_CRAWLER_API_URL}/api/apartment-agent/create-fake-data)`,
+        );
+      }
       setFakeData(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi không xác định");
@@ -159,6 +172,22 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
     }
   }, [mode, crawledGroups.length, loadingGroups, loadCrawledGroups]);
 
+  // Villa sync handlers
+  const handleVillaSync = useCallback(async (dryRun: boolean) => {
+    setVillaSyncLoading(true);
+    setVillaSyncError(null);
+    setVillaSyncResult(null);
+
+    try {
+      const res = await villaSync({ user_id: userId, dry_run: dryRun });
+      setVillaSyncResult(res);
+    } catch (err) {
+      setVillaSyncError(err instanceof Error ? err.message : "Lỗi không xác định");
+    } finally {
+      setVillaSyncLoading(false);
+    }
+  }, [userId]);
+
   return (
     <div className="flex flex-col gap-lg">
       <div>
@@ -174,6 +203,7 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
           ["fake", "🧪 Dữ liệu ảo"],
           ["text", "📝 Paste text"],
           ["group", "📋 Chọn nhóm đã crawl"],
+          ["villa-sync", "🏠 Villa Sync"],
         ].map(([value, label]) => (
           <button
             key={value}
@@ -373,6 +403,84 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       {error && (
         <div className="border-error-container bg-error-container/40 rounded-xl border px-md py-sm text-body-sm text-error">
           {error}
+        </div>
+      )}
+
+      {/* ── VILLA SYNC MODE ─────────────────────────────────── */}
+      {mode === "villa-sync" && (
+        <div className="flex flex-col gap-md">
+          <p className="text-body-sm text-on-surface-variant">
+            Sync apartment listings từ Zalo messages sang GoDaNang Supabase villas table.
+            Pipeline: Fetch messages → LLM extract → Dedup → POST/PUT.
+          </p>
+
+          <div className="flex gap-sm">
+            <button
+              type="button"
+              onClick={() => void handleVillaSync(true)}
+              disabled={villaSyncLoading}
+              className="bg-tertiary text-on-tertiary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
+            >
+              {villaSyncLoading ? "Đang chạy..." : "🔍 Dry Run (Preview)"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void handleVillaSync(false)}
+              disabled={villaSyncLoading}
+              className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
+            >
+              {villaSyncLoading ? "Đang chạy..." : "🚀 Real Sync"}
+            </button>
+          </div>
+
+          {/* Villa Sync Error */}
+          {villaSyncError && (
+            <div className="border-error-container bg-error-container/40 rounded-xl border px-md py-sm text-body-sm text-error">
+              {villaSyncError}
+            </div>
+          )}
+
+          {/* Villa Sync Results */}
+          {villaSyncResult && (
+            <div className="border-outline-variant bg-surface-container-low rounded-xl border p-md">
+              <h3 className="text-h4 font-semibold text-on-surface mb-sm">
+                Kết quả Villa Sync {villaSyncResult.dry_run && "(Dry Run)"}
+              </h3>
+              <div className="grid grid-cols-3 gap-md text-center mb-md md:grid-cols-5">
+                <div>
+                  <div className="text-h3 font-bold text-primary">{villaSyncResult.total_messages_processed}</div>
+                  <div className="text-body-sm text-on-surface-variant">Messages</div>
+                </div>
+                <div>
+                  <div className="text-h3 font-bold text-secondary">{villaSyncResult.apartments_found}</div>
+                  <div className="text-body-sm text-on-surface-variant">Apartments</div>
+                </div>
+                <div>
+                  <div className="text-h3 font-bold text-tertiary">{villaSyncResult.new_villas_created}</div>
+                  <div className="text-body-sm text-on-surface-variant">Created</div>
+                </div>
+                <div>
+                  <div className="text-h3 font-bold text-outline">{villaSyncResult.villas_updated}</div>
+                  <div className="text-body-sm text-on-surface-variant">Updated</div>
+                </div>
+                <div>
+                  <div className="text-h3 font-bold text-error">{villaSyncResult.villas_marked_rented}</div>
+                  <div className="text-body-sm text-on-surface-variant">Rented</div>
+                </div>
+              </div>
+
+              {villaSyncResult.errors.length > 0 && (
+                <div className="border-error-container bg-error-container/20 rounded-lg border p-sm">
+                  <p className="text-body-sm font-semibold text-error mb-xs">Errors ({villaSyncResult.errors.length}):</p>
+                  <ul className="list-disc pl-md text-body-sm text-error">
+                    {villaSyncResult.errors.map((err, i) => (
+                      <li key={i}>{err}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
