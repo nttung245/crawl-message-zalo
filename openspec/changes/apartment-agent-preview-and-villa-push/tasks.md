@@ -48,9 +48,9 @@ Specs: `apartment-agent-classifier`, `apartment-agent-preview`.
 
 Spec: `apartment-agent-villa-column-mapping`.
 
-- [ ] 6.1 Add `## Verified Columns` section to `apartment-agent-villa-column-mapping/spec.md` with the result from task 1.1.
-- [ ] 6.2 In `openspec/changes/zalo-apartment-filter-pipeline/specs/godanang-villas-sync/spec.md`, prepend a banner: `> **SUPERSEDED** by apartment-agent-villa-column-mapping (see openspec/changes/apartment-agent-preview-and-villa-push/specs/apartment-agent-villa-column-mapping/spec.md)`.
-- [ ] 6.3 Commit: `docs(openspec): align godanang-villas-sync spec with implementation`. Verify with `openspec validate apartment-agent-preview-and-villa-push --strict` (or the project's equivalent).
+- [x] 6.1 Add `## Verified Columns` section to `apartment-agent-villa-column-mapping/spec.md` with the result from task 1.1.
+- [x] 6.2 In `openspec/changes/zalo-apartment-filter-pipeline/specs/godanang-villas-sync/spec.md`, prepend a banner: `> **SUPERSEDED** by apartment-agent-villa-column-mapping (see openspec/changes/apartment-agent-preview-and-villa-push/specs/apartment-agent-villa-column-mapping/spec.md)`.
+- [x] 6.3 Commit: `docs(openspec): align godanang-villas-sync spec with implementation`. Verify with `openspec validate apartment-agent-preview-and-villa-push --strict` (or the project's equivalent).
 
 ## 7. Subunit 6: End-to-end smoke test (one commit)
 

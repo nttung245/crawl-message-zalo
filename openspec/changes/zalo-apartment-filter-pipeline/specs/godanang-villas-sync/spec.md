@@ -1,3 +1,5 @@
+> **SUPERSEDED** by [apartment-agent-villa-column-mapping](../../../apartment-agent-preview-and-villa-push/specs/apartment-agent-villa-column-mapping/spec.md) — see the canonical spec for the current column mapping.
+
 ## ADDED Requirements
 
 ### Requirement: Extract structured apartment data from message text
