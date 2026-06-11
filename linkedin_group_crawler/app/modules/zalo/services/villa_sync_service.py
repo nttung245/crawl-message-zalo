@@ -91,6 +91,7 @@ async def sync_villas(
     dry_run: bool = False,
     batch_size: int = 20,
     delay_between_batches: float = 1.0,
+    listing_ids: Optional[list[str]] = None,
 ) -> VillaSyncSummary:
     """Run the full villa sync pipeline.
 
@@ -99,15 +100,38 @@ async def sync_villas(
     3. Dedup: find existing villas by address+room
     4. POST new / PUT existing (skip images on update)
     5. Mark rented villas as inactive
+
+    When listing_ids is provided, only sync those specific messages
+    instead of the incremental fetch.
     """
     summary = VillaSyncSummary()
 
-    # Step 1: Fetch incremental messages
-    try:
-        messages = await fetch_incremental_messages(user_id)
-    except Exception as exc:
-        summary.errors.append(f"Failed to fetch messages: {exc}")
-        return summary
+    # Step 1: Fetch messages
+    if listing_ids:
+        messages = []
+        for mid in listing_ids:
+            try:
+                rows = await _rest(
+                    "GET",
+                    "zalo_messages",
+                    params={"select": "id,content", "id": f"eq.{mid}"},
+                ) or []
+                if rows:
+                    content = rows[0].get("content", "")
+                    if content and content.strip():
+                        messages.append({
+                            "id": rows[0]["id"],
+                            "text": content,
+                            "timestamp": rows[0].get("created_at", ""),
+                        })
+            except Exception as exc:
+                summary.errors.append(f"Failed to fetch listing {mid}: {exc}")
+    else:
+        try:
+            messages = await fetch_incremental_messages(user_id)
+        except Exception as exc:
+            summary.errors.append(f"Failed to fetch messages: {exc}")
+            return summary
 
     if not messages:
         logger.info("VillaSync: no new messages to process")

@@ -36,10 +36,10 @@ Spec: `apartment-agent-error-safety` (the test surface is part of error safety).
 
 Specs: `apartment-agent-classifier`, `apartment-agent-preview`.
 
-- [ ] 5.1 Add `app/modules/apartment_agent/classifier.py::is_apartment_listing` and `ClassificationResult` schema. Use the same OpenAI client, `temperature=0`, prompt ≤ 200 tokens. Gate behind `APARTMENT_AGENT_CLASSIFIER_ENABLED` (default off, opt-in).
-- [ ] 5.2 Wire the classifier into `pipeline.py::extract_only` and the new `preview_only` so each returns `classifications` in lockstep with `extractions`. Commit: `feat(apartment-agent): text classifier step`.
-- [ ] 5.3 Add `POST /api/apartment-agent/preview` in `router.py`. Accepts `{texts}` or `{group_name, limit}`. Runs classifier + extractor, returns per-listing `payload` (literal output of `_build_insert_payload` / `_build_update_payload`) with `operation` from a `find_existing_villa` read. No write calls.
-- [ ] 5.4 Extend `villa_sync_service.sync_villas` to accept an optional `listing_ids: list[str]` filter. If provided, only sync those. Commit: `feat(apartment-agent): preview endpoint + listing_ids filter`.
+- [x] 5.1 Add `app/modules/apartment_agent/classifier.py::is_apartment_listing` and `ClassificationResult` schema. Use the same OpenAI client, `temperature=0`, prompt ≤ 200 tokens. Gate behind `APARTMENT_AGENT_CLASSIFIER_ENABLED` (default off, opt-in).
+- [x] 5.2 Wire the classifier into `pipeline.py::extract_only` and the new `preview_only` so each returns `classifications` in lockstep with `extractions`. Commit: `feat(apartment-agent): text classifier step`.
+- [x] 5.3 Add `POST /api/apartment-agent/preview` in `router.py`. Accepts `{texts}` or `{group_name, limit}`. Runs classifier + extractor, returns per-listing `payload` (literal output of `_build_insert_payload` / `_build_update_payload`) with `operation` from a `find_existing_villa` read. No write calls.
+- [x] 5.4 Extend `villa_sync_service.sync_villas` to accept an optional `listing_ids: list[str]` filter. If provided, only sync those. Commit: `feat(apartment-agent): preview endpoint + listing_ids filter`.
 - [ ] 5.5 In `ZaloAgentTestPanel.tsx`, add a "Bản xem trước (chưa gửi GoDaNang)" section after the test result. Per-listing card with title/district/area/price/price_label, `<pre>` payload block, operation badge, and a per-card "Gửi" / "Bỏ qua" toggle (default on for `INSERT`, off for `UPDATE`/`SKIP`).
 - [ ] 5.6 Footer with `Gửi N cái đã chọn` button calling `villaSync({listing_ids})`. Disable when N=0, show progress bar while sending, flip cards to "Đã gửi" with the returned `villa_id` on completion. Commit: `feat(apartment-agent): preview-then-push UI`.
 - [ ] 5.7 Verify with `gstack browse`: paste 2 fake listing texts, click "Test Agent", see 2 preview cards with INSERT badges, toggle 1 off, click "Gửi 1 cái đã chọn", watch the card flip to "Đã gửi" and a success toast.

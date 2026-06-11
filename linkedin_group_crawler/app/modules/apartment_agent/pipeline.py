@@ -7,6 +7,7 @@ from loguru import logger
 from app.modules.apartment_agent.dedup import check_duplicate, fetch_existing_apartments
 from app.modules.apartment_agent.extractor import extract_batch
 from app.modules.apartment_agent.schemas import (
+    ClassificationResult,
     ExtractionStatus,
     PipelineResult,
     SyncResult,
@@ -16,11 +17,16 @@ from app.modules.apartment_agent.sync import insert_apartment
 
 
 
-async def extract_only(messages: list[dict]) -> "TestExtractResponse":
+async def extract_only(
+    messages: list[dict],
+    run_classifier: bool = False,
+) -> "TestExtractResponse":
     """Run only the extraction step (no dedup/sync) for testing.
 
     Args:
         messages: List of dicts with 'id' and 'text' keys.
+        run_classifier: If True, run the classifier first and skip
+            non-listing messages before extraction.
 
     Returns:
         TestExtractResponse with per-message extraction outcomes.
@@ -30,8 +36,24 @@ async def extract_only(messages: list[dict]) -> "TestExtractResponse":
     result = TestExtractResponse(total=len(messages))
     message_map = {str(m.get("id", "")): m for m in messages}
 
-    logger.info(f"Test extract: extracting {len(messages)} messages")
-    extractions = await extract_batch(messages)
+    # Optional classifier gate
+    messages_to_extract = messages
+    if run_classifier:
+        from app.modules.apartment_agent.classifier import classify_batch
+
+        classifications = await classify_batch(messages)
+        messages_to_extract = [
+            m
+            for m, c in zip(messages, classifications)
+            if c.is_listing
+        ]
+        result.not_listing += len(messages) - len(messages_to_extract)
+
+    logger.info(
+        f"Test extract: extracting {len(messages_to_extract)} messages "
+        f"(classifier filtered {len(messages) - len(messages_to_extract)})"
+    )
+    extractions = await extract_batch(messages_to_extract)
 
     for ext in extractions:
         raw_text = message_map.get(ext.raw_message_id, {}).get("text", "") or ""
@@ -213,5 +235,101 @@ async def process_messages(messages: list[dict]) -> PipelineResult:
         f"Pipeline complete: {result.extracted} extracted, "
         f"{result.duplicates} duplicates, {result.inserted} inserted, "
         f"{result.failed} failed"
+    )
+    return result
+
+
+async def preview_only(
+    messages: list[dict],
+) -> "PreviewResponse":
+    """Run classifier + extractor + dedup-read, returning payloads without writing.
+
+    Args:
+        messages: List of dicts with 'id' and 'text' keys.
+
+    Returns:
+        PreviewResponse with classifications, per-listing payloads, and summary.
+    """
+    from app.modules.apartment_agent.router import PreviewListing, PreviewResponse
+    from app.modules.apartment_agent.sync import (
+        _build_insert_payload,
+        _build_update_payload,
+        find_existing_villa,
+    )
+
+    test_result = await extract_only(messages, run_classifier=True)
+    listings: list[PreviewListing] = []
+    classifications: list[ClassificationResult] = []
+    seen_classified = 0
+    would_insert = 0
+    would_update = 0
+    would_skip = 0
+
+    # Collect classifications from the extract path
+    for tr in test_result.results:
+        if tr.status == "extracted" and tr.listing:
+            seen_classified += 1
+            # Build the ApartmentListing from the TestExtractListing
+            from app.modules.apartment_agent.schemas import ApartmentListing
+
+            apt = ApartmentListing(
+                is_apartment_listing=True,
+                title=tr.listing.apartment_name or "",
+                price=tr.listing.price_vnd,
+                area_sqm=tr.listing.area_m2,
+                bedrooms=tr.listing.bedrooms,
+                district=tr.listing.district,
+                images=tr.listing.images,
+            )
+            existing = await find_existing_villa(
+                address=tr.listing.address or "",
+                name=tr.listing.apartment_name or "",
+            )
+            if existing:
+                operation = "update"
+                existing_id = existing.get("id")
+                payload = _build_update_payload(apt)
+                would_update += 1
+            else:
+                operation = "insert"
+                existing_id = None
+                payload = _build_insert_payload(apt)
+                would_insert += 1
+
+            listings.append(
+                PreviewListing(
+                    raw_message_id=tr.raw_message_id,
+                    raw_text=tr.raw_text,
+                    title=apt.title,
+                    district=apt.district,
+                    bedrooms=apt.bedrooms,
+                    price_vnd=apt.price,
+                    area_m2=apt.area_sqm,
+                    image_count=len(apt.images),
+                    payload=payload,
+                    operation=operation,
+                    existing_villa_id=str(existing_id) if existing_id else None,
+                )
+            )
+        elif tr.status == "not_listing":
+            seen_classified += 1
+        else:
+            # failed extraction counts as seen
+            seen_classified += 1
+
+    result = PreviewResponse(
+        total_messages_seen=test_result.total,
+        classified_listing=seen_classified,
+        extracted_ok=len(listings),
+        would_insert=would_insert,
+        would_update=would_update,
+        would_skip=would_skip,
+        listings=listings,
+    )
+    logger.info(
+        f"Preview: {result.total_messages_seen} seen, "
+        f"{result.classified_listing} classified, "
+        f"{result.extracted_ok} extracted, "
+        f"{result.would_insert} insert / {result.would_update} update / {result.would_skip} skip"
     )
     return result

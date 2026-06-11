@@ -75,6 +75,34 @@ class TestExtractResponse(BaseModel):
     results: list[TestExtractResult] = Field(default_factory=list)
 
 
+class PreviewListing(BaseModel):
+    """Per-listing preview with the exact payload that would be written."""
+
+    raw_message_id: str = ""
+    raw_text: str = ""
+    title: str = ""
+    district: Optional[str] = None
+    bedrooms: Optional[int] = None
+    price_vnd: Optional[float] = None
+    area_m2: Optional[float] = None
+    image_count: int = 0
+    payload: dict = Field(default_factory=dict, description="Exact body for GoDaNang POST/PUT")
+    operation: str = ""  # "insert" | "update" | "skip"
+    existing_villa_id: Optional[str] = None
+
+
+class PreviewResponse(BaseModel):
+    """Result of a preview (no-write) run."""
+
+    total_messages_seen: int = 0
+    classified_listing: int = 0
+    extracted_ok: int = 0
+    would_insert: int = 0
+    would_update: int = 0
+    would_skip: int = 0
+    listings: list[PreviewListing] = Field(default_factory=list)
+
+
 @router.post("/process", response_model=PipelineResult)
 async def process_endpoint(req: ProcessRequest) -> PipelineResult:
     """Process crawled Zalo messages through the apartment agent pipeline.
@@ -242,6 +270,61 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
         return TestExtractResponse()
 
     return await extract_only(messages)
+
+
+@router.post("/preview", response_model=PreviewResponse)
+async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
+    """Preview extraction without writing to GoDaNang.
+
+    Runs classifier + extractor + dedup-read, and returns the exact
+    payloads that would be sent to GoDaNang's villas table.
+    Does NOT write any data.
+    """
+    request_id = str(uuid4())
+    missing = validate_settings()
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=ApartmentAgentError(
+                kind="missing_config",
+                message="Missing required settings",
+                missing=missing,
+                request_id=request_id,
+            ).model_dump(),
+        )
+    from app.modules.apartment_agent.pipeline import preview_only
+
+    if req.texts:
+        messages = [{"id": f"text_{i}", "text": t} for i, t in enumerate(req.texts)]
+    elif req.group_name:
+        from app.modules.zalo.services.supabase_service import _rest
+
+        try:
+            rows = await _rest(
+                "GET",
+                "zalo_messages",
+                params={
+                    "select": "id,content,group_name",
+                    "group_name": f"eq.{req.group_name}",
+                    "limit": "200",
+                },
+            ) or []
+            messages = [
+                {"id": row["id"], "text": row["content"]} for row in rows
+            ]
+        except Exception as exc:
+            raise HTTPException(
+                status_code=500, detail=f"Failed to fetch messages: {exc}"
+            )
+    else:
+        raise HTTPException(
+            status_code=400, detail="Provide texts or group_name"
+        )
+
+    if not messages:
+        return PreviewResponse()
+
+    return await preview_only(messages)
 
 
 # ── Fake test data ──────────────────────────────────────────────────────────

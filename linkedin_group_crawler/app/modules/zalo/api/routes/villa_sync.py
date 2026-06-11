@@ -16,6 +16,7 @@ class VillaSyncRequest(BaseModel):
 
     user_id: str = Field(default="default", description="Zalo user ID to sync messages for")
     dry_run: bool = Field(default=False, description="If true, return planned changes without executing")
+    listing_ids: Optional[list[str]] = Field(default=None, description="Specific message IDs to sync (bypasses incremental fetch)")
 
 
 class VillaSyncResponse(BaseModel):
@@ -53,6 +54,7 @@ async def villa_sync_endpoint(req: VillaSyncRequest) -> VillaSyncResponse:
         summary = await sync_villas(
             user_id=req.user_id,
             dry_run=req.dry_run,
+            listing_ids=req.listing_ids,
         )
         return VillaSyncResponse(
             **summary.to_dict(),

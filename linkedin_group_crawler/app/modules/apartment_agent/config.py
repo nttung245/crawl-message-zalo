@@ -27,6 +27,9 @@ class ApartmentAgentSettings(BaseSettings):
     # Auto-trigger after Zalo crawl
     auto_process: bool = False
 
+    # Classifier gate
+    classifier_enabled: bool = False
+
     model_config = {"env_prefix": "", "case_sensitive": False}
 
 
