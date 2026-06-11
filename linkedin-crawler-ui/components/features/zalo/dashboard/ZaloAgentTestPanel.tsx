@@ -1,10 +1,18 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 
-import { getZaloCrawledGroups, testAgentExtract, villaSync } from "@/services/zaloCrawlerService";
+import {
+  getZaloCrawledGroups,
+  previewAgentExtract,
+  testAgentExtract,
+  villaSync,
+} from "@/services/zaloCrawlerService";
 import type { VillaSyncResponse } from "@/services/zaloCrawlerService";
 import type {
+  AgentPreviewListing,
+  AgentPreviewResponse,
   AgentTestExtractResponse,
   AgentTestExtractResult,
   ZaloCrawledGroupItem,
@@ -42,6 +50,15 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
   const [villaSyncResult, setVillaSyncResult] = useState<VillaSyncResponse | null>(null);
   const [villaSyncLoading, setVillaSyncLoading] = useState(false);
   const [villaSyncError, setVillaSyncError] = useState<string | null>(null);
+
+  // Preview state
+  const [previewData, setPreviewData] = useState<AgentPreviewResponse | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [lastTestRequest, setLastTestRequest] = useState<{ texts?: string[]; group_name?: string } | null>(null);
+  const [previewSyncLoading, setPreviewSyncLoading] = useState(false);
+  const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set());
 
   const handleGenerateFake = useCallback(async () => {
     setLoading(true);
@@ -86,6 +103,9 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setPreviewData(null);
+    setSelectedIds(new Set());
+    setSyncedIds(new Set());
 
     try {
       const groupsToTest =
@@ -94,6 +114,7 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
           : fakeData.groups.filter((g) => g.group_name === selectedFakeGroup);
 
       const allTexts = groupsToTest.flatMap((g) => g.messages.map((m) => m.text));
+      setLastTestRequest({ texts: allTexts });
 
       const res = await testAgentExtract({ texts: allTexts });
       setResult(res);
@@ -117,8 +138,12 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setPreviewData(null);
+    setSelectedIds(new Set());
+    setSyncedIds(new Set());
 
     try {
+      setLastTestRequest({ texts });
       const res = await testAgentExtract({ texts });
       setResult(res);
     } catch (err) {
@@ -154,8 +179,12 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
     setLoading(true);
     setError(null);
     setResult(null);
+    setPreviewData(null);
+    setSelectedIds(new Set());
+    setSyncedIds(new Set());
 
     try {
+      setLastTestRequest({ group_name: selectedCrawledGroup });
       const res = await testAgentExtract({ group_name: selectedCrawledGroup });
       setResult(res);
     } catch (err) {
@@ -187,6 +216,63 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       setVillaSyncLoading(false);
     }
   }, [userId]);
+
+  // Preview handlers
+  const handleCreatePreview = useCallback(async () => {
+    if (!lastTestRequest) return;
+
+    setPreviewLoading(true);
+    setPreviewError(null);
+    setPreviewData(null);
+    setSelectedIds(new Set());
+    setSyncedIds(new Set());
+
+    try {
+      const res = await previewAgentExtract(lastTestRequest);
+      setPreviewData(res);
+      // Default: select INSERT listings, deselect UPDATE/SKIP
+      const ids = new Set<string>();
+      for (const l of res.listings) {
+        if (l.operation === "insert") {
+          ids.add(l.raw_message_id);
+        }
+      }
+      setSelectedIds(ids);
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Lỗi không xác định");
+    } finally {
+      setPreviewLoading(false);
+    }
+  }, [lastTestRequest]);
+
+  const handleSendSelected = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+
+    setPreviewSyncLoading(true);
+    try {
+      const res = await villaSync({
+        user_id: userId,
+        dry_run: false,
+        listing_ids: Array.from(selectedIds),
+      });
+      setSyncedIds(new Set(selectedIds));
+      toast.success(`Đã gửi ${selectedIds.size} listing`, {
+        description: `${res.new_villas_created} created, ${res.villas_updated} updated`,
+      });
+    } catch (err) {
+      setPreviewError(err instanceof Error ? err.message : "Lỗi không xác định");
+      toast.error("Gửi thất bại", {
+        description: err instanceof Error ? err.message : "Lỗi không xác định",
+      });
+    } finally {
+      setPreviewSyncLoading(false);
+    }
+  }, [selectedIds, userId]);
+
+  const previewInsertCount = useMemo(
+    () => previewData?.listings.filter((l) => l.operation === "insert").length ?? 0,
+    [previewData],
+  );
 
   return (
     <div className="flex flex-col gap-lg">
@@ -517,6 +603,102 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
           ))}
         </div>
       )}
+
+      {/* ── Preview Section (after test results) ────────────────────── */}
+      {result && result.results.length > 0 && (
+        <div className="flex flex-col gap-lg border-t border-outline-variant pt-lg mt-lg">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-h4 font-semibold text-on-surface">
+                Bản xem trước (chưa gửi GoDaNang)
+              </h3>
+              <p className="text-body-sm text-on-surface-variant">
+                Xem payload chính xác sẽ gửi lên GoDaNang. Chọn listing muốn sync và bấm "Gửi".
+              </p>
+            </div>
+            {!previewData && (
+              <button
+                type="button"
+                onClick={handleCreatePreview}
+                disabled={previewLoading || !lastTestRequest}
+                className="bg-tertiary text-on-tertiary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
+              >
+                {previewLoading ? "Đang tạo..." : "🔍 Tạo bản xem trước"}
+              </button>
+            )}
+          </div>
+
+          {previewError && (
+            <div className="border-error-container bg-error-container/40 rounded-xl border px-md py-sm text-body-sm text-error">
+              {previewError}
+            </div>
+          )}
+
+          {previewData && previewData.listings.length > 0 && (
+            <>
+              {/* Summary bar */}
+              <div className="flex gap-md text-body-sm">
+                <span>
+                  Chèn mới: <strong className="text-success">{previewData.would_insert}</strong>
+                </span>
+                <span>
+                  Cập nhật: <strong className="text-warning">{previewData.would_update}</strong>
+                </span>
+                <span>
+                  Bỏ qua: <strong className="text-on-surface-variant">{previewData.would_skip}</strong>
+                </span>
+              </div>
+
+              {/* Listing cards */}
+              <div className="flex flex-col gap-md">
+                {previewData.listings.map((listing, idx) => (
+                  <PreviewCard
+                    key={listing.raw_message_id || idx}
+                    listing={listing}
+                    selected={selectedIds.has(listing.raw_message_id)}
+                    synced={syncedIds.has(listing.raw_message_id)}
+                    syncing={previewSyncLoading}
+                    onToggle={() => {
+                      setSelectedIds((prev) => {
+                        const next = new Set(prev);
+                        if (next.has(listing.raw_message_id)) {
+                          next.delete(listing.raw_message_id);
+                        } else {
+                          next.add(listing.raw_message_id);
+                        }
+                        return next;
+                      });
+                    }}
+                  />
+                ))}
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-between border-t border-outline-variant pt-md">
+                <span className="text-body-sm text-on-surface-variant">
+                  Đã chọn {selectedIds.size} / {previewData.listings.length} listing
+                </span>
+                <button
+                  type="button"
+                  onClick={handleSendSelected}
+                  disabled={selectedIds.size === 0 || previewSyncLoading}
+                  className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
+                >
+                  {previewSyncLoading
+                    ? "Đang gửi..."
+                    : `Gửi ${selectedIds.size} cái đã chọn`}
+                </button>
+              </div>
+            </>
+          )}
+
+          {previewData && previewData.listings.length === 0 && (
+            <div className="text-body-sm text-on-surface-variant py-md">
+              Không có listing nào để xem trước.
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -583,6 +765,86 @@ function Field({ label, value }: { label: string; value: string | number | null 
     <div>
       <span className="text-on-surface-variant">{label}: </span>
       <span className="font-medium text-on-surface">{value}</span>
+    </div>
+  );
+}
+
+function PreviewCard({
+  listing,
+  selected,
+  synced,
+  syncing,
+  onToggle,
+}: {
+  listing: AgentPreviewListing;
+  selected: boolean;
+  synced: boolean;
+  syncing: boolean;
+  onToggle: () => void;
+}) {
+  const badgeColor: Record<string, string> = {
+    insert: "bg-success/15 text-success",
+    update: "bg-warning/15 text-warning",
+    skip: "bg-surface-container-high text-on-surface-variant",
+  };
+  const badgeLabel: Record<string, string> = {
+    insert: "INSERT",
+    update: "UPDATE",
+    skip: "SKIP",
+  };
+
+  return (
+    <div
+      className={`rounded-xl border p-md transition ${
+        synced
+          ? "border-success bg-success/5 opacity-70"
+          : selected
+            ? "border-primary"
+            : "border-outline-variant"
+      }`}
+    >
+      <div className="flex items-start justify-between mb-sm">
+        <div className="flex items-center gap-sm min-w-0">
+          <span className="text-body-sm font-medium text-on-surface truncate">
+            {listing.title || "(không tiêu đề)"}
+          </span>
+          <span
+            className={`rounded-md px-sm py-0.5 text-body-xs font-semibold ${badgeColor[listing.operation] || ""}`}
+          >
+            {badgeLabel[listing.operation] || listing.operation}
+          </span>
+        </div>
+        <div className="flex items-center gap-xs shrink-0 ml-sm">
+          {synced ? (
+            <span className="text-body-xs text-success font-semibold">✅ Đã gửi</span>
+          ) : (
+            <label className="flex items-center gap-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={selected}
+                onChange={onToggle}
+                disabled={syncing}
+                className="accent-primary"
+              />
+              <span className="text-body-sm text-on-surface-variant">Gửi</span>
+            </label>
+          )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-sm text-body-sm mb-sm md:grid-cols-4">
+        <Field label="Quận" value={listing.district} />
+        <Field label="Phòng ngủ" value={listing.bedrooms} />
+        <Field label="Giá" value={listing.price_vnd ? `${(listing.price_vnd / 1_000_000).toFixed(1)}tr` : null} />
+        <Field label="Diện tích" value={listing.area_m2 ? `${listing.area_m2}m²` : null} />
+      </div>
+
+      <details className="text-body-xs">
+        <summary className="text-on-surface-variant cursor-pointer hover:text-on-surface">Payload JSON</summary>
+        <pre className="mt-xs bg-surface-container-high rounded-lg p-sm overflow-x-auto text-body-xs text-on-surface">
+          {JSON.stringify(listing.payload, null, 2)}
+        </pre>
+      </details>
     </div>
   );
 }

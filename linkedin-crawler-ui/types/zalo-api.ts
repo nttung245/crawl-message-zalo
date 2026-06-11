@@ -413,3 +413,28 @@ export interface AgentTestExtractResponse {
   failed: number;
   results: AgentTestExtractResult[];
 }
+
+// Preview / Preview-then-push Types
+export interface AgentPreviewListing {
+  raw_message_id: string;
+  raw_text: string;
+  title: string;
+  district: string | null;
+  bedrooms: number | null;
+  price_vnd: number | null;
+  area_m2: number | null;
+  image_count: number;
+  payload: Record<string, unknown>;
+  operation: "insert" | "update" | "skip";
+  existing_villa_id: string | null;
+}
+
+export interface AgentPreviewResponse {
+  total_messages_seen: number;
+  classified_listing: number;
+  extracted_ok: number;
+  would_insert: number;
+  would_update: number;
+  would_skip: number;
+  listings: AgentPreviewListing[];
+}

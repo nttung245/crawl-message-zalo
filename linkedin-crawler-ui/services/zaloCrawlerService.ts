@@ -588,11 +588,18 @@ export function testAgentExtract(
 ): Promise<import("@/types/zalo-api").AgentTestExtractResponse> {
   return requestJson<import("@/types/zalo-api").AgentTestExtractResponse>(
     "/api/apartment-agent/test-extract",
-    {
-      method: "POST",
-      body: JSON.stringify(request),
-    },
+    { method: "POST", body: JSON.stringify(request) },
     120000,
+  );
+}
+
+export function previewAgentExtract(
+  request: { group_name?: string; texts?: string[] },
+): Promise<import("@/types/zalo-api").AgentPreviewResponse> {
+  return requestJson<import("@/types/zalo-api").AgentPreviewResponse>(
+    "/api/apartment-agent/preview",
+    { method: "POST", body: JSON.stringify(request) },
+    300000,
   );
 }
 
@@ -607,7 +614,7 @@ export interface VillaSyncResponse {
 }
 
 export function villaSync(
-  request: { user_id?: string; dry_run?: boolean } = {},
+  request: { user_id?: string; dry_run?: boolean; listing_ids?: string[] } = {},
 ): Promise<VillaSyncResponse> {
   return requestJson<VillaSyncResponse>(
     "/api/zalo/villa-sync",
@@ -616,6 +623,7 @@ export function villaSync(
       body: JSON.stringify({
         user_id: request.user_id || "default",
         dry_run: request.dry_run ?? false,
+        listing_ids: request.listing_ids,
       }),
     },
     600000,
