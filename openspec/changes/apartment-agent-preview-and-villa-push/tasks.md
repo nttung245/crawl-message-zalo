@@ -28,9 +28,9 @@ Spec: `zalo-crawl-completion-feedback`.
 
 Spec: `apartment-agent-error-safety` (the test surface is part of error safety).
 
-- [ ] 4.1 Add `linkedin_group_crawler/tests/test_apartment_agent_route.py` with `TestClient(app)` and `unittest.mock.patch` on `app.modules.apartment_agent.extractor._get_client`.
-- [ ] 4.2 Test cases: 400 (no `texts` and no `group_name`); 200 with `texts` (mocked LLM returns a valid `ApartmentListing`); 200 with `group_name` returning 0 rows; 500 with LLM raise (response is still JSON with `status="failed"` row); 400 with missing env (`validate_settings` returns non-empty `missing`).
-- [ ] 4.3 Commit: `test(apartment-agent): cover /test-extract happy + error + config paths`. Verify with `pytest linkedin_group_crawler/tests/test_apartment_agent_route.py -v` (all 5 cases pass).
+- [x] 4.1 Add `linkedin_group_crawler/tests/test_apartment_agent_route.py` with `TestClient(app)` and `unittest.mock.patch` on `app.modules.apartment_agent.extractor._get_client`.
+- [x] 4.2 Test cases: 400 (no `texts` and no `group_name`); 200 with `texts` (mocked LLM returns a valid `ApartmentListing`); 200 with `group_name` returning 0 rows; 500 with LLM raise (response is still JSON with `status="failed"` row); 400 with missing env (`validate_settings` returns non-empty `missing`).
+- [x] 4.3 Commit: `test(apartment-agent): cover /test-extract happy + error + config paths`. Verify with `pytest linkedin_group_crawler/tests/test_apartment_agent_route.py -v` (all 5 cases pass).
 
 ## 5. Subunit 4: Classifier + preview + push UI (one commit per layer, two commits total)
 
