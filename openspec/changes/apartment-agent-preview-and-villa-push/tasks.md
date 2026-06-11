@@ -19,10 +19,10 @@ Spec: `apartment-agent-error-safety`.
 
 Spec: `zalo-crawl-completion-feedback`.
 
-- [ ] 3.1 In `components/features/zalo/dashboard/ZaloCrawlerConfigCard.tsx`, mount `<ZaloCrawlProgressPanel jobs={flow.jobs} summary={flow.summary} />` after the group list.
-- [ ] 3.2 In `hooks/useZaloCrawlerFlow.ts::launchRows`, add `toast.success("Đã tạo ${succeededCount} job crawl", { description: "Theo dõi tiến độ ngay bên dưới." })` immediately after the success count is computed. One call per batch, not per job.
-- [ ] 3.3 In the SSE handler in `useZaloCrawlerFlow.ts` that already updates `job.progress`, add `toast.info("Job ${short_id}: ${messages} tin nhắn, ${images} ảnh")` on `status="completed"`. Cap visible toasts at the most recent 5, auto-dismiss after 3s.
-- [ ] 3.4 Commit: `feat(zalo-crawl): show message+image counts + toasts on completion`. Verify with `gstack browse` on the running dev stack: click Crawl on a real group, watch the big-number cards increment and a toast appear.
+- [x] 3.1 In `components/features/zalo/dashboard/ZaloCrawlerConfigCard.tsx`, mount `<ZaloCrawlProgressPanel jobs={flow.jobs} summary={flow.summary} />` after the group list.
+- [x] 3.2 In `hooks/useZaloCrawlerFlow.ts::launchRows`, add `toast.success("Đã tạo ${succeededCount} job crawl", { description: "Theo dõi tiến độ ngay bên dưới." })` immediately after the success count is computed. One call per batch, not per job.
+- [x] 3.3 In the SSE handler in `useZaloCrawlerFlow.ts` that already updates `job.progress`, add `toast.info("Job ${short_id}: ${messages} tin nhắn, ${images} ảnh")` on `status="completed"`. Cap visible toasts at the most recent 5, auto-dismiss after 3s.
+- [x] 3.4 Commit: `feat(zalo-crawl): show message+image counts + toasts on completion`. Verify with `gstack browse` on the running dev stack: click Crawl on a real group, watch the big-number cards increment and a toast appear.
 
 ## 4. Subunit 3: Route-level tests (one commit)
 

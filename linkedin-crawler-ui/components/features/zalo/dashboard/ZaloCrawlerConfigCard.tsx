@@ -6,6 +6,7 @@ import { useMemo, useState } from "react";
 import { MaterialIcon } from "@/components/ui";
 import type { ZaloCrawlerFlowValue } from "@/hooks/useZaloCrawlerFlow";
 
+import { ZaloCrawlProgressPanel } from "./ZaloCrawlProgressPanel";
 import { ZaloGroupInputList } from "./ZaloGroupInputList";
 import { ZaloLiveGroupPicker } from "./ZaloLiveGroupPicker";
 
@@ -389,6 +390,14 @@ export function ZaloCrawlerConfigCard({ flow }: ZaloCrawlerConfigCardProps) {
             onUpdateRow={flow.updateGroupRow}
             onRemoveRow={flow.removeGroupRow}
           />
+
+          {flow.jobs.length > 0 && (
+            <ZaloCrawlProgressPanel
+              jobs={flow.jobs}
+              summary={flow.summary}
+              onRetryGroup={flow.retryGroup}
+            />
+          )}
         </div>
       </div>
     </section>

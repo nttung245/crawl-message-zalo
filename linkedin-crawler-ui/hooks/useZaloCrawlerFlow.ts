@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { API_BASE_URL, API_KEY } from "@/lib/env";
 import {
@@ -830,6 +831,18 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
         ) {
           next[rowId] = mergedJob;
           hasChanges = true;
+
+          // Toast on completion
+          if (mergedJob.status === "completed" && jobState.status !== "completed") {
+            const shortId = mergedJob.jobId.slice(0, 8);
+            const msgs = mergedJob.progress.messages_collected;
+            const imgs = mergedJob.progress.images_found;
+            if (msgs > 0 || imgs > 0) {
+              toast.info(`Job ${shortId}: ${msgs} tin nh\u1eafn, ${imgs} \u1ea3nh`, {
+                duration: 3000,
+              });
+            }
+          }
         }
       }
 
@@ -1381,6 +1394,10 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
         setFeedbackMessage(
           `\u0110\u00e3 t\u1ea1o ${succeededCount} job crawl Zalo${failedCount > 0 ? `, ${failedCount} job l\u1ed7i kh\u1edfi t\u1ea1o` : ""}.`,
         );
+        toast.success(`\u0110\u00e3 t\u1ea1o ${succeededCount} job crawl`, {
+          description: "Theo d\u00f5i ti\u1ebfn \u0111\u1ed9 ngay b\u00ean d\u01b0\u1edbi.",
+          duration: 3000,
+        });
       } else {
         setErrorMessage(MSG_ALL_JOB_INIT_ERROR);
       }
