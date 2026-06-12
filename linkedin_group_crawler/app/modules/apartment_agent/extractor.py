@@ -1,8 +1,9 @@
-"""LLM-based apartment listing extraction from raw Zalo messages."""
+"""LLM-based apartment listing extraction from pre-grouped listing objects (Stage 2)."""
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncGenerator
 from typing import Optional
 
 from openai import AsyncOpenAI
@@ -15,11 +16,10 @@ from app.modules.apartment_agent.schemas import (
     ExtractionStatus,
 )
 
-SYSTEM_PROMPT = """You are a Vietnamese real estate data extractor. Analyze Zalo group chat messages and extract structured apartment listing data.
+SYSTEM_PROMPT = """You are a Vietnamese real estate data extractor. You receive a PRE-GROUPED apartment listing (text from one or more related Zalo messages plus image URLs). Extract structured data for the GoDaNang villas table.
 
 Rules:
-- Only extract messages that are apartment FOR RENT or FOR SALE listings in Da Nang, Vietnam.
-- Ignore spam, general chat, service advertisements (cleaning, moving, etc.), and non-apartment listings.
+- The input is one listing — title, price, contact, etc. describe ONE apartment unit.
 - Extract price in VND. Convert shorthand: "8tr" = 8000000, "3.2 tỷ" = 3200000000, "500k" = 500000.
 - Extract area in square meters from patterns like "70m2", "70 m2", "70m²".
 - Extract bedrooms from "2PN", "2 phòng ngủ", "2 phòng", "2BR".
@@ -27,30 +27,27 @@ Rules:
 - Infer district from landmarks if not explicit (e.g., "gần biển Mỹ Khê" → Ngũ Hành Sơn).
 - Extract phone numbers (Vietnamese format: 0xx, +84xx).
 - Extract contact name from patterns like "Liên hệ Anh Tuấn", "A Tuấn", "Chị Mai".
-- Set is_apartment_listing=false if the message is NOT an apartment listing.
+- Set is_apartment_listing=false if the text is NOT an apartment listing (spam, casual chat, service ad).
 
-Rented/Occupied status detection (is_rented):
-- Set is_rented=true when the message contains cues indicating the unit is already occupied/rented: "đã cho thuê", "có người ở", "đã có khách", "đã thuê", "đã có người thuê".
-- Set is_rented=false when the message indicates availability: "cho thuê", "cần thuê", "còn trống", "chưa có người", "phòng trống", "cần cho thuê".
+is_rented detection:
+- Set is_rented=true when the listing indicates the unit is already occupied/rented: "đã cho thuê", "có người ở", "đã có khách", "đã thuê", "đã có người thuê".
+- Set is_rented=false when the listing indicates availability: "cho thuê", "cần thuê", "còn trống", "chưa có người", "phòng trống", "cần cho thuê".
 - Default to is_rented=false if the status is ambiguous or not mentioned.
 
 Address extraction (address):
 - Combine street address + floor number + room number into a canonical format: "123 Nguyễn Văn Linh, Tầng 5, Phòng 502".
-- Look for patterns: street name + number ("123 Nguyễn Văn Linh"), floor ("tầng 5", "lầu 5", "T5"), room ("phòng 502", "P502", "căn 502").
-- If multiple address components are found, combine them in order: street, floor, room.
-- Set address to null if no specific address/room information is found in the message.
+- Look for patterns: street name + number, floor ("tầng 5", "lầu 5", "T5"), room ("phòng 502", "P502", "căn 502").
+- Set address to null if no specific address/room information is found.
 
 Title formatting rules (title):
 - Produce a short, professional listing title in the form "<Project> <Unit>" or "<Project> <Type>".
-- STRIP leading all-caps prefixes: "CHO THUÊ", "CẦN CHO THUÊ", "BÁN", "CẦN BÁN", "CHO THUÊ GẤP", "PHÒNG TRỌ", etc.
+- STRIP leading all-caps prefixes: "CHO THUÊ", "CẦN CHO THUÊ", "BÁN", "CẦN BÁN", "CHO THUÊ GẤP", etc.
 - STRIP emoji and trailing marketing fluff ("👇", "📞", "liên hệ ngay", "giá rẻ", "view đẹp", etc.).
-- Use Title Case (capitalize first letter of each word). Keep Vietnamese diacritics.
-- Detect the project / building name first (e.g. "Sunshine Riverside", "Monarchy", "FPT City", "The Ocean Villa", "Đà Nẵng Plaza").
-- Detect the unit code in patterns: "căn 1205", "P502", "phòng 502", "tầng 5", "T5", or a bare 3+ digit number.
-- If a project AND unit are both present: "Sunshine Riverside A1205", "Monarchy Bạch Đằng 2001", "FPT City 801".
-- If only the project: "Sunshine Riverside" (do NOT fabricate a unit).
-- If only a type/district: "Căn hộ Hải Châu" (use the most specific available).
-- If nothing useful is found: leave title as the cleanest substring of the original first line.
+- Use Title Case. Keep Vietnamese diacritics.
+- Detect the project / building name first (e.g. "Sunshine Riverside", "Monarchy", "FPT City").
+- Detect unit code: "căn 1205", "P502", "phòng 502", "tầng 5", or a bare 3+ digit number.
+- If project AND unit: "Sunshine Riverside A1205". If only project: "Sunshine Riverside". If only type/district: "Căn hộ Hải Châu".
+- Leave unknown fields as null — defaults will fill them downstream.
 
 Return ONLY valid JSON matching the schema. Do not add extra fields or explanation."""
 
@@ -168,3 +165,25 @@ async def extract_batch(
 
     results = await asyncio.gather(*[_process(m) for m in messages])
     return list(results)
+
+
+async def extract_batch_with_progress(
+    messages: list[dict],
+    concurrency: int | None = None,
+) -> AsyncGenerator[tuple[int, int, ExtractionResult], None]:
+    sem = asyncio.Semaphore(concurrency or settings.batch_concurrency)
+    total = len(messages)
+    completed = 0
+
+    async def _process(msg: dict) -> ExtractionResult:
+        async with sem:
+            return await extract_listing(
+                message_text=msg["text"],
+                message_id=str(msg.get("id", "")),
+                image_urls=msg.get("image_urls"),
+            )
+
+    for coro in asyncio.as_completed([_process(m) for m in messages]):
+        result = await coro
+        completed += 1
+        yield (completed, total, result)

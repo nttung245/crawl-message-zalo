@@ -382,6 +382,16 @@ export interface ZaloBroadcastStatusResponse {
 export interface AgentTestExtractRequest {
   group_name?: string;
   texts?: string[];
+  stream?: boolean;
+  timeout?: number;
+}
+
+export interface AgentTestProgress {
+  completed: number;
+  total: number;
+  extracted: number;
+  not_listing: number;
+  failed: number;
 }
 
 export interface AgentTestListing {
@@ -396,6 +406,7 @@ export interface AgentTestListing {
   image_count: number;
   images: string[];
   raw_text: string;
+  source_message_ids: string[];
 }
 
 export interface AgentTestExtractResult {
@@ -404,6 +415,7 @@ export interface AgentTestExtractResult {
   status: "extracted" | "not_listing" | "failed";
   listing?: AgentTestListing | null;
   error_message?: string | null;
+  source_message_ids: string[];
 }
 
 export interface AgentTestExtractResponse {
@@ -412,6 +424,7 @@ export interface AgentTestExtractResponse {
   not_listing: number;
   failed: number;
   results: AgentTestExtractResult[];
+  progress?: AgentTestProgress;
 }
 
 // Preview / Preview-then-push Types
@@ -427,6 +440,7 @@ export interface AgentPreviewListing {
   payload: Record<string, unknown>;
   operation: "insert" | "update" | "skip";
   existing_villa_id: string | null;
+  source_message_ids: string[];
 }
 
 export interface AgentPreviewResponse {

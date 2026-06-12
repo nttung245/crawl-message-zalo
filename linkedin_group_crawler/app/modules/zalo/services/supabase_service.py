@@ -265,6 +265,8 @@ async def upsert_crawl_job(user_id: str, job: JobData) -> None:
     await _rest(
         "POST",
         "zalo_crawl_jobs",
+        params={"on_conflict": "job_id"},
+        prefer="resolution=merge-duplicates",
         json=[
             {
                 "job_id": job.job_id,

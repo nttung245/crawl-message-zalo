@@ -78,7 +78,7 @@ class TestBuildInsertPayload:
         assert payload["price"] == 8000000
         assert "8.000.000" in payload["price_label"]
         assert payload["amenities"] == ["nội thất", "wifi"]
-        assert payload["status"] == "active"
+        assert payload["status"] == "available"
         assert "slug" in payload
 
     def test_missing_optional_fields(self):
@@ -90,7 +90,7 @@ class TestBuildInsertPayload:
 
         assert payload["price"] == 0
         assert payload["price_label"] == ""
-        assert payload["amenities"] == []
+        assert payload["amenities"] == ["bếp ga", "phòng tắm riêng", "wifi", "máy lạnh"]
         assert payload["images"] == []
         assert payload["capacity"] == 2  # default 1 bedroom * 2
 

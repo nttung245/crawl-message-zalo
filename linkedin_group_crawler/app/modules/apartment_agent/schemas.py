@@ -125,6 +125,36 @@ class ApartmentAgentError(BaseModel):
     request_id: str = ""
 
 
+class ListingGroup(BaseModel):
+    """A logical apartment listing identified by LLM grouping (Stage 1)."""
+
+    source_message_ids: list[str] = Field(
+        default_factory=list,
+        description="Original message IDs that form this listing",
+    )
+    text: str = Field(default="", description="Merged text from all source messages")
+    image_urls: list[str] = Field(
+        default_factory=list,
+        description="Deduplicated image URLs from all source messages",
+    )
+    status_hint: Optional[str] = Field(
+        default=None,
+        description=(
+            "Listing lifecycle status: null (unknown), 'available', "
+            "'sold', 'deposited', 'on_hold', 'withdrawn'"
+        ),
+    )
+
+
+class ListingGroupBatch(BaseModel):
+    """Batch of listings returned by the LLM grouper."""
+
+    listings: list[ListingGroup] = Field(
+        default_factory=list,
+        description="All listings identified in one LLM call",
+    )
+
+
 class PipelineResult(BaseModel):
     """Aggregate result for a batch of messages."""
 

@@ -46,6 +46,13 @@ def _format_price_label(price: float, listing_type: str) -> str:
 
 def _build_insert_payload(listing: ApartmentListing) -> dict:
     """Map extracted listing to GoDaNang villas table schema."""
+    from app.modules.apartment_agent.default_config import (
+        DEFAULT_VILLA,
+        merge_with_defaults,
+    )
+
+    listing = merge_with_defaults(listing)
+
     slug = _generate_slug(listing.title)
     price_label = ""
     if listing.price and listing.listing_type:
@@ -75,15 +82,16 @@ def _build_insert_payload(listing: ApartmentListing) -> dict:
     return {
         "slug": slug,
         "name": listing.title,
-        "type": "apartment",
+        "type": DEFAULT_VILLA.get("type", "apartment"),
         "area": listing.district or "",
         "capacity": capacity,
         "price": int(listing.price) if listing.price else 0,
         "price_label": price_label,
         "description": description,
-        "amenities": listing.amenities or [],
+        "commission_percent": DEFAULT_VILLA.get("commission_percent", 12),
+        "amenities": listing.amenities or DEFAULT_VILLA.get("amenities", []),
         "images": listing.images or [],
-        "status": "inactive" if listing.is_rented else "active",
+        "status": DEFAULT_VILLA.get("listing_status", "available") if not listing.is_rented else "inactive",
     }
 
 
@@ -190,6 +198,38 @@ async def update_apartment(apt_id: int, listing: ApartmentListing) -> SyncResult
             sync_status=SyncStatus.FAILED,
             error_message=str(exc),
         )
+
+
+async def update_listing_status(villa_id: int, new_status: str) -> bool:
+    """PATCH the ``listing_status`` field on a GoDaNang villa record.
+
+    Returns ``True`` on success, ``False`` on failure (logged).
+    """
+    url = (
+        f"{settings.godanang_supabase_url}/rest/v1/villas"
+        f"?id=eq.{villa_id}"
+    )
+    headers = {
+        "apikey": settings.godanang_supabase_service_key,
+        "Authorization": f"Bearer {settings.godanang_supabase_service_key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=minimal",
+    }
+    payload = {"listing_status": new_status}
+    try:
+        async with httpx.AsyncClient() as client:
+            resp = await client.patch(url, json=payload, headers=headers, timeout=30)
+            resp.raise_for_status()
+            logger.info(
+                f"Status update: villa_id={villa_id} → listing_status='{new_status}'"
+            )
+            return True
+    except Exception as exc:
+        logger.error(
+            f"Status update FAILED: villa_id={villa_id} "
+            f"status='{new_status}': {exc}"
+        )
+        return False
 
 
 async def find_existing_villa(address: str, name: str) -> Optional[dict]:

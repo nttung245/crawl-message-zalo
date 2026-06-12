@@ -37,7 +37,7 @@ import type {
   ZaloWorkerInfo,
 } from "@/types/zalo-api";
 
-const AUTH_POLL_INTERVAL_MS = 2000;
+const AUTH_POLL_INTERVAL_MS = 30000;
 const JOB_POLL_INTERVAL_MS = 2500;
 const JOB_STALL_TIMEOUT_MS = 45000;
 const RESUME_RETRY_ATTEMPTS = 20;
@@ -937,7 +937,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
           : MSG_UPDATE_PROGRESS_ERROR,
       );
     }
-  }, []);
+  }, [userId]);
 
   const jobs = useMemo(() => {
     return Object.values(jobsByRow).sort((left, right) => {
@@ -1513,7 +1513,7 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     };
   }, [jobs]);
 
-  return {
+  const flow = useMemo(() => ({
     userId,
     selectedWorkerId,
     workers,
@@ -1579,5 +1579,65 @@ export function useZaloCrawlerFlow(): ZaloCrawlerFlowValue {
     retryGroup,
     endSession,
     restartSession,
-  };
+  }), [
+    userId,
+    selectedWorkerId,
+    workers,
+    accounts,
+    isLoadingWorkers,
+    isLoadingAccounts,
+    workersError,
+    accountsError,
+    sessionId,
+    authStatus,
+    isCheckingLoginStatus,
+    isStartingSession,
+    isOpeningManualScreen,
+    isSubmittingGroups,
+    isVerifyingGroups,
+    isResumingSession,
+    isEndingSession,
+    feedbackMessage,
+    errorMessage,
+    warningMessage,
+    loginUrl,
+    manualViewerUrl,
+    qrBase64,
+    qrImageUrl,
+    isLoggedIn,
+    canCrawl,
+    sessionExpired,
+    crawledGroups,
+    crawledGroupsSheetUrl,
+    crawledGroupsTotal,
+    isLoadingCrawledGroups,
+    crawledGroupsError,
+    groupRows,
+    jobs,
+    summary,
+    hasConfirmedSession,
+    maxMessagesPerGroup,
+    setMaxMessagesPerGroup,
+    switchWorker,
+    switchAccount,
+    pollAuthStatus,
+    createAccount,
+    deleteAccount,
+    updateAccount,
+    startSession,
+    openManualScreen,
+    resumeManualLogin,
+    addGroupRow,
+    addCrawledGroup,
+    updateGroupRow,
+    removeGroupRow,
+    verifyGroupRows,
+    startCrawlForGroups,
+    retryGroup,
+    endSession,
+    restartSession,
+    activeJobIds,
+  ]);
+
+  return flow;
 }

@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from typing import Optional
 from uuid import uuid4
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from loguru import logger
 
@@ -17,6 +19,15 @@ from app.modules.apartment_agent.schemas import (
 )
 
 router = APIRouter(prefix="/api/apartment-agent", tags=["apartment-agent"])
+
+_MESSAGE_SELECT = (
+    "id,content,group_name,"
+    "sender_id,sender_name,timestamp_text,time_text,type,is_deleted,created_at,"
+    "assets:zalo_message_assets(storage_url,status)"
+)
+"""Supabase ``select`` query string shared across apartment-agent endpoints.
+
+Includes all fields needed by the grouping stage (LLM or heuristic)."""
 
 
 class ProcessRequest(BaseModel):
@@ -37,6 +48,8 @@ class TestExtractRequest(BaseModel):
 
     group_name: Optional[str] = None
     texts: Optional[list[str]] = None
+    stream: bool = False
+    timeout: int = 300
 
 
 class TestExtractListing(BaseModel):
@@ -57,6 +70,7 @@ class TestExtractListing(BaseModel):
     image_count: int = 0
     images: list[str] = Field(default_factory=list)
     raw_text: str = ""
+    source_message_ids: list[str] = Field(default_factory=list)
 
 
 class TestExtractResult(BaseModel):
@@ -67,6 +81,7 @@ class TestExtractResult(BaseModel):
     status: str  # "extracted" | "not_listing" | "failed"
     listing: Optional[TestExtractListing] = None
     error_message: Optional[str] = None
+    source_message_ids: list[str] = Field(default_factory=list)
 
 
 class TestExtractResponse(BaseModel):
@@ -93,6 +108,7 @@ class PreviewListing(BaseModel):
     payload: dict = Field(default_factory=dict, description="Exact body for GoDaNang POST/PUT")
     operation: str = ""  # "insert" | "update" | "skip"
     existing_villa_id: Optional[str] = None
+    source_message_ids: list[str] = Field(default_factory=list)
 
 
 class PreviewResponse(BaseModel):
@@ -142,7 +158,7 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
                     "GET",
                     "zalo_messages",
                     params={
-                        "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
+                        "select": _MESSAGE_SELECT,
                         "id": f"eq.{mid}",
                         "limit": "1",
                     },
@@ -155,6 +171,14 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
                             "image_urls": extract_image_urls_from_assets(
                                 rows[0].get("assets")
                             ),
+                            "sender_id": rows[0].get("sender_id"),
+                            "sender_name": rows[0].get("sender_name"),
+                            "timestamp_text": rows[0].get("timestamp_text"),
+                            "time_text": rows[0].get("time_text"),
+                            "type": rows[0].get("type"),
+                            "is_deleted": rows[0].get("is_deleted"),
+                            "created_at": rows[0].get("created_at"),
+                            "group_name": rows[0].get("group_name"),
                         }
                     )
             except Exception as exc:
@@ -165,7 +189,7 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
+                    "select": _MESSAGE_SELECT,
                     "group_name": f"eq.{req.group_name}",
                     "limit": "500",
                 },
@@ -177,6 +201,14 @@ async def process_endpoint(req: ProcessRequest) -> PipelineResult:
                     "image_urls": extract_image_urls_from_assets(
                         row.get("assets")
                     ),
+                    "sender_id": row.get("sender_id"),
+                    "sender_name": row.get("sender_name"),
+                    "timestamp_text": row.get("timestamp_text"),
+                    "time_text": row.get("time_text"),
+                    "type": row.get("type"),
+                    "is_deleted": row.get("is_deleted"),
+                    "created_at": row.get("created_at"),
+                    "group_name": row.get("group_name"),
                 }
                 for row in rows
             ]
@@ -225,7 +257,7 @@ async def process_all_endpoint(req: ProcessAllRequest) -> PipelineResult:
             "GET",
             "zalo_messages",
             params={
-                "select": "id,content,assets:zalo_message_assets(storage_url,status)",
+                "select": _MESSAGE_SELECT,
                 "limit": str(req.limit),
             },
         ) or []
@@ -236,6 +268,14 @@ async def process_all_endpoint(req: ProcessAllRequest) -> PipelineResult:
                 "image_urls": extract_image_urls_from_assets(
                     row.get("assets")
                 ),
+                "sender_id": row.get("sender_id"),
+                "sender_name": row.get("sender_name"),
+                "timestamp_text": row.get("timestamp_text"),
+                "time_text": row.get("time_text"),
+                "type": row.get("type"),
+                "is_deleted": row.get("is_deleted"),
+                "created_at": row.get("created_at"),
+                "group_name": row.get("group_name"),
             }
             for row in rows
         ]
@@ -287,7 +327,7 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
+                    "select": _MESSAGE_SELECT,
                     "group_name": f"eq.{req.group_name}",
                     "limit": "50",
                 },
@@ -303,6 +343,14 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
                     "image_urls": extract_image_urls_from_assets(
                         row.get("assets")
                     ),
+                    "sender_id": row.get("sender_id"),
+                    "sender_name": row.get("sender_name"),
+                    "timestamp_text": row.get("timestamp_text"),
+                    "time_text": row.get("time_text"),
+                    "type": row.get("type"),
+                    "is_deleted": row.get("is_deleted"),
+                    "created_at": row.get("created_at"),
+                    "group_name": row.get("group_name"),
                 }
                 for row in rows
             ]
@@ -321,6 +369,31 @@ async def test_extract_endpoint(req: TestExtractRequest) -> TestExtractResponse:
 
     if not messages:
         return TestExtractResponse()
+
+    if req.stream:
+        from app.modules.apartment_agent.pipeline import extract_only_streaming
+
+        async def _sse_stream():
+            try:
+                async for event in extract_only_streaming(messages):
+                    yield f"data: {json.dumps(event)}\n\n"
+                yield "event: complete\ndata: \n\n"
+            except Exception as exc:
+                logger.exception(
+                    f"[request_id={request_id}] test-extract SSE stream crashed: {exc}"
+                )
+                yield f"data: {json.dumps({'type': 'error', 'message': str(exc)})}\n\n"
+                yield "event: complete\ndata: \n\n"
+
+        return StreamingResponse(
+            _sse_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",
+                "Connection": "keep-alive",
+            },
+        )
 
     try:
         return await extract_only(messages)
@@ -373,7 +446,7 @@ async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
                 "GET",
                 "zalo_messages",
                 params={
-                    "select": "id,content,group_name,assets:zalo_message_assets(storage_url,status)",
+                    "select": _MESSAGE_SELECT,
                     "group_name": f"eq.{req.group_name}",
                     "limit": "200",
                 },
@@ -389,6 +462,14 @@ async def preview_endpoint(req: TestExtractRequest) -> PreviewResponse:
                     "image_urls": extract_image_urls_from_assets(
                         row.get("assets")
                     ),
+                    "sender_id": row.get("sender_id"),
+                    "sender_name": row.get("sender_name"),
+                    "timestamp_text": row.get("timestamp_text"),
+                    "time_text": row.get("time_text"),
+                    "type": row.get("type"),
+                    "is_deleted": row.get("is_deleted"),
+                    "created_at": row.get("created_at"),
+                    "group_name": row.get("group_name"),
                 }
                 for row in rows
             ]

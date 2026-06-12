@@ -18,6 +18,7 @@ from __future__ import annotations
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from app.modules.apartment_agent.config import settings as _aa_settings
 from app.modules.apartment_agent.extractor import (
     SYSTEM_PROMPT,
     _get_client,
@@ -291,7 +292,8 @@ class TestExtractListingWithImages:
     async def test_openai_client_has_timeout(self):
         """The client must be constructed with a finite timeout so a
         hung LLM provider does not leak as a 500."""
-        client = _get_client()
+        with patch.object(_aa_settings, "llm_api_key", "sk-test-dummy"):
+            client = _get_client()
         # The AsyncOpenAI client stores timeout on .timeout in seconds
         # for v1.x. We accept either float or httpx.Timeout.
         timeout = client.timeout

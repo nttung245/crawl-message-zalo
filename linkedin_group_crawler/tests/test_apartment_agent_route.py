@@ -1,5 +1,7 @@
 """Route-level tests for the apartment agent endpoints."""
 
+import json
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -173,3 +175,88 @@ class TestTestExtract:
         detail = data.get("detail", {})
         assert detail.get("kind") == "missing_config"
         assert "LLM_API_KEY" in detail.get("missing", [])
+
+    # ── SSE streaming tests ─────────────────────────────────────────────
+
+    def test_200_stream_with_texts(self):
+        """SSE stream returns progress events then a result event."""
+        async def _gen(messages, run_classifier=False):
+            yield {"type": "progress", "completed": 1, "total": 2, "extracted": 1, "not_listing": 0, "failed": 0}
+            yield {"type": "progress", "completed": 2, "total": 2, "extracted": 1, "not_listing": 1, "failed": 0}
+            yield {"type": "result", "total": 2, "extracted": 1, "not_listing": 1, "failed": 0, "results": []}
+
+        with patch(
+            "app.modules.apartment_agent.pipeline.extract_only_streaming",
+            _gen,
+        ):
+            resp = client.post(self.ENDPOINT, json={"texts": ["t1", "t2"], "stream": True})
+        assert resp.status_code == 200
+        ct = resp.headers.get("content-type", "")
+        assert "text/event-stream" in ct
+
+        events = _parse_sse(resp.text)
+
+        assert len(events) >= 3
+        assert events[0]["type"] == "progress"
+        assert events[1]["type"] == "progress"
+        assert events[-1]["type"] == "result"
+        assert events[-1]["total"] == 2
+
+    def test_200_stream_with_llm_error(self):
+        """SSE stream handles all-failed extraction gracefully."""
+        async def _gen(messages, run_classifier=False):
+            yield {"type": "progress", "completed": 1, "total": 1, "extracted": 0, "not_listing": 0, "failed": 1}
+            yield {"type": "result", "total": 1, "extracted": 0, "not_listing": 0, "failed": 1, "results": []}
+
+        with patch(
+            "app.modules.apartment_agent.pipeline.extract_only_streaming",
+            _gen,
+        ):
+            resp = client.post(self.ENDPOINT, json={"texts": ["bad"], "stream": True})
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        last = events[-1]
+        assert last["type"] == "result"
+        assert last["failed"] == 1
+        assert last["extracted"] == 0
+
+    def test_200_stream_zero_messages(self):
+        """SSE stream handles empty message list (single-text with empty result)."""
+        async def _gen(messages, run_classifier=False):
+            yield {"type": "result", "total": 0, "extracted": 0, "not_listing": 0, "failed": 0, "results": []}
+
+        with patch(
+            "app.modules.apartment_agent.pipeline.extract_only_streaming",
+            _gen,
+        ):
+            resp = client.post(self.ENDPOINT, json={"texts": [""], "stream": True})
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        assert events[-1]["type"] == "result"
+        assert events[-1]["total"] == 0
+
+    def test_200_stream_error_event_yields_error(self):
+        """SSE error event surfaces as data: {... type: error ...}."""
+        async def _gen(messages, run_classifier=False):
+            yield {"type": "error", "message": "LLM crashed"}
+
+        with patch(
+            "app.modules.apartment_agent.pipeline.extract_only_streaming",
+            _gen,
+        ):
+            resp = client.post(self.ENDPOINT, json={"texts": ["test"], "stream": True})
+        assert resp.status_code == 200
+        events = _parse_sse(resp.text)
+        assert events[-1]["type"] == "error"
+        assert "LLM crashed" in events[-1]["message"]
+
+
+def _parse_sse(text: str) -> list[dict]:
+    result = []
+    for line in text.split("\n"):
+        if not line.startswith("data: "):
+            continue
+        payload = line[6:]
+        if payload:
+            result.append(json.loads(payload))
+    return result

@@ -13,6 +13,7 @@ client = TestClient(app)
 BUILD_PAYLOAD_KEYS = [
     "slug", "name", "type", "area", "capacity", "price",
     "price_label", "description", "amenities", "images", "status",
+    "commission_percent",
 ]
 
 
@@ -33,7 +34,7 @@ def _build_payload() -> dict:
         "description": "Test apartment\nDiện tích: 50m²\n2 phòng ngủ\nLiên hệ: Test - 0905123456",
         "amenities": ["wifi"],
         "images": [],
-        "status": "active",
+        "status": "available",
     }
 
 
@@ -55,8 +56,12 @@ def _mock_settings():
 
 @pytest.fixture(autouse=True)
 def _mock_pipeline():
-    """Mock extract_batch so /preview returns controlled data without real LLM."""
-    with patch("app.modules.apartment_agent.pipeline.extract_batch") as mock:
+    """Mock extract_batch AND llm_group_messages_batched so /preview returns
+    controlled data without real LLM calls."""
+    with patch("app.modules.apartment_agent.pipeline.extract_batch") as mock_extract, patch(
+        "app.modules.apartment_agent.pipeline.llm_group_messages_batched",
+        new_callable=AsyncMock,
+    ) as mock_group:
         from app.modules.apartment_agent.schemas import (
             ApartmentListing,
             ExtractionResult,
@@ -88,8 +93,22 @@ def _mock_pipeline():
                 for m in messages
             ]
 
-        mock.side_effect = _fake_extract_batch
-        yield mock
+        mock_extract.side_effect = _fake_extract_batch
+
+        async def _fake_group(messages, **kwargs):
+            return [
+                {
+                    "id": m.get("id", ""),
+                    "text": m.get("text", ""),
+                    "image_urls": [],
+                    "source_message_ids": [m.get("id", "")],
+                    "status_hint": None,
+                }
+                for m in messages
+            ]
+
+        mock_group.side_effect = _fake_group
+        yield mock_extract
 
 
 @pytest.fixture(autouse=True)

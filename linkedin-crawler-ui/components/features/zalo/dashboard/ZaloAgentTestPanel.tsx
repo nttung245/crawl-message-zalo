@@ -10,11 +10,13 @@ import {
   villaSync,
 } from "@/services/zaloCrawlerService";
 import type { VillaSyncResponse } from "@/services/zaloCrawlerService";
+import { useAgentTestSSE } from "@/hooks/useAgentTestSSE";
 import type {
   AgentPreviewListing,
   AgentPreviewResponse,
   AgentTestExtractResponse,
   AgentTestExtractResult,
+  AgentTestProgress,
   ZaloCrawledGroupItem,
 } from "@/types/zalo-api";
 
@@ -34,11 +36,20 @@ interface FakeDataResponse {
 export function ZaloAgentTestPanel({ userId }: { userId: string }) {
   const [mode, setMode] = useState<InputMode>("fake");
   const [pasteText, setPasteText] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [generatingFake, setGeneratingFake] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [result, setResult] = useState<AgentTestExtractResponse | null>(null);
   const [fakeData, setFakeData] = useState<FakeDataResponse | null>(null);
   const [selectedFakeGroup, setSelectedFakeGroup] = useState<string>("all");
+  const {
+    results,
+    progress,
+    summary,
+    isStreaming,
+    error: streamError,
+    startStream,
+    reset: resetStream,
+    timedOut,
+  } = useAgentTestSSE();
 
   // Crawled groups state
   const [crawledGroups, setCrawledGroups] = useState<ZaloCrawledGroupItem[]>([]);
@@ -61,9 +72,8 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
   const [syncedIds, setSyncedIds] = useState<Set<string>>(new Set());
 
   const handleGenerateFake = useCallback(async () => {
-    setLoading(true);
+    setGeneratingFake(true);
     setError(null);
-    setResult(null);
 
     try {
       const res = await fetch(
@@ -93,37 +103,27 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Lỗi không xác định");
     } finally {
-      setLoading(false);
+      setGeneratingFake(false);
     }
   }, []);
 
   const handleTestFake = useCallback(async () => {
     if (!fakeData) return;
 
-    setLoading(true);
     setError(null);
-    setResult(null);
     setPreviewData(null);
     setSelectedIds(new Set());
     setSyncedIds(new Set());
 
-    try {
-      const groupsToTest =
-        selectedFakeGroup === "all"
-          ? fakeData.groups
-          : fakeData.groups.filter((g) => g.group_name === selectedFakeGroup);
+    const groupsToTest =
+      selectedFakeGroup === "all"
+        ? fakeData.groups
+        : fakeData.groups.filter((g) => g.group_name === selectedFakeGroup);
 
-      const allTexts = groupsToTest.flatMap((g) => g.messages.map((m) => m.text));
-      setLastTestRequest({ texts: allTexts });
-
-      const res = await testAgentExtract({ texts: allTexts });
-      setResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi không xác định");
-    } finally {
-      setLoading(false);
-    }
-  }, [fakeData, selectedFakeGroup]);
+    const allTexts = groupsToTest.flatMap((g) => g.messages.map((m) => m.text));
+    setLastTestRequest({ texts: allTexts });
+    startStream({ texts: allTexts });
+  }, [fakeData, selectedFakeGroup, startStream]);
 
   const handleTestText = useCallback(async () => {
     const texts = pasteText
@@ -135,23 +135,14 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       return;
     }
 
-    setLoading(true);
     setError(null);
-    setResult(null);
     setPreviewData(null);
     setSelectedIds(new Set());
     setSyncedIds(new Set());
 
-    try {
-      setLastTestRequest({ texts });
-      const res = await testAgentExtract({ texts });
-      setResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi không xác định");
-    } finally {
-      setLoading(false);
-    }
-  }, [pasteText]);
+    setLastTestRequest({ texts });
+    startStream({ texts });
+  }, [pasteText, startStream]);
 
   // Load crawled groups when switching to "group" mode
   const loadCrawledGroups = useCallback(async () => {
@@ -176,23 +167,14 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       return;
     }
 
-    setLoading(true);
     setError(null);
-    setResult(null);
     setPreviewData(null);
     setSelectedIds(new Set());
     setSyncedIds(new Set());
 
-    try {
-      setLastTestRequest({ group_name: selectedCrawledGroup });
-      const res = await testAgentExtract({ group_name: selectedCrawledGroup });
-      setResult(res);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Lỗi không xác định");
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedCrawledGroup]);
+    setLastTestRequest({ group_name: selectedCrawledGroup });
+    startStream({ group_name: selectedCrawledGroup });
+  }, [selectedCrawledGroup, startStream]);
 
   // Auto-load crawled groups when switching to "group" mode
   useEffect(() => {
@@ -317,10 +299,10 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
               <button
                 type="button"
                 onClick={handleGenerateFake}
-                disabled={loading}
+                disabled={generatingFake}
                 className="bg-tertiary text-on-tertiary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
               >
-                {loading ? "Đang tạo..." : "🎲 Tạo dữ liệu ảo để test Agent"}
+                {generatingFake ? "Đang tạo..." : "🎲 Tạo dữ liệu ảo để test Agent"}
               </button>
             </>
           ) : (
@@ -383,17 +365,17 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
                 <button
                   type="button"
                   onClick={handleTestFake}
-                  disabled={loading}
+                  disabled={isStreaming}
                   className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
                 >
-                  {loading ? "Đang test..." : "🚀 Test Agent"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFakeData(null);
-                    setResult(null);
-                  }}
+                {isStreaming ? "Đang test..." : "🚀 Test Agent"}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setFakeData(null);
+                  resetStream();
+                }}
                   className="border-outline text-on-surface rounded-xl border px-md py-sm text-body-sm transition hover:bg-surface-container-high"
                 >
                   Tạo lại
@@ -420,10 +402,10 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
           <button
             type="button"
             onClick={handleTestText}
-            disabled={loading}
+            disabled={isStreaming}
             className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50 self-start"
           >
-            {loading ? "Đang test..." : "🚀 Test Agent"}
+            {isStreaming ? "Đang test..." : "🚀 Test Agent"}
           </button>
         </div>
       )}
@@ -466,10 +448,10 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
                 <button
                   type="button"
                   onClick={handleTestGroup}
-                  disabled={loading || !selectedCrawledGroup}
+                  disabled={isStreaming || !selectedCrawledGroup}
                   className="bg-primary text-on-primary rounded-xl px-lg py-sm text-body-md font-semibold transition hover:opacity-90 disabled:opacity-50"
                 >
-                  {loading ? "Đang test..." : "🚀 Test Agent"}
+                  {isStreaming ? "Đang test..." : "🚀 Test Agent"}
                 </button>
                 <button
                   type="button"
@@ -486,9 +468,23 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       )}
 
       {/* Error */}
-      {error && (
+      {(error || streamError || timedOut) && (
         <div className="border-error-container bg-error-container/40 rounded-xl border px-md py-sm text-body-sm text-error">
-          {error}
+          {timedOut
+            ? "Yêu cầu đã hết thời gian chờ. Hệ thống vẫn đang xử lý nhưng chưa kịp trả kết quả."
+            : error || streamError}
+          {timedOut && (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                resetStream();
+              }}
+              className="bg-error-container text-on-error-container ml-sm rounded-lg px-md py-0.5 text-body-xs font-semibold transition hover:opacity-80"
+            >
+              Thử lại
+            </button>
+          )}
         </div>
       )}
 
@@ -570,25 +566,57 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
         </div>
       )}
 
+      {/* Progress bar during streaming */}
+      {isStreaming && progress && (
+        <div className="border-outline-variant bg-surface-container-low rounded-xl border p-md">
+          <h3 className="text-h4 font-semibold text-on-surface mb-sm">Đang xử lý...</h3>
+          <div className="mb-sm flex items-center gap-md">
+            <div className="bg-surface-container-high h-2 flex-1 overflow-hidden rounded-full">
+              <div
+                className="bg-primary h-full rounded-full transition-all duration-300"
+                style={{ width: `${Math.round((progress.completed / progress.total) * 100)}%` }}
+              />
+            </div>
+            <span className="text-body-sm text-on-surface-variant shrink-0">
+              {progress.completed}/{progress.total}
+            </span>
+          </div>
+          <div className="grid grid-cols-3 gap-md text-center text-body-sm">
+            <div>
+              <span className="text-secondary font-semibold">{progress.extracted}</span>
+              <span className="text-on-surface-variant ml-1">Extracted</span>
+            </div>
+            <div>
+              <span className="text-outline font-semibold">{progress.not_listing}</span>
+              <span className="text-on-surface-variant ml-1">Non-BĐS</span>
+            </div>
+            <div>
+              <span className="text-error font-semibold">{progress.failed}</span>
+              <span className="text-on-surface-variant ml-1">Lỗi</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Results Summary */}
-      {result && (
+      {summary && (
         <div className="border-outline-variant bg-surface-container-low rounded-xl border p-md">
           <h3 className="text-h4 font-semibold text-on-surface mb-sm">Kết quả</h3>
           <div className="grid grid-cols-4 gap-md text-center">
             <div>
-              <div className="text-h3 font-bold text-primary">{result.total}</div>
+              <div className="text-h3 font-bold text-primary">{summary.total}</div>
               <div className="text-body-sm text-on-surface-variant">Tổng</div>
             </div>
             <div>
-              <div className="text-h3 font-bold text-secondary">{result.extracted}</div>
+              <div className="text-h3 font-bold text-secondary">{summary.extracted}</div>
               <div className="text-body-sm text-on-surface-variant">Extract được</div>
             </div>
             <div>
-              <div className="text-h3 font-bold text-outline">{result.not_listing}</div>
+              <div className="text-h3 font-bold text-outline">{summary.not_listing}</div>
               <div className="text-body-sm text-on-surface-variant">Không phải BĐS</div>
             </div>
             <div>
-              <div className="text-h3 font-bold text-error">{result.failed}</div>
+              <div className="text-h3 font-bold text-error">{summary.failed}</div>
               <div className="text-body-sm text-on-surface-variant">Lỗi</div>
             </div>
           </div>
@@ -596,16 +624,16 @@ export function ZaloAgentTestPanel({ userId }: { userId: string }) {
       )}
 
       {/* Results List */}
-      {result && result.results.length > 0 && (
+      {results && results.length > 0 && (
         <div className="flex flex-col gap-md">
-          {result.results.map((item, idx) => (
+          {results.map((item, idx) => (
             <ResultCard key={item.raw_message_id || idx} item={item} index={idx} />
           ))}
         </div>
       )}
 
       {/* ── Preview Section (after test results) ────────────────────── */}
-      {result && result.results.length > 0 && (
+      {results && results.length > 0 && (
         <div className="flex flex-col gap-lg border-t border-outline-variant pt-lg mt-lg">
           <div className="flex items-center justify-between">
             <div>
@@ -718,9 +746,16 @@ function ResultCard({ item, index }: { item: AgentTestExtractResult; index: numb
   return (
     <div className={`rounded-xl border p-md ${statusColors[item.status] || ""}`}>
       <div className="flex items-center justify-between mb-sm">
-        <span className="text-body-sm font-medium text-on-surface">
-          #{index + 1} — {item.raw_message_id}
-        </span>
+        <div className="flex items-center gap-sm">
+          <span className="text-body-sm font-medium text-on-surface">
+            #{index + 1} — {item.raw_message_id}
+          </span>
+          {item.source_message_ids.length > 1 && (
+            <span className="rounded bg-tertiary-container px-2 py-0.5 text-label-sm text-on-tertiary-container">
+              Ghép từ {item.source_message_ids.length} tin nhắn
+            </span>
+          )}
+        </div>
         <span className="text-body-sm font-semibold">{statusLabels[item.status]}</span>
       </div>
 
@@ -855,6 +890,11 @@ function PreviewCard({
           <span className="text-body-sm font-medium text-on-surface truncate">
             {listing.title || "(không tiêu đề)"}
           </span>
+          {listing.source_message_ids.length > 1 && (
+            <span className="rounded bg-tertiary-container px-2 py-0.5 text-label-sm text-on-tertiary-container shrink-0">
+              Ghép từ {listing.source_message_ids.length} tin nhắn
+            </span>
+          )}
           <span
             className={`rounded-md px-sm py-0.5 text-body-xs font-semibold ${badgeColor[listing.operation] || ""}`}
           >

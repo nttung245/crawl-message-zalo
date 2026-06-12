@@ -30,6 +30,9 @@ class ApartmentAgentSettings(BaseSettings):
     # Classifier gate
     classifier_enabled: bool = False
 
+    # LLM grouping (Stage 1) — replaces heuristic content-type grouper
+    llm_grouping_enabled: bool = True
+
     model_config = {"env_prefix": "", "case_sensitive": False}
 
 

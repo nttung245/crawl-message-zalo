@@ -121,6 +121,10 @@ async def _get_confirmed_session_for_user(user_id: str, session_id: Optional[str
     if session.user_id != user_id:
         raise HTTPException(status_code=403, detail="Session does not belong to current user")
 
+    zca_auth = await ensure_session_zca_auth(session)
+    if zca_auth:
+        return session
+
     try:
         live_status = await ensure_session_browser_ready(session)
     except Exception as exc:
